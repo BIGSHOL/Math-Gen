@@ -105,6 +105,9 @@ const callAnthropic = async (
     {
       model,
       max_tokens: 16000,
+      // Solutions are mostly deterministic transcription-adjacent work —
+      // pin temperature low so reruns produce the same explanation.
+      temperature: 0.1,
       system: SYSTEM_BLOCKS,
       messages: [
         {
@@ -154,6 +157,9 @@ const callGemini = async (
             ? R
             : never
           : never,
+        // Pin sampling for deterministic-ish solutions (same caveat as
+        // OCR — pure 0.0 sometimes stuck on long structured output).
+        temperature: 0.1,
         maxOutputTokens: 16384,
         abortSignal: input.signal,
       },
@@ -275,9 +281,11 @@ const callOpenAI = async (
             strict: true,
           },
         },
+        // Pin sampling for solution consistency. GPT-5 / o-series
+        // reject `temperature` so the reasoning-effort path skips it.
         ...(useCompletionTokens
           ? { max_completion_tokens: 16000 }
-          : { max_tokens: 16000, temperature: 0.2 }),
+          : { max_tokens: 16000, temperature: 0.1 }),
       },
       { signal: input.signal ?? undefined },
     );

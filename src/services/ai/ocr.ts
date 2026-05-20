@@ -430,6 +430,10 @@ const callAnthropic = async (
     {
       model,
       max_tokens: 64000,
+      // OCR is transcription — pin sampling so reruns of the same image
+      // give the same JSON. Default 1.0 caused noticeable run-to-run
+      // drift in problem-body extraction. See callGemini comment.
+      temperature: 0.1,
       system: SYSTEM_BLOCKS,
       messages: [
         {
@@ -561,6 +565,13 @@ const callGemini = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: toGeminiSchema(OCR_PAGE_SCHEMA) as any,
+        // OCR is a transcription task — we want the same image to produce
+        // the same text every time. Gemini's default temperature (~1.0)
+        // gave the user noticeably different `(-3) + (-6) = ?` extractions
+        // across reruns. Pinning to 0.1 makes runs near-deterministic
+        // without quite hitting greedy-decoding stuck-loop pathologies
+        // that pure 0.0 occasionally has on long structured outputs.
+        temperature: 0.1,
         // 토큰 한도 — 시험지 OCR은 multi-problem + inline SVG 때문에 한
         // 페이지 응답이 50k 토큰 넘어가는 케이스가 정상. Gemini 3.x 는 모델
         // 별로 65536 토큰 출력까지 허용 (3.1 Pro는 모델에 따라 더 큼).
@@ -813,9 +824,12 @@ const callOpenAI = async (
         // 토큰 한도 — OpenAI chat completions는 output cap이 16k(공식 max).
         // 모델별 더 큰 cap은 Responses API 경로에서만 가능하므로 여기선
         // 16k 유지(공식 한계).
+        // Pin sampling for transcription consistency. GPT-5 / o-series
+        // reject `temperature` entirely (`usesCompletionTokens === true`);
+        // for them the reasoning effort cap is the closest equivalent.
         ...(useCompletionTokens
           ? { max_completion_tokens: 16000 }
-          : { max_tokens: 16000, temperature: 0.2 }),
+          : { max_tokens: 16000, temperature: 0.1 }),
       },
       { signal: input.signal ?? undefined },
     );

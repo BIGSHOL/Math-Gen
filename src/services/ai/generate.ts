@@ -122,6 +122,8 @@ export const generateMathProblem = async (
   const response = await anthropic.messages.create({
     model: DEFAULT_MODEL,
     max_tokens: 16000,
+    // Low temperature for consistent single-problem generation.
+    temperature: 0.1,
     system: SYSTEM_BLOCKS,
     messages: [{ role: "user", content: userContent }],
     output_config: {
