@@ -15,13 +15,16 @@ import { Stepper, type StepperStep } from "./Stepper";
 import { StepFrame } from "./StepFrame";
 import { WizardFooter } from "./WizardFooter";
 import { Step1Upload } from "./Step1Upload";
+import { Step2OCRReview } from "./Step2OCRReview";
+import { Step3SolutionReview } from "./Step3SolutionReview";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
   { index: 1, label: "OCR", subLabel: "문제 추출" },
-  { index: 2, label: "옵션", subLabel: "변환 설정" },
-  { index: 3, label: "검토", subLabel: "문항별 확정" },
-  { index: 4, label: "내보내기", subLabel: "PDF · DOCX" },
+  { index: 2, label: "해설", subLabel: "정답 · 풀이" },
+  { index: 3, label: "옵션", subLabel: "변환 설정" },
+  { index: 4, label: "검토", subLabel: "문항별 확정" },
+  { index: 5, label: "내보내기", subLabel: "PDF · DOCX" },
 ];
 
 const StepPlaceholder = ({ title, message }: { title: string; message: string }) => (
@@ -55,7 +58,7 @@ export const WizardScreen = () => {
   const getTest = useLibraryStore((s) => s.getTest);
   const sourceTest = testId ? getTest(testId) : undefined;
 
-  useWizardGuard(step > 0 && step < 4);
+  useWizardGuard(step > 0 && step < 5);
 
   // ⌘← / ⌘→ navigation; ignore arrow keys when an input is focused.
   useEffect(() => {
@@ -124,27 +127,23 @@ export const WizardScreen = () => {
       <main className="flex-1 overflow-auto">
         <StepFrame step={step}>
           {step === 0 && <Step1Upload onComplete={() => setStep(1)} />}
-          {step === 1 && (
-            <StepPlaceholder
-              title="Step 2 — OCR 검토"
-              message={`업로드한 ${pages.length}개 페이지에서 문제를 추출합니다. 다음 메시지에서 구현 예정.`}
-            />
-          )}
-          {step === 2 && (
-            <StepPlaceholder
-              title="Step 3 — 변환 옵션"
-              message="목표·난이도·함께 만들 자료를 선택하고 1번 문항으로 미리보기를 봅니다."
-            />
-          )}
+          {step === 1 && <Step2OCRReview />}
+          {step === 2 && <Step3SolutionReview />}
           {step === 3 && (
             <StepPlaceholder
-              title="Step 4 — 문항별 검토"
-              message="원본 vs 변형 좌우 비교, 인라인 편집, '다시 생성'."
+              title="Step 4 — 변환 옵션"
+              message="목표·난이도·함께 만들 자료를 선택하고 1번 문항으로 미리보기를 봅니다."
             />
           )}
           {step === 4 && (
             <StepPlaceholder
-              title="Step 5 — 내보내기"
+              title="Step 5 — 문항별 검토"
+              message="원본 vs 변형 좌우 비교, 인라인 편집, '다시 생성'."
+            />
+          )}
+          {step === 5 && (
+            <StepPlaceholder
+              title="Step 6 — 내보내기"
               message="PDF / DOCX / Online (HWP는 준비 중)."
             />
           )}

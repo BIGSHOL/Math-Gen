@@ -37,7 +37,7 @@ interface SchemaShapedProblem {
   diagramSVG: string | null;
 }
 
-const SYSTEM_BLOCKS = [
+export const SYSTEM_BLOCKS = [
   {
     type: "text" as const,
     text: COMMON_INSTRUCTIONS,
@@ -72,7 +72,9 @@ const buildUserContent = (
   return [{ type: "text", text: buildCurriculumPrompt(selection) }];
 };
 
-const extractJsonText = (response: Awaited<ReturnType<typeof anthropic.messages.create>>): string => {
+export const extractJsonText = (
+  response: Awaited<ReturnType<typeof anthropic.messages.create>>,
+): string => {
   if ("content" in response) {
     for (const block of response.content) {
       if (block.type === "text") return block.text;
@@ -81,7 +83,7 @@ const extractJsonText = (response: Awaited<ReturnType<typeof anthropic.messages.
   throw new Error("Model returned no text content.");
 };
 
-const stripCodeFences = (raw: string): string => {
+export const stripCodeFences = (raw: string): string => {
   const trimmed = raw.trim();
   if (trimmed.startsWith("```json")) {
     return trimmed.replace(/^```json\s*/, "").replace(/\s*```$/, "").trim();

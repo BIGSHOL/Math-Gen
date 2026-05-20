@@ -8,9 +8,16 @@ import {
   Icon,
   Progress,
 } from "@app/components/ui";
-import { putPageImage } from "@app/lib/imageStore";
+import {
+  deletePageImages,
+  deleteThumbnails,
+  putPageImage,
+  putThumbnail,
+} from "@app/lib/imageStore";
 import { cn } from "@app/lib/tailwind";
 import {
+  detectPageRotation,
+  isProblemPage,
   loadPdf,
   renderPageForAI,
   renderPageThumbnail,
@@ -89,21 +96,38 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
       const pages: WizardPage[] = [];
       const previewBatch: PreviewPage[] = [];
       for (let p = 1; p <= pdf.numPages; p++) {
-        const [{ imageBase64 }, thumb] = await Promise.all([
+        // Hi-res image + text layer + low-res thumbnail rendered in parallel,
+        // but we MUST await all IndexedDB writes before pushing to `pages` —
+        // usePageOcr will reach for these refs as soon as setPages fires.
+        // 회전 감지는 PDF.js 메타·textLayer 휴리스틱 둘 다 사용. 모두 로컬
+        // (API 비용 없음). 결과는 WizardPage.rotation 에 저장하고, 실제
+        // 이미지 변환은 OCR 호출 시점에 usePageOcr 가 applyRotation 으로
+        // 적용 — IndexedDB 의 원본은 그대로 둔다.
+        const [{ imageBase64, textLayer }, thumb, rotation] = await Promise.all([
           renderPageForAI(pdf, p, 2.0),
           renderPageThumbnail(pdf, p),
+          detectPageRotation(pdf, p),
         ]);
-        const ref = await putPageImage({ pageNum: p, dataUrl: imageBase64 });
+        const [imageRef, thumbRef] = await Promise.all([
+          putPageImage({ pageNum: p, dataUrl: imageBase64 }),
+          putThumbnail({ pageNum: p, dataUrl: thumb }),
+        ]);
         pages.push({
           id: `pg-${p}`,
-          imageRef: ref,
+          imageRef,
+          thumbRef,
+          textLayer,
+          isProblemPage: isProblemPage(textLayer),
           ocrResult: [],
           ocrComplete: false,
+          rotation,
         });
         previewBatch.push({ pageNum: p, thumbnail: thumb });
         setPreviews([...previewBatch]);
         setProgress({ done: p, total: pdf.numPages });
       }
+      // Single setPages call only AFTER every put*-await above has resolved —
+      // this is what prevents usePageOcr from racing the IndexedDB writes.
       setPages(pages);
       setPhase("done");
     } catch (err) {
@@ -121,11 +145,40 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
     if (file) void onFile(file);
   };
 
-  const reset = () => {
+  /**
+   * "다시 업로드" 핸들러 — 로컬 컴포넌트 state 뿐 아니라 *store* (uploadedFileName,
+   * pages) 와 *IndexedDB* (pageImages / pageThumbnails) 까지 같이 비운다.
+   *
+   * 이전 버그: 로컬 state 만 비우니 `persistedPages.length > 0` 가 true 인
+   * 채로 남아 `showFinished` 가 계속 true → "완료" 카드가 안 사라지고
+   * 드롭존이 안 나타나서 사용자 입장에서 버튼이 작동 안 하는 것처럼 보였음.
+   */
+  const reset = async () => {
+    // 이전 페이지의 IndexedDB 잔존 데이터 정리 — 새로 업로드하기 전에
+    // 메모리·디스크 공간 회수. 실패해도 무시 (best-effort cleanup).
+    if (persistedPages.length > 0) {
+      const imageRefs = persistedPages.map((p) => p.imageRef).filter(Boolean);
+      const thumbRefs = persistedPages.map((p) => p.thumbRef).filter(Boolean);
+      try {
+        await Promise.all([deletePageImages(imageRefs), deleteThumbnails(thumbRefs)]);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[Step1Upload] reset: IndexedDB cleanup partial failure", err);
+      }
+    }
+    // Zustand 의 setState 로 한 번에 여러 필드 reset — 별도 setter 추가 안 함.
+    useWizardStore.setState({
+      uploadedFileName: null,
+      pages: [],
+      activePageIndex: 0,
+      uploadProgress: 0,
+    });
+    // 로컬 UI state 도 리셋.
     setPhase("idle");
     setError(null);
     setProgress({ done: 0, total: 0 });
     setPreviews([]);
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   const showFinished = phase === "done" || (phase === "idle" && persistedPages.length > 0);

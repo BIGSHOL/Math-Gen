@@ -13,16 +13,25 @@ import { openDB, type IDBPDatabase } from "idb";
  * `imageRef` string (UUID) and we round-trip the bytes through here.
  *
  * Stores:
- *   - `pageImages`: keyed by ref id, value = `{ pageNum, dataUrl }`
- *   - `pdfBlobs`: keyed by test id, value = original File (Phase 4 ⏎ Phase 5)
+ *   - `pageImages`:     hi-res base64 (for AI / detail view), keyed by ref id
+ *   - `pageThumbnails`: low-res JPEG (for thumbnail column), keyed by ref id
+ *     Kept separate so the Step 2 thumbnail column doesn't transitively
+ *     load ~2 MB hi-res bytes every time it renders a 64 px card.
+ *   - `pdfBlobs`:       original PDF File, keyed by test id (Phase 4 ⏎ Phase 5)
  */
 
 const DB_NAME = "mathgen";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PAGE_IMAGES = "pageImages";
+const PAGE_THUMBNAILS = "pageThumbnails";
 const PDF_BLOBS = "pdfBlobs";
 
 export interface PageImage {
+  pageNum: number;
+  dataUrl: string;
+}
+
+export interface PageThumbnail {
   pageNum: number;
   dataUrl: string;
 }
@@ -35,6 +44,9 @@ const getDb = (): Promise<IDBPDatabase> => {
       upgrade(db) {
         if (!db.objectStoreNames.contains(PAGE_IMAGES)) {
           db.createObjectStore(PAGE_IMAGES);
+        }
+        if (!db.objectStoreNames.contains(PAGE_THUMBNAILS)) {
+          db.createObjectStore(PAGE_THUMBNAILS);
         }
         if (!db.objectStoreNames.contains(PDF_BLOBS)) {
           db.createObjectStore(PDF_BLOBS);
@@ -66,6 +78,29 @@ export const deletePageImages = async (refs: string[]): Promise<void> => {
   if (refs.length === 0) return;
   const db = await getDb();
   const tx = db.transaction(PAGE_IMAGES, "readwrite");
+  await Promise.all(refs.map((r) => tx.store.delete(r)));
+  await tx.done;
+};
+
+/** Store a page thumbnail (low-res JPEG), return its ref id. */
+export const putThumbnail = async (thumb: PageThumbnail): Promise<string> => {
+  const id = uid();
+  const db = await getDb();
+  await db.put(PAGE_THUMBNAILS, thumb, id);
+  return id;
+};
+
+/** Retrieve a page thumbnail by ref id. Returns undefined if expired/missing. */
+export const getThumbnail = async (ref: string): Promise<PageThumbnail | undefined> => {
+  const db = await getDb();
+  return db.get(PAGE_THUMBNAILS, ref);
+};
+
+/** Bulk delete a set of thumbnail refs — used when reset()ing the wizard. */
+export const deleteThumbnails = async (refs: string[]): Promise<void> => {
+  if (refs.length === 0) return;
+  const db = await getDb();
+  const tx = db.transaction(PAGE_THUMBNAILS, "readwrite");
   await Promise.all(refs.map((r) => tx.store.delete(r)));
   await tx.done;
 };

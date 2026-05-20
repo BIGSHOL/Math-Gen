@@ -1,6 +1,36 @@
+import fs from "fs";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+
+/**
+ * Reads `.env.local` directly, returning `{}` if the file is missing.
+ *
+ * Why this instead of Vite's `loadEnv`: when the parent shell has an env var
+ * set to an empty string (e.g. some agent/CI environments export
+ * `ANTHROPIC_API_KEY=` to scrub keys before spawning subprocesses), Vite's
+ * `loadEnv` merges `process.env` AFTER the dotenv files, so the empty shell
+ * value clobbers our `.env.local` value. Reading the file ourselves
+ * sidesteps that and gives `.env.local` deterministic priority.
+ */
+const readEnvLocal = (): Record<string, string> => {
+  const file = path.resolve(__dirname, ".env.local");
+  if (!fs.existsSync(file)) return {};
+  const parsed: Record<string, string> = {};
+  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const k = trimmed.slice(0, eq).trim();
+    let v = trimmed.slice(eq + 1).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    parsed[k] = v;
+  }
+  return parsed;
+};
 
 /**
  * Rewrites resolved paths for Anthropic SDK files that depend on Node
@@ -45,7 +75,12 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
 });
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "");
+  const fileEnv = readEnvLocal();
+  const env = loadEnv(mode, process.cwd(), "");
+  // `.env.local` wins over `loadEnv`'s shell-merged values — see `readEnvLocal`.
+  const ANTHROPIC_API_KEY = fileEnv.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || "";
+  const GEMINI_API_KEY = fileEnv.GEMINI_API_KEY || env.GEMINI_API_KEY || "";
+  const OPENAI_API_KEY = fileEnv.OPENAI_API_KEY || env.OPENAI_API_KEY || "";
   const stubs = {
     "fs-util.mjs": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
     "fs-util.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
@@ -63,7 +98,13 @@ export default defineConfig(({ mode }) => {
       // NOTE: Exposing this in the client bundle is a *temporary* arrangement
       // — Phase 5 will move all model calls behind a backend proxy. Do not
       // ship a production build with this in place.
-      "process.env.ANTHROPIC_API_KEY": JSON.stringify(env.ANTHROPIC_API_KEY),
+      "process.env.ANTHROPIC_API_KEY": JSON.stringify(ANTHROPIC_API_KEY),
+      // Gemini key — optional, used as a 3rd-pass fallback for figures that
+      // even Claude Opus 4.7 fails to render correctly. Leave blank to skip.
+      "process.env.GEMINI_API_KEY": JSON.stringify(GEMINI_API_KEY),
+      // OpenAI key — optional, enables GPT-5 / 4.1 / 4o / o3 family in the
+      // OCR layer and bench. Leave blank to hide GPT options.
+      "process.env.OPENAI_API_KEY": JSON.stringify(OPENAI_API_KEY),
     },
     resolve: {
       alias: {

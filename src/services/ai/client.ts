@@ -27,15 +27,26 @@ export const anthropic = new Anthropic({
 });
 
 /**
- * Default model. Claude Sonnet 4.6 is the sweet spot for cost/quality on
- * vision + structured math problem generation.
+ * Anthropic model family.
+ *  - Haiku 4.5  — cheapest + fastest, weaker on dense vision tasks. Use for
+ *    text-only re-runs or extremely simple figures.
+ *  - Sonnet 4.6 — default for the first OCR pass. Sweet spot for cost/quality
+ *    on vision + structured output.
+ *  - Opus 4.7   — slow + expensive but markedly better at visual structure
+ *    (axis placement, points through specific coordinates, parabola
+ *    orientation). Use as the second pass on figure-bearing pages.
  */
-export const DEFAULT_MODEL = "claude-sonnet-4-6" as const;
-
-/**
- * Fallback for higher-difficulty problems (currently unused; the design
- * handoff describes a difficulty knob that can promote to Opus).
- */
+export const HAIKU_MODEL = "claude-haiku-4-5" as const;
+export const SONNET_MODEL = "claude-sonnet-4-6" as const;
 export const OPUS_MODEL = "claude-opus-4-7" as const;
 
-export type ModelId = typeof DEFAULT_MODEL | typeof OPUS_MODEL;
+/** Kept as an alias for back-compat — the codebase used DEFAULT_MODEL widely. */
+export const DEFAULT_MODEL = SONNET_MODEL;
+
+export type AnthropicModelId =
+  | typeof HAIKU_MODEL
+  | typeof SONNET_MODEL
+  | typeof OPUS_MODEL;
+
+/** @deprecated Use AnthropicModelId. Kept for type-import back-compat. */
+export type ModelId = AnthropicModelId;

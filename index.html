@@ -28,13 +28,11 @@
       rel="stylesheet"
     />
 
-    <!-- KaTeX CSS for math rendering -->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
-      integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV"
-      crossorigin="anonymous"
-    />
+    <!-- KaTeX CSS — bundled via `import 'katex/dist/katex.min.css'` in
+         index.tsx so Vite serves the WOFF2 font files too. The previous
+         CDN <link> partially failed: KaTeX_Size1 / Size2 / AMS were never
+         actually downloaded, which left √ and other large symbols rendered
+         as empty (positioned but invisible) glyphs. -->
 
     <!-- Phosphor Icons web font (4 weights) -->
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />

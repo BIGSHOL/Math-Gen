@@ -78,6 +78,115 @@
   height: auto;
 }
 
+/* ── 모든 OCR/문제 카드 안의 SVG text 라벨 강화 ──
+   1) 기본 폰트: Times serif + italic (수학 변수 느낌)
+   2) paint-order: stroke + 흰색 두꺼운 stroke → 텍스트 뒤에 흰색 outline
+      이 깔려서 곡선/축과 겹쳐도 읽힘. 모델이 라벨 위치를 약간 부정확하게
+      뽑아도 가독성이 깨지지 않는 마지막 방어선.
+   각 <text>가 자체 font-family / font-style을 명시했으면 그 값이 우선. */
+svg text {
+  font-family: "Times New Roman", "Cambria Math", serif;
+  font-style: italic;
+  paint-order: stroke fill;
+  stroke: #ffffff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* ── 본문 인라인 SVG 크기 강제 제한 ──
+   모델이 viewBox만 지정하고 width/height를 안 주면 브라우저는 컨테이너
+   전체 폭에 SVG를 채워버린다. 카드 안에서 그림 하나가 50%를 차지하면
+   너무 크다 — 최대 폭 360px, 최대 높이 280px로 일관되게 묶는다.
+   `.diagram-svg-inline svg`는 [그림N] 플레이스홀더용 한정 규칙이므로
+   모델이 직접 본문에 emit한 raw <svg> 에는 적용 안 됨 — 이 룰이 그쪽
+   케이스를 잡아준다.
+   prose 컨텍스트(문제 본문 렌더)에 한정해서 적용 — 다른 위치(아이콘,
+   diagram editor 등)의 svg는 영향 안 받음.
+   shape-rendering: geometricPrecision은 normalizeInlineSvgs에서 attribute로
+   주입되지만, CSS 폴백도 같이 깔아두면 모델이 다른 값을 명시했을 때 외엔
+   항상 매끄러운 곡선이 보장된다.
+   ⚠ `:not(:where(.katex *))` — KaTeX는 √·‖·큰 괄호·∑·∫ 등을 inline
+   `<svg viewBox="...">`으로 그리는데 위 룰이 적용되면 `display: block`,
+   `margin: 8px auto`로 인해 인라인 수식 한가운데에서 줄바꿈이 일어나고
+   `width: auto`가 KaTeX의 `min-width: 0.853em` 호스트 span을 무시해 SVG
+   슬롯이 0으로 줄어든다. 그래서 KaTeX 내부 SVG에는 절대 적용 안 한다. */
+.prose svg:not(:where(.katex *)),
+.prose-slate svg:not(:where(.katex *)),
+.text-body svg:not(:where(.katex *)),
+.text-text svg:not(:where(.katex *)) {
+  /* Robust sizing for viewBox-only SVGs.
+     모델이 emit한 SVG는 보통 viewBox만 있고 width/height 속성이 없다.
+     `width: auto; height: auto` 로 두면 일부 브라우저가 0×0 또는 300×150
+     으로 떨어뜨려 그림이 안 보인다. `width: 100%`로 부모를 채우게 하고
+     `height: auto` 로 viewBox 비율 유지. 부모 .diagram-svg-inline 은 아래
+     min-width 로 명시적 폭을 가져 SVG가 collapse 안 됨. */
+  max-width: 360px;
+  max-height: 280px;
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 8px auto;
+  shape-rendering: geometricPrecision;
+}
+/* placeholder div (.diagram-svg-inline) 가 0폭이면 안쪽 SVG 도 0이 되므로
+   기본 폭을 명시 — 카드 폭 한도(360px) 내에서 부모 가용 폭 100% 까지.
+   inline-block 유지: 카드 한 줄 안에 SVG + 다른 콘텐츠 함께 들어가는
+   경우 (i.e. 표 셀 안 작은 다이어그램) 대비. */
+.diagram-svg-inline {
+  display: inline-block;
+  width: min(360px, 100%);
+  vertical-align: middle;
+}
+/* 작은 SVG (in-table 주사위 등) 는 별도 .prose table svg 규칙이 80×80 으로
+   더 작게 잡으므로 위 너비 100% 와 충돌 안 함 — 표 안에서는 표 셀이 폭을
+   결정. */
+
+/* ── OCR HTML 표 (e.g. 22번 주사위·달력 표) ─────────────────────────
+   1) 카드 폭을 넘지 않도록 max-width 100% + word-break (한국어 줄바꿈)
+   2) 마지막 행이 colspan으로 펼쳐졌을 때 자연스럽게 줄바꿈
+   3) 셀 padding을 살짝 — 모델이 padding 안 줘도 읽기 좋게 */
+.prose table,
+.text-body table,
+.text-text table {
+  border-collapse: collapse;
+  border: 1px solid #d9dce0;
+  max-width: 100%;
+  margin: 8px 0;
+  font-size: 0.92em;
+  word-break: keep-all;
+  line-height: 1.5;
+  table-layout: auto;
+}
+.prose table th,
+.prose table td,
+.text-body table th,
+.text-body table td,
+.text-text table th,
+.text-text table td {
+  border: 1px solid #d9dce0;
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+.prose table th,
+.text-body table th,
+.text-text table th {
+  background: #f4f5f7;
+  font-weight: 600;
+  text-align: center;
+}
+/* 표 셀 안의 SVG는 카드 max-width와 별개로 더 작게 (dice 등 small icons).
+   여기도 KaTeX 내부 SVG는 제외 — 셀 안에 √나 큰 분수가 있으면 본문 인라인
+   수식과 똑같이 동작해야 하므로. */
+.prose table svg:not(:where(.katex *)),
+.text-body table svg:not(:where(.katex *)),
+.text-text table svg:not(:where(.katex *)) {
+  max-width: 80px;
+  max-height: 80px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 /* 도형 정렬 */
 .diagram-align-center {
   display: block;
@@ -99,6 +208,35 @@
   width: auto;
 }
 
+/* ── 호(arc) 기하 표기 ──────────────────────────────────────
+   `\widehat{AB}` / `\overset{\frown}{AB}` (2글자+ 대문자) 를
+   `\htmlClass{geom-arc-wrap}{\mathrm{AB}}` 로 변환한 결과를 위에 곡선으로
+   장식. KaTeX 내장 accent로는 부드러운 돔형 호를 못 그려서 (overgroup은
+   V자, widehat은 hat, overset{\frown}은 작은 글자 한 개) ::before 의사
+   요소 + border-radius 로 길이에 맞춰 늘어나는 매끈한 곡선을 직접 그린다.
+
+   inline-block 으로 폭을 라벨에 맞추고, 윗쪽에 padding-top 으로 호 공간을
+   확보. ::before 는 절대 위치라 라벨 baseline 에 영향 주지 않는다. */
+.geom-arc-wrap {
+  position: relative;
+  display: inline-block;
+  padding-top: 0.55em;
+  line-height: 1;
+  vertical-align: baseline;
+}
+.geom-arc-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0.12em;
+  left: 4%;
+  right: 4%;
+  height: 0.35em;
+  border: 1.4px solid currentColor;
+  border-bottom: none;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  pointer-events: none;
+}
+
 /* 도형 설명 플레이스홀더 박스 */
 .diagram-placeholder {
   display: inline-block;
@@ -110,6 +248,32 @@
   color: #64748b;
   font-size: 0.85em;
   vertical-align: middle;
+}
+
+/* 5지선다 (①②③④⑤) 적응형 그리드 — mathlab의 resolveChoiceCols 규칙을
+   따라 옵션 최대 길이에 따라 1열 / 2열 / 5열로 자동 분기. */
+.choice-row {
+  display: grid;
+  align-items: baseline;
+  gap: 6px 18px;
+  margin: 6px 0;
+}
+.choice-row.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 24px;
+}
+.choice-row.cols-1 {
+  grid-template-columns: 1fr;
+}
+.choice-row .choice {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.choice-row .choice .choice-marker {
+  font-weight: 600;
+  margin-right: 4px;
+  flex-shrink: 0;
 }
 
 /* Block math: horizontal scroll when expressions overflow */
