@@ -150,31 +150,6 @@ export const usePageOcr = () => {
   const pass2Chain = useMemo(pickPass2Chain, []);
 
   useEffect(() => {
-
-    // DEV-only progress log so the user can see at a glance whether
-    // dispatch is happening, who's in-flight, and what's complete.
-    // Quiet in production builds.
-    if (import.meta.env.DEV) {
-      const summary = pages
-        .map((p) => {
-          const flags = [
-            `isProb=${p.isProblemPage}`,
-            p.forceOcr ? "force" : null,
-            `complete=${p.ocrComplete}`,
-            p.ocrError ? `ERR` : null,
-            dispatched.current.has(p.id) ? "INFLIGHT" : null,
-            p.upgrading ? "upgrading" : null,
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return `${p.id}[rot=${p.rotation}] ${flags}`;
-        })
-        .join("  |  ");
-      // eslint-disable-next-line no-console
-      console.log(`[usePageOcr] ${summary}`);
-    }
-
-
     /**
      * 한 페이지를 모델 체인 순서대로 시도 — 1차가 throw 하면 자동으로 다음
      * 모델로 폴백. 끝까지 모두 실패하면 마지막 에러를 throw.
@@ -198,10 +173,6 @@ export const usePageOcr = () => {
       marker: "pass1" | "pass2",
     ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
       if (isCancelled(page.id, marker)) return null;
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log(`[usePageOcr] ${page.id} ${passLabel} ▶ getPageImage`);
-      }
       // 이전에 관찰된 footgun: idb 의 `db.get()` 이 어떤 환경 (다른 탭이
       // 같은 DB 를 잡고 있거나 upgrade event 가 미완료된 상태, 또는 dev
       // HMR cascade 로 메인 스레드가 starved 된 상태) 에서 영구 pending
@@ -226,12 +197,6 @@ export const usePageOcr = () => {
       ]);
       if (isCancelled(page.id, marker)) return null;
       if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[usePageOcr] ${page.id} ${passLabel} ✓ image loaded (${image.dataUrl.length} chars) — calling model`,
-        );
-      }
 
       // 회전 적용 — 0° 면 fast-path 로 원본 그대로. 90/180/270 이면 canvas
       // redraw 한 번. 페이지마다 한 번씩만 호출되므로 성능 무관.
@@ -246,10 +211,6 @@ export const usePageOcr = () => {
         // 발생 시 새 모델로 갱신, 성공·실패 시 finally 에서 unset.
         setPageOCR(page.id, { ocrInflightModel: model });
         try {
-          if (import.meta.env.DEV) {
-            // eslint-disable-next-line no-console
-            console.log(`[usePageOcr] ${page.id} ${passLabel} → ${model}: extractPageProblems()`);
-          }
           const result = await withRetry(() =>
             extractPageProblems({
               pageBase64: rotated,
@@ -257,12 +218,6 @@ export const usePageOcr = () => {
               model,
             }),
           );
-          if (import.meta.env.DEV) {
-            // eslint-disable-next-line no-console
-            console.log(
-              `[usePageOcr] ${page.id} ${passLabel} ← ${model} OK (${result.items.length} items)`,
-            );
-          }
           if (i > 0) {
             // eslint-disable-next-line no-console
             console.info(
@@ -298,10 +253,6 @@ export const usePageOcr = () => {
           return;
         }
         dispatched.current.add(page.id);
-        if (import.meta.env.DEV) {
-          // eslint-disable-next-line no-console
-          console.log(`[usePageOcr] ${page.id} → dispatch (pass 1)`);
-        }
         void limit(async () => {
           try {
             const result = await runOcrChain(page, pass1Chain, "1차", "pass1");
