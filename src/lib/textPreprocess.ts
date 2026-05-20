@@ -385,6 +385,35 @@ export const preprocessMathText = (content: string): string => {
     /\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b[ \t]*/g,
     "",
   );
+
+  // (9) `$` 밖에 떠도는 raw LaTeX 명령어 자동 wrap.
+  //     LLM 이 가끔 보기 항목 같은 줄을 통째로 `$` 없이 emit 함:
+  //       ㄴ. \left(-\frac{5}{8}\right) \times \left(+\frac{5}{9}\right)
+  //     마스킹 후 외부 텍스트에서 줄 단위로 검사 — 줄에 `\frac` `\sqrt`
+  //     `\left` `\right` `\binom` `\sum` `\int` 같은 LaTeX 명령어가 2개
+  //     이상 있고 `$` 와 sentinel 둘 다 없으면 (이미 인용된 영역이 아님),
+  //     줄의 LaTeX 부분만 한 묶음으로 `$$...$$` block 으로 wrap. enum
+  //     marker (ㄱ./ㄴ./①…/숫자.) 와 blockquote `>` prefix 는 보존.
+  const LATEX_CMD = /\\(?:frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|cdots|ldots|vec|hat|tilde|overline|underline|begin|end|over|atop)\b/g;
+  masked = masked
+    .split("\n")
+    .map((line) => {
+      // sentinel (이미 $...$ 마스크) 가 있으면 건드리지 말 것
+      if (line.includes(SENTINEL_BLOCK) || line.includes(SENTINEL_INLINE)) return line;
+      // `$` 가 있으면 부분적으로라도 인용된 줄. 자동 wrap 하면 충돌 위험.
+      if (line.includes("$")) return line;
+      // LaTeX 명령어가 2회 이상 — wrap 후보.
+      const cmds = line.match(LATEX_CMD);
+      if (!cmds || cmds.length < 2) return line;
+      // enum marker 또는 blockquote prefix 보존 + 그 뒤의 LaTeX-laden 부분 wrap.
+      // marker 예: "ㄱ. ", "ㄴ. ", "① ", "1. ", "> ", "- " 등.
+      const m = line.match(/^(\s*(?:>\s?)?(?:[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+\.|\d+\)|-|\*)?\s*)([\s\S]+?)$/);
+      if (!m) return `$$${line.trim()}$$`;
+      const [, prefix, rest] = m;
+      return `${prefix}$$${rest.trim()}$$`;
+    })
+    .join("\n");
+
   // 복원.
   out = masked
     .replace(

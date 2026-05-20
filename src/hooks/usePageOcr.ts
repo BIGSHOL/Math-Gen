@@ -147,25 +147,27 @@ export const usePageOcr = () => {
   if (ctrlRef.current === null) ctrlRef.current = new AbortController();
 
   useEffect(() => {
-    // StrictMode-safe cleanup: cancel in-flight work AND reset the
-    // controller + dispatched markers so the *next* mount starts fresh.
+    // StrictMode-safe cleanup: abort in-flight work and null the controller
+    // so the next mount allocates a fresh one. DO NOT clear the dispatched
+    // markers here.
     //
-    // Old footgun: with only `ctrlRef.current?.abort()`, StrictMode's
-    // mount → unmount → mount sequence aborted the controller on the
-    // first cleanup, then on the second mount the same already-aborted
-    // controller was reused (the `=== null` guard didn't trigger). Every
-    // worker's `ctrl.signal.aborted` was true before the first await,
-    // so `runOcrChain` returned `null` immediately and OCR sat at 0/N
-    // forever with INFLIGHT markers but no actual work. Production
-    // builds didn't see this because StrictMode only double-mounts in
-    // dev. Resetting to `null` here forces the body-level `if` above
-    // to allocate a fresh controller on the next render — symmetric
-    // with our "fresh state on remount" intent.
+    // Why not clear: in dev StrictMode the sequence is
+    //   mount-1 → effect runs (workers A1..An dispatched, dispatched={p1..pn})
+    //   → cleanup (this) → mount-2 → effect runs again.
+    // The aborted workers A1..An keep running anyway because the underlying
+    // SDKs (Gemini in particular) do not always honor an already-aborted
+    // signal — by the time we abort, the model request is already in flight
+    // and resolves normally. If cleanup also `dispatched.clear()`-s the
+    // markers, mount-2's effect sees a clean Set and re-dispatches every
+    // page, producing a SECOND identical model call per page. The user
+    // observed exactly this — every page logged `→ dispatch (pass 1)` /
+    // `▶ getPageImage` / `extractPageProblems` twice (2× cost).
+    // Leaving the markers in place means mount-2's loop sees `INFLIGHT` for
+    // each page and skips. Each worker still cleans up its own marker in
+    // its `finally` block.
     return () => {
       ctrlRef.current?.abort();
       ctrlRef.current = null;
-      dispatched.current.clear();
-      upgradeDispatched.current.clear();
     };
   }, []);
 
@@ -175,10 +177,12 @@ export const usePageOcr = () => {
     // render, so after that first cleanup nulls it, the second invocation of
     // THIS effect would otherwise grab `null` here — `ctrl.signal` later
     // would throw `TypeError: null.signal`. Re-allocate eagerly when missing.
+    // We *don't* clear dispatched here — the previous workers (whose
+    // `ctrl` closures point at the aborted controller) are still in flight
+    // and will clean up their own markers in `finally`. Clearing would
+    // cause duplicate dispatches on the new controller; see cleanup notes.
     if (ctrlRef.current === null) {
       ctrlRef.current = new AbortController();
-      dispatched.current.clear();
-      upgradeDispatched.current.clear();
     }
     const ctrl = ctrlRef.current;
     const pass1Chain = pickPass1Chain();
