@@ -158,6 +158,29 @@ export const usePageOcr = () => {
     const pass1Chain = pickPass1Chain();
     const pass2Chain = pickPass2Chain();
 
+    // DEV-only progress log so the user can see at a glance whether
+    // dispatch is happening, who's in-flight, and what's complete.
+    // Quiet in production builds.
+    if (import.meta.env.DEV) {
+      const summary = pages
+        .map((p) => {
+          const flags = [
+            `isProb=${p.isProblemPage}`,
+            p.forceOcr ? "force" : null,
+            `complete=${p.ocrComplete}`,
+            p.ocrError ? `ERR` : null,
+            dispatched.current.has(p.id) ? "INFLIGHT" : null,
+            p.upgrading ? "upgrading" : null,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return `${p.id}[rot=${p.rotation}] ${flags}`;
+        })
+        .join("  |  ");
+      // eslint-disable-next-line no-console
+      console.log(`[usePageOcr] ${summary}`);
+    }
+
 
     /**
      * 한 페이지를 모델 체인 순서대로 시도 — 1차가 throw 하면 자동으로 다음
@@ -258,6 +281,10 @@ export const usePageOcr = () => {
           return;
         }
         dispatched.current.add(page.id);
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.log(`[usePageOcr] ${page.id} → dispatch (pass 1)`);
+        }
         void limit(async () => {
           try {
             const result = await runOcrChain(page, pass1Chain, "1차");
