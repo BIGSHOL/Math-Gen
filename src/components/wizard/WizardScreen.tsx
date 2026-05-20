@@ -17,6 +17,7 @@ import { WizardFooter } from "./WizardFooter";
 import { Step1Upload } from "./Step1Upload";
 import { Step2OCRReview } from "./Step2OCRReview";
 import { Step3SolutionReview } from "./Step3SolutionReview";
+import { Step3Options } from "./Step3Options";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
@@ -129,12 +130,7 @@ export const WizardScreen = () => {
           {step === 0 && <Step1Upload onComplete={() => setStep(1)} />}
           {step === 1 && <Step2OCRReview />}
           {step === 2 && <Step3SolutionReview />}
-          {step === 3 && (
-            <StepPlaceholder
-              title="Step 4 — 변환 옵션"
-              message="목표·난이도·함께 만들 자료를 선택하고 1번 문항으로 미리보기를 봅니다."
-            />
-          )}
+          {step === 3 && <Step3Options />}
           {step === 4 && (
             <StepPlaceholder
               title="Step 5 — 문항별 검토"
