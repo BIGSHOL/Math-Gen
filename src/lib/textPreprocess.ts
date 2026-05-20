@@ -359,5 +359,42 @@ export const preprocessMathText = (content: string): string => {
     return `$$${fixed}$$`;
   });
 
+  // (8) `$...$` / `$$...$$` 밖에 떠도는 math-mode-only directive 청소.
+  //     LLM 이 가끔 `$수식$\displaystyle 다음 한글 문장...` 형태로 LaTeX
+  //     끝낸 뒤 `\displaystyle` 만 텍스트 모드로 흘림. KaTeX 가 처리 못
+  //     하므로 그대로 보이게 됨 — 사용자 보고: "displaystyle 이 전부 에러남".
+  //     수식 안의 `\displaystyle` 은 이미 위의 두 replace 안에서 injectDisplayStyle
+  //     로 한 번만 보존되므로, 여기 strip 은 외부에 남은 것에만 적용된다.
+  //     마스킹 — `$…$` / `$$…$$` 영역을 PUA sentinel 로 임시 치환해서 외부만
+  //     strip 한 뒤 복원. sentinel 은 일반 사용자 입력에 절대 등장 안 함.
+  const SENTINEL_BLOCK = String.fromCharCode(57344); // U+E000
+  const SENTINEL_INLINE = String.fromCharCode(57345); // U+E001
+  const blocks: string[] = [];
+  const inlines: string[] = [];
+  let masked = out
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner: string) => {
+      blocks.push(inner);
+      return `${SENTINEL_BLOCK}${blocks.length - 1}${SENTINEL_BLOCK}`;
+    })
+    .replace(/\$([^$\n]+?)\$/g, (_m, inner: string) => {
+      inlines.push(inner);
+      return `${SENTINEL_INLINE}${inlines.length - 1}${SENTINEL_INLINE}`;
+    });
+  // math-mode-only directive 제거. 인접 공백/줄바꿈 정리.
+  masked = masked.replace(
+    /\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b[ \t]*/g,
+    "",
+  );
+  // 복원.
+  out = masked
+    .replace(
+      new RegExp(`${SENTINEL_BLOCK}(\\d+)${SENTINEL_BLOCK}`, "g"),
+      (_m, i: string) => `$$${blocks[Number(i)]}$$`,
+    )
+    .replace(
+      new RegExp(`${SENTINEL_INLINE}(\\d+)${SENTINEL_INLINE}`, "g"),
+      (_m, i: string) => `$${inlines[Number(i)]}$`,
+    );
+
   return out;
 };

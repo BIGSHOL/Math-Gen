@@ -506,6 +506,30 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     "배점",
     "점수",
   ]);
+  // Labels that take a trailing number/qualifier — `[서술형4]`, `[서술형 4]`,
+  // `[단답형2]`, `[객관식 3]` 등. These are problem-type tags in workbook
+  // headers, NOT diagram descriptions. Without this guard the renderer was
+  // converting `[서술형4]` into a dashed-pill placeholder.
+  const LABEL_PREFIXES = [
+    "서술형",
+    "객관식",
+    "주관식",
+    "단답형",
+    "선택형",
+    "복합형",
+    "빈칸",
+    "OX",
+    "풀이형",
+    "단원평가",
+    "예제",
+    "유형",
+    "문제",
+    "정답",
+    "해설",
+    "풀이",
+    "보기",
+    "조건",
+  ];
   const processedContent = svgReplacedContent.replace(
     /(?<!!)\[([가-힣\s\d/,×÷+\-a-zA-Z]+)\](?!\()/g,
     (match, desc: string) => {
@@ -514,6 +538,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // Section/semantic labels — leave as plain "[정답]" text.
       const compact = desc.trim().replace(/\s+/g, "");
       if (COMMON_LABEL_WORDS.has(compact)) return match;
+      // Prefix match — `[서술형4]`, `[단답형 3]` etc. stay as bracketed text.
+      if (LABEL_PREFIXES.some((p) => compact.startsWith(p))) return match;
       return `<span class="diagram-placeholder">${desc}</span>`;
     },
   );

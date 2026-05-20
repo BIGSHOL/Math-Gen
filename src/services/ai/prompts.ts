@@ -131,29 +131,49 @@ export const buildImageVariantPrompt = (selection: SelectionState): string => {
  * the **solution depth** (학원·문제집 스타일) and **answer format** (객관식
  * vs 주관식). JSON schema (`SOLUTION_SCHEMA`) forces exactly two keys.
  */
-export const SOLUTION_PROMPT = `Task: 아래 한국 수학 문제에 대해 **단계별 해설**과 **짧은 정답** 두 가지를 생성하세요. 절대 문제 자체를 다시 적거나, 변형하거나, 다른 문제를 만들지 마세요.
+export const SOLUTION_PROMPT = `Task: 아래 한국 수학 문제에 대해 **풀이**와 **짧은 정답** 두 가지를 생성하세요. 절대 문제 자체를 다시 적거나, 변형하거나, 다른 문제를 만들지 마세요.
 
 ──────────────────────────────────────────────────────────────────
 출력 (JSON, schema 강제):
   {
-    "solution": "...",   // 단계별 풀이 — Markdown + LaTeX
+    "solution": "...",   // 풀이 — Markdown + LaTeX
     "answer":   "..."    // 짧은 정답 — 한 줄
   }
 
 ──────────────────────────────────────────────────────────────────
-solution 작성 규칙
+solution — **문제 난이도에 따라 분량을 다르게**
 
-1. **학원·문제집(쎈, 블랙라벨) 스타일**의 명확한 단계별 풀이.
-2. 각 단계는 \`**[1단계: 조건 정리]**\`, \`**[2단계: 식 세우기]**\`, \`**[3단계: 계산]**\`, \`**[4단계: 결론]**\` 같은 굵은 헤더로 분리.
-   - 단계 개수는 문제 난이도에 맞춰 2~5개 자유롭게.
-   - 각 헤더와 본문 사이, 그리고 다음 단계 사이에는 **빈 줄 한 개씩** 넣어 가독성 확보.
-3. **모든 수식 / 변수 / 숫자**는 \`$...$\` (인라인) 또는 \`$$...$$\` (블록) 으로 감싸기.
-   - 백슬래시 명령은 반드시 \`\\\\sqrt\`, \`\\\\frac\`, \`\\\\pm\`, \`\\\\int\` 처럼 *JSON wire 위에서 두 번* 이스케이프 (JSON.parse 후 \`\\sqrt\` 로 복원되도록).
-   - 분수: \`\\\\frac{분자}{분모}\`. 절대 슬래시(/)나 한 줄짜리 \`1/2\` 표기 X.
-   - 제곱근: \`\\\\sqrt{...}\`. ± 는 \`\\\\pm\`.
-4. **계산 근거를 빠뜨리지 말 것**. "왜 그 식이 되는지" 한국어 한 문장 + 식 한 줄 패턴.
-5. 그림이 필요한 단계는 텍스트로 설명 (SVG 생성 X — 이미 원본 문제 카드에 그림이 있다).
-6. 문제를 실제로 풀 수 없으면 (정보 부족 / 본문 손상) solution 에 그 이유를 쓰고, answer 는 \`"?"\` 로. 절대 추측 X.
+**난이도 가이드 (가장 중요한 규칙)**:
+  - **trivial (한 줄 계산)** — 예: "$(-3) + (-6)$의 값은?", "$5 \\times 7$의 값은?"
+    → 풀이 1줄. 헤더 X. 단계 X. 한국어 설명 X.
+    예시: \`$(-3) + (-6) = -9$\`
+    (이런 문제에 "[1단계: 조건 정리]", "주어진 부등식은…" 같은 헤더를 절대 붙이지 말 것.)
+  - **easy (직접 계산, 2-3 step)** — 예: "분수의 사칙연산", "근의 공식 대입"
+    → 풀이 2~4 줄. 헤더 X. 식 → 식 → 결론.
+  - **medium (개념 + 식 변형 필요, 3-5 step)** — 예: "이차함수 최댓값", "수열 일반항"
+    → \`**[1단계: ...]**\` 헤더 2~3개로 분리. 헤더당 본문 2~4 줄.
+  - **hard (다단계 추론, 도형/케이스 분류)** — 예: "복합 적분", "확률 조건 분리"
+    → 4~5단계 헤더. 케이스별 분기 명시.
+
+**원칙**:
+  - "이 풀이는 1줄로 끝낼 수 있나?" 를 항상 먼저 자문하라. 1줄로 끝낼 수 있으면 1줄로 끝내라.
+  - 단계 헤더는 **medium 이상에서만** 사용. trivial/easy 문제에 헤더는 노이즈일 뿐이다.
+  - "주어진 부등식은…", "조건을 정리하면…" 같은 보일러플레이트 도입부는 trivial/easy 에서 금지.
+
+**공통 형식 규칙**:
+  1. **모든 수식 / 변수 / 숫자**는 \`$...$\` (인라인) 또는 \`$$...$$\` (블록) 으로 감싸기.
+     - 백슬래시 명령은 반드시 \`\\\\sqrt\`, \`\\\\frac\`, \`\\\\pm\`, \`\\\\int\` 처럼 *JSON wire 위에서 두 번* 이스케이프 (JSON.parse 후 \`\\sqrt\` 로 복원되도록).
+     - 분수: \`\\\\frac{분자}{분모}\`. 절대 슬래시(/)나 한 줄짜리 \`1/2\` 표기 X.
+     - 제곱근: \`\\\\sqrt{...}\`. ± 는 \`\\\\pm\`.
+  2. **🚨 LaTeX 명령어는 절대 \`$...$\` / \`$$...$$\` 밖에 두지 말 것.**
+     - \`\\\\displaystyle\`, \`\\\\textstyle\` 같은 modifier 는 KaTeX 내부에서만 의미가 있음. 평문 텍스트 안에 \`\\\\displaystyle\` 만 떨어뜨려 쓰면 사용자 화면에 \`\\displaystyle\` 라는 글자 그대로 보임. **이 실수가 가장 흔한 결함**.
+     - 잘못된 예: \`풀이는 $a = 1, 2, 3$\\\\displaystyle 이다.\`  ← \`$\` 닫은 직후 \`\\\\displaystyle\` 흘림.
+     - 잘못된 예: \`\\\\displaystyle \\\\left(...\\\\right) \\\\times ...\` ← \`$$\` 안 감싸고 raw LaTeX 시작.
+     - 옳은 예: \`풀이는 $a = 1, 2, 3$ 이다.\`
+     - 옳은 예: \`$$\\\\displaystyle \\\\left(...\\\\right) \\\\times ...$$\` (전체를 \`$$\` 로 감쌈)
+     - 마지막 검수 단계로: solution 에서 \`\\\\displaystyle\`, \`\\\\frac\`, \`\\\\sqrt\`, \`\\\\left\`, \`\\\\right\` 같은 토큰이 들어 있으면 그 토큰의 *왼쪽에* 가장 가까운 \`$\` / \`$$\` 가 *닫힘* 표시인지 확인하라. 닫혀 있다면 그 LaTeX 토큰은 외부 — 다시 \`$...$\` 안으로 옮겨라.
+  3. 그림이 필요한 단계는 텍스트로 설명 (SVG 생성 X — 이미 원본 문제 카드에 그림이 있다).
+  4. 문제를 실제로 풀 수 없으면 (정보 부족 / 본문 손상) solution 에 그 이유를 쓰고, answer 는 \`"?"\` 로. 절대 추측 X.
 
 ──────────────────────────────────────────────────────────────────
 answer 작성 규칙
@@ -209,6 +229,9 @@ RULES FOR EACH "items" ENTRY
    - The "text" field MUST contain the FULL question body (the prose statement before any options). Examples of valid body openers:
      · "곡선 $y = x^2 + 2x + 2$와 $x$축 및 두 직선 $x = -2$, $x = 2$로 둘러싸인 도형의 넓이는?"
      · "함수 $f(x) = x^2(x - 3)$가 닫힌구간 $[0, 3]$에서 최댓값과 최솟값의 차는?"
+     · "$(-3) + (-6)$의 값은?"   ← 매우 짧은 한 줄짜리도 body 임. 절대 생략 X.
+   - **SHORT BODIES ARE STILL BODIES.** "$(-3) + (-6)$의 값은?" 처럼 본문이 한 줄짜리 짧은 식이어도 그것이 body 다. 짧다는 이유로 body 를 안 적고 보기만 emit 하지 말 것. 본문 + 보기 양쪽 다 필수.
+   - **#1 PROBLEM HEURISTIC**: 1번 문제는 거의 항상 짧은 워밍업 (한 줄 식 + 5지선다) 이다. 1번이 보기 5개만 있고 body 가 비어 있으면 99% 확률로 본문 누락 — 페이지 상단을 다시 살펴보고 "다음 …의 값은?" 같은 문제 발문을 반드시 찾아 넣어라. 정 못 찾으면 confidence="low" + body 에 "본문 추출 실패" 라고 명시.
    - It is NEVER acceptable to emit ONLY the 5 multiple-choice options ("① 40/3 ② 14 …") with no body. If you cannot read the body for some reason, transcribe what's visible and set confidence="low" — but never skip the body.
    - It is NEVER acceptable to fabricate a phantom enumeration line like "①1 ②2 ③3 ④4 ⑤5" alongside the real options. Emit each option exactly once with its actual value.
    - If a page contains "다음 중 옳은 것은?" plus 5 options spread across multiple lines, the body is "다음 중 옳은 것은?" and the 5 options follow per rule 4b.
