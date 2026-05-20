@@ -232,7 +232,15 @@ RULES FOR EACH "items" ENTRY
      · "$(-3) + (-6)$의 값은?"   ← 매우 짧은 한 줄짜리도 body 임. 절대 생략 X.
    - **SHORT BODIES ARE STILL BODIES.** "$(-3) + (-6)$의 값은?" 처럼 본문이 한 줄짜리 짧은 식이어도 그것이 body 다. 짧다는 이유로 body 를 안 적고 보기만 emit 하지 말 것. 본문 + 보기 양쪽 다 필수.
    - **#1 PROBLEM HEURISTIC**: 1번 문제는 거의 항상 짧은 워밍업 (한 줄 식 + 5지선다) 이다. 1번이 보기 5개만 있고 body 가 비어 있으면 99% 확률로 본문 누락 — 페이지 상단을 다시 살펴보고 "다음 …의 값은?" 같은 문제 발문을 반드시 찾아 넣어라. 정 못 찾으면 confidence="low" + body 에 "본문 추출 실패" 라고 명시.
+   - 🚨 **객관식 보기 누락 금지 — 본문이 있고 보기가 없으면 그것도 실패**.
+     본문이 끝나는 문장이 "?", "값은?", "옳은 것은?", "옳지 않은 것은?", "구하면?" 등 5지선다 발문 패턴이면 페이지에 반드시 ①②③④⑤ 보기가 있다. 그 5개 모두 rule 4b 에 따라 같은 항목의 text 끝에 한 줄로 붙여야 한다. 본문만 추출하고 보기를 통째로 빠뜨리는 게 본문만 빠뜨리는 것만큼 자주 일어나는 실수다 — 사용자가 직접 보고했다.
+     체크리스트 (매 객관식 문제마다 emit 전 확인):
+       1. body 끝이 "?" 로 끝나고 객관식 발문이다 → ✓
+       2. text 끝에 "① …  ② …  ③ …  ④ …  ⑤ …" 다섯 마커 모두 있다 → ✓
+       3. 다섯 옵션의 값이 페이지의 실제 옵션과 일치한다 (특히 분수의 분자/분모, ± 부호) → ✓
+     세 체크 중 하나라도 빠지면 confidence="low" 로 표시.
    - It is NEVER acceptable to emit ONLY the 5 multiple-choice options ("① 40/3 ② 14 …") with no body. If you cannot read the body for some reason, transcribe what's visible and set confidence="low" — but never skip the body.
+   - 마찬가지로 — body 만 있고 ①②③④⑤ 보기가 통째로 빠진 emit 도 NEVER acceptable. body 와 options 는 한 set 이다.
    - It is NEVER acceptable to fabricate a phantom enumeration line like "①1 ②2 ③3 ④4 ⑤5" alongside the real options. Emit each option exactly once with its actual value.
    - If a page contains "다음 중 옳은 것은?" plus 5 options spread across multiple lines, the body is "다음 중 옳은 것은?" and the 5 options follow per rule 4b.
 
@@ -368,6 +376,45 @@ RULES FOR EACH "items" ENTRY
        - Crops are inherently lossy — the bbox is rarely pixel-perfect, so prefer 5a/5b/5c unless truly impossible.
 
    In all problems return images: [] (empty array) when no Tier-4 crop is needed — most problems should be images: [].
+
+──────────────────────────────────────────────────────────────────
+NON-PROBLEM CONTENT — NEVER emit as items
+──────────────────────────────────────────────────────────────────
+
+Drop these from the output entirely. They are *test paper plumbing*, not
+problems. Even when visually enclosed in a box they look identical to a
+보기/조건 box, they MUST be skipped.
+
+  (a) **저작권 / 발행 메타데이터** — anything matching:
+      "이 시험지의 저작권은", "무단복제", "전재를 금합니다", "© ", "Copyright",
+      "발행일", "발행처", "출판사", "ISBN".
+      Example seen in production: "※ 이 시험지의 저작권은 강북중학교에 있습니다.
+      무단복제 및 전재를 금합니다." → DROP. Not a problem.
+
+  (b) **시험 운영 / 답안 작성 안내문** — operational instructions that
+      precede a section (often shown as a ※ or ☞ bulleted box):
+      "OMR 답안지", "답란에 작성", "채점 기준", "부분점수", "감독관",
+      "교시", "시험 시간", "유의사항", "답안지에 표기", "필기구".
+      Example seen in production (서술형 section header):
+        "☞ 서술형 문항의 답은 반드시 OMR 답안지에 함께 작성하고, 반드시
+         해당 문항 번호에 맞추어 서술형 답란에 작성할 것.
+         ☞ 칸이 모자랄 경우 서술형 답란 빈 영역에 문항 번호를 표시하고
+         기재할 것.
+         ☞ 문제에 제시된 조건에 맞게 써야 하며, 채점 기준에 따라 부분점수
+         있음."
+      → DROP. Do NOT prepend this block to the body of the first
+      서술형 problem that follows. The first 서술형 problem's body starts
+      at its own number ("[서술형 1] ..." or "서술형 1번. ...").
+
+  (c) **페이지 머리·꼬리** — page numbers, exam name banner, school name
+      header (when standalone — not when inside a problem statement).
+
+  (d) **빈 박스 / decorative separator** — empty bordered regions used
+      just for visual spacing.
+
+When in doubt: if a piece of text does NOT ask the student to do, find,
+or compute anything — and is NOT a 보기/조건 referenced by a problem —
+it's plumbing. Skip.
 
 ──────────────────────────────────────────────────────────────────
 EDGE CASES

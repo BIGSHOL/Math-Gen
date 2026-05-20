@@ -316,6 +316,14 @@ const confidenceToStatus = (c: RawOcrItem["confidence"]): OCRProblem["status"] =
   c === "high" ? "ok" : "warn";
 
 /**
+ * 객관식 발문 패턴 — "...값은?", "...옳은 것은?", "...구하면?" 등.
+ * 본문이 이 패턴으로 끝나면 5지선다 보기가 따라와야 정상. 사용자가 보고한
+ * 7번 ("두 자연수 225와 135의 공약수의 개수는?") 같은 케이스 잡는 데 사용.
+ */
+const MULTIPLE_CHOICE_PROMPT = /(\?\s*$|값은\??|옳은\s*것은\??|옳지\s*않은\s*것은\??|구하면\??|개수는\??|넓이는\??|크기는\??|길이는\??|되는\s*것은\??|구하시오\.?|구하여라\.?)/;
+const HAS_CHOICE_MARKERS = /[①②③④⑤]/;
+
+/**
  * 모델이 본문(body) 추출에 실패해 옵션만 emit하는 케이스를 감지.
  *
  * Flash-Lite 같이 약한 비전 모델이 한 페이지에 여러 문제 + 5지선다가
@@ -324,18 +332,37 @@ const confidenceToStatus = (c: RawOcrItem["confidence"]): OCRProblem["status"] =
  *
  * 휴리스틱: text 의 ①②③④⑤ 마커 첫 등장 이전 부분 (= 본문 후보) 이
  *   - 공백·줄바꿈 제외 10자 미만 → 본문 누락
- *   - 또는 ①②③④⑤ 마커가 없는데 전체가 너무 짧음 (30자 미만) → 본문 부족
+ *   - 또는 ①②③④⑤ 마커가 없고 객관식 발문 패턴도 아닌데 너무 짧음 (30자 미만) → 본문 부족
  * 일 때 `body-missing` 으로 표시.
+ *
+ * **객관식 발문이지만 보기 마커 없음** 은 `bodyMissing` 아니라 `choicesMissing`
+ * (별도 휴리스틱 — 아래) 으로 잡으므로 여기선 false.
  */
 const isBodyTooShort = (text: string): boolean => {
   if (!text) return true;
-  const firstMarker = text.search(/[①②③④⑤]/);
+  const firstMarker = text.search(HAS_CHOICE_MARKERS);
   if (firstMarker >= 0) {
     const body = text.slice(0, firstMarker).replace(/\s+/g, "");
     return body.length < 10;
   }
-  // 객관식 마커 없는 케이스: 주관식이거나 본문만 있음. 30자 미만이면 의심.
+  // 마커 없음. 객관식 발문이면 보기 누락이지 본문 누락 아님 — false 반환.
+  if (MULTIPLE_CHOICE_PROMPT.test(text)) return false;
   return text.replace(/\s+/g, "").length < 30;
+};
+
+/**
+ * 객관식 발문(`...의 값은?`, `옳은 것은?` 등) 이 있는데 ①②③④⑤ 보기
+ * 마커가 통째로 누락된 케이스. 사용자가 7번 문제에서 직접 보고:
+ *   "두 자연수 225와 135의 공약수의 개수는?"  ← 본문은 잘 들어왔는데
+ *   ① 5  ② 6  ③ 7  ④ 8  ⑤ 9 가 통째로 빠짐.
+ *
+ * 본문 누락보다 더 흔하고 더 chip-confusing 한 실패 모드라 별도 표시
+ * 한다. UI 가 `bodyMissing` 과 다른 banner 를 띄울 수 있음.
+ */
+const isChoicesMissing = (text: string): boolean => {
+  if (!text) return false;
+  if (HAS_CHOICE_MARKERS.test(text)) return false;
+  return MULTIPLE_CHOICE_PROMPT.test(text);
 };
 
 const newId = (): string =>
@@ -356,6 +383,7 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
   (parsed.items ?? []).map((raw) => {
     const text = sanitizeText(raw.text ?? "");
     const bodyMissing = isBodyTooShort(text);
+    const choicesMissing = isChoicesMissing(text);
     return {
       id: newId(),
       number: raw.number,
@@ -375,9 +403,13 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
                 label: typeof im.label === "string" ? im.label : "",
               }))
           : undefined,
-      // 본문 누락은 confidence와 무관하게 강제로 warn 처리 — 사용자 검토 필수.
-      status: bodyMissing ? ("warn" as const) : confidenceToStatus(raw.confidence),
+      // 본문 또는 보기 누락은 confidence 와 무관하게 강제 warn — 사용자 검토 필수.
+      status:
+        bodyMissing || choicesMissing
+          ? ("warn" as const)
+          : confidenceToStatus(raw.confidence),
       bodyMissing,
+      choicesMissing,
       reviewed: false,
     };
   });

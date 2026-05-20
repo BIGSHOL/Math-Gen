@@ -93,6 +93,12 @@ export interface OCRProblem {
    * `normalizeResponse` 내부의 `isBodyTooShort` 휴리스틱으로 설정됨.
    */
   bodyMissing?: boolean;
+  /**
+   * 객관식 발문(`?` / `구하시오` / `옳은 것은` 등)인데 ①②③④⑤ 마커가
+   * 빠진 케이스 마커. 모델이 본문만 추출하고 보기를 누락한 상황.
+   * `isChoicesMissing` 휴리스틱으로 설정됨. bodyMissing 과 별도 배너로 표시.
+   */
+  choicesMissing?: boolean;
   // ── Step 3 (해설·정답 생성) 필드 ─────────────────────────────
   /**
    * 단계별 풀이 — markdown + LaTeX. `[1단계: 조건 정리]` 같은 헤더로

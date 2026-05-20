@@ -229,6 +229,17 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemPro
               </div>
             </div>
           )}
+          {item.choicesMissing && !item.bodyMissing && (
+            <div className="mb-2 px-3 py-2 rounded-r2 border border-warn bg-warn-soft text-warnInk text-small flex items-start gap-2">
+              <Icon name="warning" weight="fill" className="mt-0.5 flex-none" />
+              <div>
+                <div className="font-semibold">보기 누락 — 객관식 발문인데 ①②③④⑤ 보기가 없습니다.</div>
+                <div className="text-muted text-caption mt-0.5">
+                  편집 버튼으로 보기를 직접 추가하거나, 페이지 재인식 (더 강한 모델 권장: Gemini 3.1 Pro / Claude Sonnet) 을 사용하세요.
+                </div>
+              </div>
+            </div>
+          )}
           <MarkdownRenderer content={item.text} />
         </div>
       )}
