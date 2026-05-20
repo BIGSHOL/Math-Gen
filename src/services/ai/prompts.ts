@@ -169,11 +169,51 @@ solution — **문제 난이도에 따라 분량을 다르게**
      - \`\\\\displaystyle\`, \`\\\\textstyle\` 같은 modifier 는 KaTeX 내부에서만 의미가 있음. 평문 텍스트 안에 \`\\\\displaystyle\` 만 떨어뜨려 쓰면 사용자 화면에 \`\\displaystyle\` 라는 글자 그대로 보임. **이 실수가 가장 흔한 결함**.
      - 잘못된 예: \`풀이는 $a = 1, 2, 3$\\\\displaystyle 이다.\`  ← \`$\` 닫은 직후 \`\\\\displaystyle\` 흘림.
      - 잘못된 예: \`\\\\displaystyle \\\\left(...\\\\right) \\\\times ...\` ← \`$$\` 안 감싸고 raw LaTeX 시작.
+     - 잘못된 예 (사용자 보고 8번 풀이): \`\\\\displaystyle \\\\text{ㄴ.}\\\\; \\\\left\\\\left(-\\\\frac{5}{8}\\\\right\\\\right)\\\\times ...\` — 줄 전체가 raw LaTeX 인데 \`$$\` 누락 + \`\\\\left\\\\left\` 중복 typo. **둘 다 절대 금지**.
      - 옳은 예: \`풀이는 $a = 1, 2, 3$ 이다.\`
      - 옳은 예: \`$$\\\\displaystyle \\\\left(...\\\\right) \\\\times ...$$\` (전체를 \`$$\` 로 감쌈)
      - 마지막 검수 단계로: solution 에서 \`\\\\displaystyle\`, \`\\\\frac\`, \`\\\\sqrt\`, \`\\\\left\`, \`\\\\right\` 같은 토큰이 들어 있으면 그 토큰의 *왼쪽에* 가장 가까운 \`$\` / \`$$\` 가 *닫힘* 표시인지 확인하라. 닫혀 있다면 그 LaTeX 토큰은 외부 — 다시 \`$...$\` 안으로 옮겨라.
-  3. 그림이 필요한 단계는 텍스트로 설명 (SVG 생성 X — 이미 원본 문제 카드에 그림이 있다).
-  4. 문제를 실제로 풀 수 없으면 (정보 부족 / 본문 손상) solution 에 그 이유를 쓰고, answer 는 \`"?"\` 로. 절대 추측 X.
+  3. **🚨 \`\\\\left\\\\left\` / \`\\\\right\\\\right\` 절대 금지** — \`\\\\left\` / \`\\\\right\` 다음에는 *단일* 구분자 (\`(\`, \`[\`, \`\\\\{\`, \`|\`, \`.\`) 만 와야 한다. 둘 이상 중첩하면 KaTeX 가 "Expected delimiter, got \\\\left" 로 에러나 raw 노출.
+  4. 그림이 필요한 단계는 텍스트로 설명 (SVG 생성 X — 이미 원본 문제 카드에 그림이 있다).
+  5. 문제를 실제로 풀 수 없으면 (정보 부족 / 본문 손상) solution 에 그 이유를 쓰고, answer 는 \`"?"\` 로. 절대 추측 X.
+
+**🇰🇷 한국 교과서 용어 우선 — 사용자 보고 (11번/5번 풀이 너무 김 + 어려운 기호):**
+
+  영문 약어나 함수형 기호 대신 한국어 풀어쓰기를 *기본*으로 한다. 풀이가 짧아지고 학생이 직관적으로 이해.
+
+  영문 약어 → 한국 교과서 표현:
+   - \`gcd(a, b)\` → "**최대공약수**" (또는 \`a\` 와 \`b\` 의 최대공약수)
+   - \`lcm(a, b)\` → "**최소공배수**"
+   - \`max(a, b)\` → "\`a\` 와 \`b\` 중 큰 값" 또는 "\`a\`, \`b\` 의 최댓값"
+   - \`min(a, b)\` → "\`a\` 와 \`b\` 중 작은 값" 또는 "최솟값"
+   - \`\\\\gcd(45, 75) = 15\` 같이 식으로 쓸 필요가 있으면 그대로 두되, 본문 설명은 한글로.
+   - \`\\\\deg(P)\` → "\`P\` 의 차수"
+   - \`A \\\\cup B\` 는 그대로 (집합 단원 표준), 단 본문에선 "\`A\` 와 \`B\` 의 합집합" 처럼 한 번은 풀어쓰기.
+   - \`\\\\Leftrightarrow\` → "동치이다" / "다음과 같다"
+   - \`\\\\Rightarrow\` → "이므로" / "따라서"
+   - \`\\\\therefore\` → "따라서" (문장 시작)
+   - \`\\\\because\` → "왜냐하면"
+   - \`A | B\` (나눔 기호) → "\`A\` 가 \`B\` 를 나눈다" 또는 "\`A\` 는 \`B\` 의 약수"
+
+  잘못된 사례 (사용자 보고 11번): "gcd(b, a) = 1이므로 a | 45이고 28 | b가 필요하다."
+  → 권장: "\`b\` 와 \`a\` 가 서로소이므로 \`a\` 는 45의 약수이고 \`b\` 는 28의 배수여야 한다."
+
+  잘못된 사례 (사용자 보고 5번): "\`max(2, a) = 2 ⇒ a ≤ 2\`"
+  → 권장: "\`a\` 와 2 중 큰 값이 2이므로 \`a \\\\le 2\`"
+
+**📏 분량 — *훨씬 더* 짧게:**
+
+  난이도 가이드의 줄 수는 *상한*이 아니라 *목표*다. 더 줄일 수 있으면 줄여라.
+
+  잘못된 사례 (11번 풀이, 너무 김):
+   - "**[1단계: 조건 분석]**" → "**[2단계: a와 b 결정]**" → "**[3단계: ...]**" 식 3단계 헤더 +
+   - 각 단계마다 식 4~5줄 + 한글 설명 2~3줄
+   - 총 25줄 넘어감.
+
+  권장:
+   - 헤더 한 번만 (필요하면). 식 흐름은 한 줄에 한 식.
+   - 조건만 정확히 옮기고 답으로 직진. "이므로", "따라서" 같은 연결어로 충분.
+   - 11번 같은 case: 5~7 줄 안에 끝낼 것.
 
 ──────────────────────────────────────────────────────────────────
 answer 작성 규칙
@@ -245,6 +285,22 @@ RULES FOR EACH "items" ENTRY
    - If a page contains "다음 중 옳은 것은?" plus 5 options spread across multiple lines, the body is "다음 중 옳은 것은?" and the 5 options follow per rule 4b.
 
    4a. **Inline math**: every variable, number, fraction, and formula MUST be wrapped in \$…\$ (inline) or \$\$…\$\$ (block). Do NOT leave raw "x", "y", "k", "2x²" in the markdown body — wrap them. (Exception: ①②③④⑤, ㄱㄴㄷㄹㅁ, and small-roman/arabic problem sub-numbers like (1), (2) stay UNWRAPPED.)
+
+       🚨 **GOLDEN RULE — NEVER LEAK RAW LATEX OUTSIDE \$...\$**:
+       - 모든 backslash 명령 (\\frac, \\displaystyle, \\left, \\right, \\times, \\sum, \\int, etc.) 은 반드시 \$...\$ 안에 있어야 한다.
+       - 사용자 보고 (절대 재발 금지): "\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]의 값은?" 가 통째로 raw text 로 노출.
+         원인: 모델이 문제 발문 전체를 \$ 로 안 감쌌음.
+         올바른 형태: "\$\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]\$의 값은?" — \$ 가 한글 직전에서 닫혀야 함.
+       - 한 줄 안에 math + 한국어 텍스트가 섞여 있으면, math 구간만 \$...\$ 안에 넣고 한국어는 밖에. 예:
+         · 올바름: "\$x^2 + 2x + 1 = 0\$의 해를 구하시오."  ← math 부분만 \$...\$, "의 해를 구하시오." 는 plain text.
+         · 잘못됨: "x^2 + 2x + 1 = 0의 해를 구하시오."  ← math 가 wrap 안 됨.
+         · 잘못됨: "\$x^2 + 2x + 1 = 0의 해를 구하시오.\$"  ← 한글이 math 안에 들어감 (KaTeX error).
+       - **\\displaystyle 도 명령어다 — 절대 \$ 밖에 두지 말 것.** "\\displaystyle 5" 로 시작하면 반드시 "\$\\displaystyle 5 ... \$" 형태로 wrap.
+
+       🚨 **\\left / \\right 절대 중첩 금지**:
+       - \\left 다음에는 즉시 *단일* 구분자가 와야 한다 — \\left(, \\left[, \\left\\{, \\left|, \\left. 만 유효.
+       - 절대 \\left\\left 또는 \\right\\right 같이 두 번 연속 쓰지 말 것 — KaTeX 가 "Expected delimiter, got \\left" 로 에러.
+       - 사용자 보고 잘못 사례: "\\left\\left\\{ \\frac{1}{3} + (-3)^2 \\right\\right\\}" ← \\left / \\right 중복. 올바른 형태: "\\left\\{ \\frac{1}{3} + (-3)^2 \\right\\}".
 
        **LaTeX backslash escaping — STRICT**:
        - Every LaTeX command starts with a backslash: \\sqrt, \\frac, \\pm, \\times, \\cdot, \\sum, \\int, etc.

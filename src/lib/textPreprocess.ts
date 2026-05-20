@@ -386,15 +386,24 @@ export const preprocessMathText = (content: string): string => {
     "",
   );
 
-  // (9) `$` 밖에 떠도는 raw LaTeX 명령어 자동 wrap.
-  //     LLM 이 가끔 보기 항목 같은 줄을 통째로 `$` 없이 emit 함:
+  // (9) `$` 밖에 떠도는 raw LaTeX 자동 wrap — math + 한글 혼합 처리.
+  //
+  //     LLM 이 가끔 본문/보기/풀이 한 줄을 통째로 `$` 없이 emit:
+  //       \displaystyle 5 - \frac{1}{3} \times \left[...\right]의 값은?
   //       ㄴ. \left(-\frac{5}{8}\right) \times \left(+\frac{5}{9}\right)
-  //     마스킹 후 외부 텍스트에서 줄 단위로 검사 — 줄에 `\frac` `\sqrt`
-  //     `\left` `\right` `\binom` `\sum` `\int` 같은 LaTeX 명령어가 2개
-  //     이상 있고 `$` 와 sentinel 둘 다 없으면 (이미 인용된 영역이 아님),
-  //     줄의 LaTeX 부분만 한 묶음으로 `$$...$$` block 으로 wrap. enum
-  //     marker (ㄱ./ㄴ./①…/숫자.) 와 blockquote `>` prefix 는 보존.
-  const LATEX_CMD = /\\(?:frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|cdots|ldots|vec|hat|tilde|overline|underline|begin|end|over|atop)\b/g;
+  //
+  //     해당 줄에서 math 구간만 `$...$` (inline) 로 wrap. 한글 꼬리
+  //     ("의 값은?" 등) 가 붙어 있으면 한글 직전에서 split — math mode 안에
+  //     한글이 들어가면 KaTeX 가 에러. enum marker (ㄱ./ㄴ./①/숫자.) /
+  //     blockquote `>` prefix 보존. `\displaystyle` 이 없으면 명시적으로
+  //     prepend 해서 inline 안에서도 display 사이즈 유지.
+  //
+  //     `LATEX_CMD` 에 `\displaystyle` 도 포함 — 위 (8) 단계가 `$` 밖 떠도는
+  //     `\displaystyle` 을 strip 하지만, 이 (9) 가 먼저 line-level wrap 으로
+  //     보존하면 strip 의 대상이 아니게 된다 (이미 `$...$` 안에 있음).
+  const LATEX_CMD = /\\(?:displaystyle|textstyle|frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|cdots|ldots|vec|hat|tilde|overline|underline|overrightarrow|begin|end|over|atop|max|min|log|ln|sin|cos|tan|alpha|beta|gamma|theta|pi|sigma|omega|infty|cup|cap|subset|supset|neq|leq|geq|approx|cdot|mathrm|mathbf|text|boxed|phantom)\b/g;
+  // 한글 (Hangul Syllables + Jamo) — math 모드에선 안 그려지므로 boundary 로 사용.
+  const HANGUL_RE = /[가-힣ㄱ-ㅎㅏ-ㅣ]/;
   masked = masked
     .split("\n")
     .map((line) => {
@@ -405,12 +414,34 @@ export const preprocessMathText = (content: string): string => {
       // LaTeX 명령어가 2회 이상 — wrap 후보.
       const cmds = line.match(LATEX_CMD);
       if (!cmds || cmds.length < 2) return line;
-      // enum marker 또는 blockquote prefix 보존 + 그 뒤의 LaTeX-laden 부분 wrap.
-      // marker 예: "ㄱ. ", "ㄴ. ", "① ", "1. ", "> ", "- " 등.
+      // enum marker 또는 blockquote prefix 보존.
       const m = line.match(/^(\s*(?:>\s?)?(?:[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+\.|\d+\)|-|\*)?\s*)([\s\S]+?)$/);
-      if (!m) return `$$${line.trim()}$$`;
-      const [, prefix, rest] = m;
-      return `${prefix}$$${rest.trim()}$$`;
+      const prefix = m ? m[1] : "";
+      const rest = m ? m[2] : line;
+
+      // math 부분의 시작점 — 첫 `\backslashcmd`.
+      const firstCmdIdx = rest.search(/\\[a-zA-Z]/);
+      if (firstCmdIdx < 0) return line;
+      const leading = rest.slice(0, firstCmdIdx); // 보통 빈 문자열이거나 짧은 prose.
+      const mathTail = rest.slice(firstCmdIdx);
+
+      // 한글이 math span 중간에 등장하면 거기서 끊는다.
+      const hangulInTail = mathTail.search(HANGUL_RE);
+      let mathSpan: string;
+      let trailingText: string;
+      if (hangulInTail >= 0) {
+        mathSpan = mathTail.slice(0, hangulInTail).trimEnd();
+        trailingText = mathTail.slice(hangulInTail);
+      } else {
+        mathSpan = mathTail.trim();
+        trailingText = "";
+      }
+      if (!mathSpan) return line;
+
+      // `\displaystyle` 이 이미 들어 있으면 그대로, 없으면 명시적으로 prepend.
+      const hasDisplay = /\\displaystyle\b/.test(mathSpan);
+      const wrapped = hasDisplay ? `$${mathSpan}$` : `$\\displaystyle ${mathSpan}$`;
+      return `${prefix}${leading}${wrapped}${trailingText}`;
     })
     .join("\n");
 

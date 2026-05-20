@@ -327,6 +327,52 @@ const consumeLatexToken = (
 const PRESERVED_HTML = /<(svg|table)\b[\s\S]*?<\/\1>/gi;
 const PRESERVE_MARK = String.fromCharCode(57344);
 
+/**
+ * Line-level pre-wrap: 라인이 LaTeX-heavy 인데 `$` 가 하나도 없으면 (모델이
+ * 통째로 raw LaTeX 를 emit 한 케이스) math 구간만 `$...$` 로 한 묶음 wrap.
+ * 한글 꼬리 ("…의 값은?", "…일 때") 가 있으면 한글 직전에서 split.
+ *
+ * 사용자 보고: `\displaystyle 5 - \frac{1}{3} \times \left[ \left\left\{ ...
+ * \right\right\} \times \frac{9}{7} - 9 \right]의 값은?` 가 통째로 raw text
+ * 로 렌더되는 버그 — 모델이 `$` 를 통째로 누락한 경우. consumeLatexToken
+ * 의 token 단위 wrap 으로는 `\displaystyle` 같은 directive 가 빠지고
+ * `5 - \frac…` 사이의 spacing 도 깨졌다. line 단위로 미리 wrap 해서 KaTeX
+ * 에 통째로 넘기는 게 더 안정적.
+ */
+const LATEX_HEAVY_CMD =
+  /\\(?:displaystyle|textstyle|frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|overrightarrow|overline|widehat|vec|max|min|log|ln|sin|cos|tan|alpha|beta|gamma|theta|pi|sigma|omega|infty|cup|cap|subset|supset|neq|leq|geq|approx|mathrm|mathbf|text|boxed|phantom)\b/g;
+const HANGUL_BOUNDARY = /[가-힣ㄱ-ㅎㅏ-ㅣ]/;
+
+const preWrapLatexHeavyLines = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => {
+      // 이미 `$` 가 있으면 (부분 wrap 된 줄) 건드리지 말 것 — token 단계가 처리.
+      if (line.includes("$")) return line;
+      // PRESERVE_MARK 안에 있는 줄 (SVG/표 placeholder) 도 skip.
+      if (line.includes(PRESERVE_MARK)) return line;
+      const cmds = line.match(LATEX_HEAVY_CMD);
+      if (!cmds || cmds.length < 2) return line;
+      // marker prefix 보존 (① 1, ㄴ. \frac…, 1. \displaystyle…)
+      const m = line.match(/^(\s*(?:>\s?)?(?:[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+\.|\d+\)|-|\*)?\s*)([\s\S]+?)$/);
+      const prefix = m ? m[1] : "";
+      const rest = m ? m[2] : line;
+      // math 시작 — 첫 `\backslashcmd`.
+      const firstCmdIdx = rest.search(/\\[a-zA-Z]/);
+      if (firstCmdIdx < 0) return line;
+      const leading = rest.slice(0, firstCmdIdx);
+      const mathTail = rest.slice(firstCmdIdx);
+      // 한글이 math span 중간에 등장하면 boundary.
+      const hangulIdx = mathTail.search(HANGUL_BOUNDARY);
+      const mathSpan = hangulIdx >= 0 ? mathTail.slice(0, hangulIdx).trimEnd() : mathTail.trim();
+      const trailingText = hangulIdx >= 0 ? mathTail.slice(hangulIdx) : "";
+      if (!mathSpan) return line;
+      const hasDisplay = /\\displaystyle\b/.test(mathSpan);
+      const wrapped = hasDisplay ? `$${mathSpan}$` : `$\\displaystyle ${mathSpan}$`;
+      return `${prefix}${leading}${wrapped}${trailingText}`;
+    })
+    .join("\n");
+
 export const protectLooseLatex = (text: string): string => {
   if (!text) return text;
   // (0) 보존할 HTML 블록 (SVG / 표) 을 placeholder 로 빼둔다.
@@ -336,9 +382,14 @@ export const protectLooseLatex = (text: string): string => {
     preserved.push(match);
     return `${PRESERVE_MARK}HTML${idx}${PRESERVE_MARK}`;
   });
+  // (0.5) line-level pre-wrap — LaTeX-heavy 한 줄에 `$` 가 없으면 math 구간
+  //       전체를 `$...$` 로 wrap. token-level (1) 이전에 runtime — token-level
+  //       은 `\frac{1}{3}` 같은 단일 토큰만 잡고 사이의 `5 - ` 같은 plain
+  //       chars 는 raw 로 둬서, KaTeX 가 받지 못해 화면에 raw text 노출.
+  const preWrapped = preWrapLatexHeavyLines(withPlaceholders);
   // Split by `$...$` 블록 (block 우선, inline 차순) — odd index = 수식.
   const segmentRe = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
-  const parts = withPlaceholders.split(segmentRe);
+  const parts = preWrapped.split(segmentRe);
   const processed = parts
     .map((seg, idx) => {
       // 수식 안 (odd index) 은 KaTeX 가 알아서 처리. 손대지 않음.
