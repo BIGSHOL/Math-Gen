@@ -78,28 +78,60 @@ Opus 는 reasoning 이 너무 강해서 OCR 시 "잘못 스캔된 거니까 보�
 - OCR 등 transcription 은 **Sonnet / Gemini Flash 같은 약-reasoning 모델**
 - Opus / o3 / gpt-5.5-pro 는 해설 생성·복잡 도형 SVG 같은 reasoning task 에만
 
-### 1-6. 모델 체인 fallback 의 `dispatched` Set 마커 함정 (CRITICAL)
+### 1-6. 모델 체인 fan-out hook 의 dispatch / cancel 신호 설계 (CRITICAL)
 
-`usePageOcr` 같은 fan-out hook 은 `dispatched.current` 가 **컴포넌트 mount
-전 기간 살아있는 Set**. 한 번 dispatch 된 페이지 id 는 영원히 박힘.
+`usePageOcr` / `useSolutionGen` 같은 fan-out hook 의 핵심 함정 2가지.
 
-**증상**: 사용자가 "페이지 재인식" 눌러도, `setPageOCR({ ocrComplete: false })`
-는 호출되지만 `dispatched.has(id) === true` 라 effect 가 skip → 페이지가
-영원히 진행 안 됨. 새로고침 외엔 해결 불가.
+#### 1-6-a. `dispatched` Set 은 *currently in-flight* 의미여야 한다 (ever-dispatched X)
 
-**해결책**: hook 에서 `resetDispatch(pageId)` 콜백을 *반드시* return — 재시도
-/ 회전 / 임의 reset 액션의 핸들러가 호출.
+`dispatched.current` 를 **"이미 dispatch 한 적 있음"** 으로 설계하면 함정:
+- 사용자가 "페이지 재인식" 눌러도 `setPageOCR({ ocrComplete: false })` 만 호출되고
+  `dispatched.has(id) === true` 는 그대로 → effect 가 skip → 페이지가 영원히
+  진행 안 됨. 새로고침 외엔 해결 불가.
+- PDF 재업로드 시 같은 `pg-N` id 가 재사용되면서 0/N 영구 hang.
+
+**원칙**: `dispatched` 는 **"지금 in-flight 중"** 의미. 워커가 끝나면 (성공 ·
+실패 무관) `finally` 에서 `dispatched.delete(id)` 로 즉시 해제. 그러면 store
+가 `ocrComplete: false` 로 바뀐 다음 effect cycle 에서 자연스럽게 재 pick.
+
+사용자 명시적 취소 (재시도 / 회전 버튼) 는 별도 `resetDispatch(pageId)`
+콜백으로 - hook 이 return.
 
 ```ts
 const { resetDispatch } = usePageOcr();
 const requestRetry = () => {
-  resetDispatch(activePage.id);  // ← 반드시 먼저
+  resetDispatch(activePage.id);
   setPageOCR(activePage.id, { ocrComplete: false, ... });
 };
 ```
 
-**참고**: `src/hooks/usePageOcr.ts`, `useSolutionGen.ts`. mathlab 패턴에서
-유사한 fan-out hook 만들 때 항상 이 패턴 적용.
+#### 1-6-b. AbortController 자체가 React 19 StrictMode/HMR 에서 trouble — 제거하라
+
+처음엔 mount-lifetime `AbortController` 로 in-flight HTTP 를 cancel 하려
+했지만, **React 19 dev mode 의 StrictMode 시뮬레이트 unmount / HMR /
+부모 conditional render** 가 cleanup 을 반복 트리거 → `ctrl.abort()` 발동 →
+워커가 `ctrl.signal.aborted` 분기로 silently return → `finally` 가
+`dispatched` 마커를 비움 → 다음 effect cycle 이 같은 페이지 재 dispatch →
+**무한 루프**. 사용자가 직접 본 증상: console 에 `→ dispatch` / `▶ getPageImage`
+가 반복되는데 `✓ image loaded` 는 한 번도 안 찍힘.
+
+여러 시도 (mount-lifetime ref + null-safe acquisition, StrictMode-safe
+cleanup 등) 가 모두 race condition 으로 실패. 결국:
+
+**해결 — AbortController 자체를 제거**. `dispatched` Set 멤버십을 유일한
+취소 신호로 사용:
+```ts
+const isCancelled = (id: string) => !dispatched.current.has(id);
+// 워커가 await 직후마다 체크
+if (isCancelled(page.id)) return null;
+```
+
+**트레이드오프**: 실제 unmount 중 in-flight HTTP 한 번 분 cost 감수. zustand
+의 `setPageOCR` 은 페이지 id 가 없으면 `.map` 매처가 no-op 이므로 unmount
+후 호출돼도 안전.
+
+**참고**: `src/hooks/usePageOcr.ts`, `useSolutionGen.ts`. fan-out hook 만들
+때 절대 `AbortController` 추가하지 말 것 — `dispatched` Set 으로 충분.
 
 ### 1-7. Provider fallback chain 설계
 
@@ -327,6 +359,84 @@ try {
 
 **참고**: `src/lib/textPreprocess.ts`.
 
+### 2-14. raw LaTeX 가 한국어와 mix 된 줄은 line-level wrap + 한글 boundary split
+
+모델이 `\displaystyle 5 - \frac{1}{3} \times \left[...\right]의 값은?` 처럼
+한 줄 안에 math (LaTeX 명령) + 한국어 텍스트를 `$` 없이 emit 하는 케이스가
+계속 발생. token-level `consumeLatexToken` (개별 `\frac{}` 만 wrap) 으로는
+부족:
+- `5 - ` 같은 plain operator/숫자 사이가 raw 로 남음
+- `\displaystyle` 은 KNOWN_LATEX_CMDS 에 없어서 wrap 안 됨
+- `STRAY_DIRECTIVES` strip 이 `\displaystyle` 만 지워서 의도된 display
+  sizing 손실
+
+**해결책 — 3 layer 방어**:
+
+1. `sanitize.ts`/`protectLooseLatex` 에 `preWrapLatexHeavyLines` 단계 추가
+   (token-level consume 이전). 줄에 `$` 가 없고 LaTeX heavy 면 첫 `\cmd` 부터
+   첫 한글 boundary 까지 `$...$` 로 통째 wrap. `\displaystyle` 없으면 명시적
+   prepend.
+
+2. `textPreprocess.ts` 의 (9) auto-wrap 도 동일 패턴 — sanitize 가 미스해도
+   second chance 로 잡음.
+
+3. `prompts.ts` 의 `OCR_PAGE_PROMPT` / `SOLUTION_PROMPT` 에 "math + 한글
+   mix 는 `$` 가 한글 직전에서 닫혀야 함" 규칙 + 사용자 실제 보고 사례를
+   잘못된/올바른 예시로 박음.
+
+**한글 boundary 정규식**: `/[가-힣ㄱ-ㅎㅏ-ㅣ]/`. math mode 안에 한글이 들어가면
+KaTeX 가 에러나므로 반드시 split.
+
+**참고**: `src/services/ai/sanitize.ts` `preWrapLatexHeavyLines`,
+`src/lib/textPreprocess.ts` step (9).
+
+### 2-15. KaTeX 직전에 모델 typo (`\left\left{`) 청소
+
+KaTeX `throwOnError: false` 는 invalid LaTeX 면 통째로 빨간 raw 텍스트로
+표시. 사용자가 보면 "raw LaTeX 가 노출됐다" 로 오인. 실제론 `$...$` wrap 은
+됐고 KaTeX 가 에러 fallback styling 으로 표시한 것.
+
+모델이 가장 자주 흘리는 typo: `\left\left\{ ... \right\right\}`. KaTeX 가
+"Expected delimiter, got \left" 로 에러 — `\left` 다음에 *단일* 구분자
+(`(`, `[`, `\{`, `|`, `.`) 만 와야 함.
+
+**해결책**: `textPreprocess.ts` 의 `$...$` / `$$...$$` inner 처리에
+`cleanMalformedLatex` pass 추가. lookahead 로 중복 명령어 detect 해 1회로
+정상화:
+
+```ts
+.replace(/\\left(?=\\left\b)/g, "")    // \left\left{ → \left{
+.replace(/\\right(?=\\right\b)/g, "")  // \right\right} → \right}
+.replace(/\\frac(?=\\frac\b)/g, "")    // \frac\frac{}{} → \frac{}{}
+.replace(/\\sqrt(?=\\sqrt\b)/g, "")    // \sqrt\sqrt{} → \sqrt{}
+```
+
+`\b` lookahead 가 `\leftarrow` 같은 정상 명령에는 trigger 안 되도록 보장.
+같은 시점에 `\dfrac` → `\frac`, 유니코드 → LaTeX, `injectDisplayStyle`,
+`autoSizeBrackets` 등도 같이 runtime.
+
+**참고**: `src/lib/textPreprocess.ts` `cleanMalformedLatex` (`$...$` 처리
+바로 앞 단계).
+
+### 2-16. mathlab 의 단순 pipeline vs 우리의 적극적 safety net 정책
+
+`F:\mathlab\src\components\math\shared\text-preprocess.ts` 는 단순함:
+- `$...$` 정규화만 (`\(\)` → `$...$`, `$A$$B$` 분리)
+- `\displaystyle` strip 없음
+- auto-wrap 없음
+- 그냥 ReactMarkdown + remarkMath + rehypeKatex 에 넘김
+
+이유: mathlab 은 자체 problem editor 에서 사용자가 직접 입력한 LaTeX 라
+**`$...$` wrapping 이 이미 정확**. 모델 출력을 신뢰.
+
+우리는 OCR (Gemini Flash) + 해설 (Sonnet) 모델이 자주 raw LaTeX leak +
+malformed 명령어 emit → safety net 적극 필요. 단 mathlab 의 단순 정규화 +
+우리의 추가 layer 들 (line-level wrap, malformed cleanup, displaystyle
+strip) 을 모두 합친 형태가 정답.
+
+**원칙**: mathlab 의 코드를 직접 카피하면 안 됨. 우리 OCR 파이프라인 특성
+(낮은 신뢰도) 을 감안한 추가 방어선을 위에 쌓는 식.
+
 ---
 
 ## 3. 상태 관리 함정
@@ -366,28 +476,36 @@ persistedPages.length > 0` 가 여전히 true → 완료 카드 안 사라짐 �
 
 **참고**: `src/components/wizard/Step1Upload.tsx` `reset`.
 
-### 3-3. React useEffect 의 `cleanup` 이 mid-flight API call 을 abort 하는 함정
+### 3-3. React useEffect 의 `cleanup` + AbortController 함정 (3 layer 진화사)
 
-per-effect AbortController 패턴은 자연스러워 보이지만 — `setState` 가 부른
-re-render 가 effect 재실행 → cleanup → 직전에 시작한 fetch 가 abort 됨.
-결과: API call 시작은 했지만 한 tick 후 죽음, traffic 0, hang.
+3 단계로 진화한 함정. 첫 두 단계는 *제거하지 마라* — 새 hook 만들 때 매번
+같은 함정을 다시 밟게 됨. **지금 정답은 [1-6-b](#1-6-b) 의 AbortController
+제거 패턴**.
 
-**해결책**: AbortController 를 **mount-lifetime ref** 에 보관 + cleanup 은
-*unmount-only* 별도 effect 로 분리.
+**1단계 (실패)**: per-effect AbortController. setState → re-render → effect
+재실행 → cleanup → 직전 시작한 fetch abort. traffic 0, hang.
 
+**2단계 (부분 성공)**: mount-lifetime ref + unmount-only cleanup 분리.
 ```ts
 const ctrlRef = useRef<AbortController | null>(null);
 if (ctrlRef.current === null) ctrlRef.current = new AbortController();
-
 useEffect(() => () => ctrlRef.current?.abort(), []);  // unmount only
-
 useEffect(() => {
   const ctrl = ctrlRef.current!;
   // ... use ctrl.signal
 }, [pages]);  // 이 effect 의 cleanup 은 정의하지 않음
 ```
+Production build (`npm run preview`) 에서는 동작. 하지만 dev (`npm run dev`)
+에서 React 19 StrictMode + HMR + 부모 conditional render 가 unmount cleanup
+을 반복 트리거 → ctrl.abort() → 워커 silent return → 무한 dispatch 루프.
 
-**참고**: `src/hooks/usePageOcr.ts`, `useSolutionGen.ts`.
+**3단계 (정답 — [1-6-b](#1-6-b) 참고)**: AbortController 자체를 제거. fan-out
+hook 의 in-flight 마커 (`dispatched` Set) 만으로 cancel 신호 표현. unmount
+중 in-flight HTTP 1건 cost 는 감수.
+
+**원칙**: dev 와 production 동작 차이가 의심되면 즉시 `npm run preview` 로
+비교 — StrictMode 와 HMR 의 잡음을 차단해서 진짜 버그인지 dev 환경만의
+함정인지 가린다.
 
 ### 3-4. WizardStepIndex 같은 union type 확장은 next/prev clamp 도 같이 갱신
 
@@ -400,6 +518,51 @@ useEffect(() => {
 
 **참고**: `src/stores/wizardStore.ts`, `src/components/wizard/WizardScreen.tsx`,
 `useWizardGuard.ts`.
+
+### 3-5. button 내장 컴포넌트 (`Toggle`, `Chip`, ...) 를 `<button>` 안에 넣지 말 것
+
+UI 컴포넌트 라이브러리 중 일부는 *내부적으로 `<button>` 을 렌더*. 예:
+`<Toggle>` 은 `<button role="switch">` 로 구현됨. 이런 컴포넌트를 외곽
+`<button onClick={...}>` 안에 두면:
+
+```
+<button onClick={rowClick}>   ← 외곽
+  <Toggle .../>               ← 내부 button
+</button>
+```
+
+→ DOM spec 위반 (`<button>` 안 `<button>` 금지) + React hydration warning
+"In HTML, `<button>` cannot be a descendant of `<button>`. This will cause
+a hydration error." + 일부 브라우저에서 클릭 동작 비결정적.
+
+**해결책**: 외곽을 `<div role="button" tabIndex={0}>` + onKeyDown 핸들러
+(Enter/Space) 로 대체. 내부 button 의 onClick 은 `stopPropagation()` 으로
+격리해 이중 발동 방지:
+
+```tsx
+<div
+  role="button" tabIndex={0} aria-pressed={on}
+  onClick={() => handleExtra(ex.id)}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleExtra(ex.id);
+    }
+  }}
+>
+  ...
+  <div onClick={(e) => e.stopPropagation()}>
+    <Toggle value={on} onChange={() => handleExtra(ex.id)} />
+  </div>
+</div>
+```
+
+**찾는 법**: 새 row/card UI 만들 때 자식 컴포넌트 (Toggle, Chip, Btn 등) 가
+내부에 `<button>` 을 렌더하는지 *반드시* 확인. 컴포넌트 source 한 번 열어보면
+됨 — 추측 X.
+
+**참고**: `src/components/wizard/Step3Options.tsx` "함께 만들 자료" row,
+`src/components/ui/Toggle.tsx`.
 
 ---
 
@@ -465,6 +628,33 @@ schema 가 "loose" 해져서 model 이 임의 키 추가하거나 빠뜨림.
 
 Gemini 는 `additionalProperties` 무시 + `minItems > 1` 같은 제약 거부. Schema
 를 그대로 보내면 안 되고 `toGeminiSchema` 헬퍼로 변환.
+
+### 4-6. Template literal (`` `...` ``) 안의 backtick / em-dash 함정
+
+`prompts.ts` 같은 *큰 prompt 텍스트 string literal* 을 편집할 때 가장 자주
+부딪힌 함정. TypeScript 컴파일 에러로 *발견 후 디버깅* 하면 십수 분 낭비.
+
+**(a) Markdown code marker `` ` `` 가 template literal 을 닫음**:
+prompt 안에 ``` `items[]` ```, ``` `gcd(a,b)` ```, ``` `\frac` ``` 같은 code-styled
+토큰을 쓰면 그 backtick 이 outer ` `` ` 를 *닫아버림* → 뒤따르는 prompt 본문이
+TS 코드로 파싱되어 "',' expected" 에러 폭발.
+
+**해결**:
+- backtick 을 무조건 `\`` 로 escape (소스에서 `\`` 처럼 보임), OR
+- backtick 대신 double-quote 또는 unicode 인용부호 사용 (예: `"items"`, `"gcd(a,b)"`)
+- 우리 prompts.ts 의 `OCR_PAGE_PROMPT` 는 quote 위주, `SOLUTION_PROMPT` 는
+  escaped backtick 위주 — 새 섹션 쓸 때 *주변 패턴에 맞춰서* 선택.
+
+**(b) Em-dash (`—`) / 특수 unicode 인용부호 가 일부 OS 에서 invisible**:
+Edit 도구의 `old_string` 으로 em-dash 가 포함된 줄을 그대로 복사하면 매치
+실패. 원본 파일에서 ellipsis (`…`), em-dash (`—`), 한국어 인용부호 (`「」`)
+같은 글자는 *그대로 보이지만 Edit 매처에서는 0-1 byte 차이* 가 자주 발생.
+
+**해결**: Edit 매치 실패하면 즉시 `Read` 로 해당 줄 재확인. 새 prompt 작성
+시엔 ASCII (`-`, `--`, `"..."`, `'...'`) 우선.
+
+**예방 정책**: 새 prompt 본문 작성 후 *반드시* `npx tsc --noEmit` 한 번 돌릴 것.
+backtick / unicode 함정은 컴파일 에러로만 발견됨.
 
 ---
 
@@ -593,6 +783,48 @@ choice grid 로 변환.
    로 트랜스파일 결과에 추가한 export / function 보이는지
 2. **Chrome MCP 콘솔 에러 확인** — `read_console_messages` 로 새 에러 없는지
 3. **TaskUpdate completed** — 끝낸 작업은 반드시 completed 마킹
+
+### 7-5. 프롬프트 수정 — "일반 지시문" 보다 *사용자 실제 보고 사례* 가 강력
+
+사용자가 같은 종류의 보고를 반복하는 경우 ("풀이 너무 김", "raw LaTeX 노출",
+"한국 교과서 용어 써", "보기 누락") 가 자주 있다. 그때마다 prompt 에 일반
+지시문 ("be brief", "wrap in `$...$`") 을 *추가* 하는 식의 수정은 효과 거의
+없음. 모델은 이미 일반 룰을 알고 있고 그걸 일관 적용하지 못해서 같은 실수
+반복하는 것.
+
+**효과적 패턴**:
+1. 사용자가 보고한 *실제 잘못된 출력* 을 그대로 prompt 에 박는다 — 잘못된
+   예시 라벨로.
+2. 같은 케이스의 *올바른 출력* 을 옆에 박는다 — "권장" 라벨로.
+3. 둘의 차이를 1~2 문장으로 설명 — "왜" 가 명확해야 모델이 generalize.
+
+예 (15번 풀이 너무 김 케이스 — `SOLUTION_PROMPT` 에 박은 패턴):
+```
+잘못된 풀이 (실제 출력, 25 줄+):
+  [1단계: 조건 분석] ... 4 줄
+  [2단계: ...] ... 5 줄
+  ... 6 case brute-force 나열
+  → 25 줄 넘게.
+
+올바른 풀이 (목표, 6~8 줄):
+  $A = 12a$, $B = 12b$ ...
+  최소공배수 ... 이므로 ...
+  따라서 ...
+```
+
+**원칙**:
+- "동일 보고 2 번 받으면 그 사례 자체를 prompt 에 박을 것."
+- 사용자 메시지에서 잘못된 출력 부분을 *복사* 해서 prompt 에 그대로 (조금만
+  요약). 모델이 같은 패턴을 emit 하려고 하면 prompt 안에서 "이거 잘못된
+  거다" 라는 강한 signal 을 받는다.
+- 일반 지시문 추가는 *최후 수단*. prompt 가 비대해지면서 효과는 약해짐.
+
+**한국 교과서 용어 (gcd → 최대공약수, max → 큰 값) 같은 매핑** 도 같은 원칙.
+prompt 에 정확한 매핑 표 + 잘못된 예 + 올바른 예 박는 게 일반적인 "한국어
+풀어쓰기 우선" 지시문보다 훨씬 효과적.
+
+**참고**: `src/services/ai/prompts.ts` `OCR_PAGE_PROMPT` / `SOLUTION_PROMPT`
+에 박힌 "사용자 보고 사례" 섹션들.
 
 ---
 
