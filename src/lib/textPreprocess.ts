@@ -341,8 +341,28 @@ export const preprocessMathText = (content: string): string => {
     (match, inner) => (MULTILINE_ENV.test(inner) ? `$$${inner}$$` : match),
   );
 
+  // 모델이 자주 emit 하는 malformed LaTeX 패턴을 정리 — KaTeX 가 통째로
+  // 에러 fallback (빨간 텍스트) 으로 가는 걸 막는다. 사용자 보고 (14번):
+  // `\left\left\{ ... \right\right\}` 가 통째로 빨간 raw 로 노출.
+  // KaTeX 는 `\left` 다음에 *단일* 구분자를 기대 — `\left` 자체가 명령이라
+  // "Expected delimiter, got \\left" 로 에러. 정상화: 중복된 `\left` /
+  // `\right` 를 하나로.
+  const cleanMalformedLatex = (s: string): string =>
+    s
+      // \left\left{ → \left\{ 등 — 2회 연속 left/right 를 1회로
+      .replace(/\\left(?=\\left\b)/g, "")
+      .replace(/\\right(?=\\right\b)/g, "")
+      // \left가 명령어 뒤에 바로 붙는 경우는 없으니, 다른 명령어 (\bigl, \Big 등)
+      // 와 연결되는 것도 같은 식으로 정리.
+      .replace(/\\bigl?(?=\\left\b)/g, "")
+      .replace(/\\bigr?(?=\\right\b)/g, "")
+      // \frac\frac{}{} 같은 nested-without-arg 도 단일로 — 모델 typo.
+      .replace(/\\frac(?=\\frac\b)/g, "")
+      .replace(/\\sqrt(?=\\sqrt\b)/g, "");
+
   out = out.replace(/\$(?!\$)((?:[^$\\]|\\.)*)\$/g, (_m, inner) => {
-    let fixed = inner.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
+    let fixed = cleanMalformedLatex(inner);
+    fixed = fixed.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
     for (const [re, repl] of UNICODE_MATH_MAP) fixed = fixed.replace(re, repl);
     fixed = uprightGeometryLabels(fixed);
     fixed = autoSizeBrackets(fixed);
@@ -351,7 +371,8 @@ export const preprocessMathText = (content: string): string => {
   });
 
   out = out.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner) => {
-    let fixed = inner.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
+    let fixed = cleanMalformedLatex(inner);
+    fixed = fixed.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
     for (const [re, repl] of UNICODE_MATH_MAP) fixed = fixed.replace(re, repl);
     fixed = uprightGeometryLabels(fixed);
     fixed = autoSizeBrackets(fixed);

@@ -240,13 +240,23 @@ export const Step3Options = () => {
             {EXTRAS.map((ex, i) => {
               const on = extras[ex.id];
               const last = i === EXTRAS.length - 1;
+              // 외곽 wrapper 는 `<div role="button">` 으로 — Toggle 내부 `<button>` 과
+              // nested `<button>` 이 되면 React 가 hydration warning + DOM spec 위반.
               return (
-                <button
+                <div
                   key={ex.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={on}
                   onClick={() => handleExtra(ex.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleExtra(ex.id);
+                    }
+                  }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 text-left",
+                    "w-full flex items-center gap-3 px-3 py-2.5 text-left cursor-pointer",
                     "transition-colors duration-[120ms]",
                     "focus-visible:outline-none focus-visible:bg-hover",
                     !last && "border-b border-line",
@@ -264,14 +274,17 @@ export const Step3Options = () => {
                     <div className="text-body text-text font-[550]">{ex.title}</div>
                     <div className="text-caption text-muted mt-px">{ex.hint}</div>
                   </div>
-                  {/* Toggle is presentational here — the row wrapper handles click. */}
-                  <Toggle
-                    value={on}
-                    onChange={() => handleExtra(ex.id)}
-                    size="sm"
-                    aria-label={ex.title}
-                  />
-                </button>
+                  {/* Toggle 클릭 시 propagation 중지 — 한 번의 onClick 으로 충분
+                      (외곽 div 의 onClick 이 같은 핸들러 호출, 중복 토글 방지). */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <Toggle
+                      value={on}
+                      onChange={() => handleExtra(ex.id)}
+                      size="sm"
+                      aria-label={ex.title}
+                    />
+                  </div>
+                </div>
               );
             })}
           </Card>
