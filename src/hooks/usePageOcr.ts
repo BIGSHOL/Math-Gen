@@ -170,7 +170,17 @@ export const usePageOcr = () => {
   }, []);
 
   useEffect(() => {
-    const ctrl = ctrlRef.current!;
+    // StrictMode does { run effect → cleanup → run effect again } within the
+    // same render. Hook body (above) sets `ctrlRef.current` only once per
+    // render, so after that first cleanup nulls it, the second invocation of
+    // THIS effect would otherwise grab `null` here — `ctrl.signal` later
+    // would throw `TypeError: null.signal`. Re-allocate eagerly when missing.
+    if (ctrlRef.current === null) {
+      ctrlRef.current = new AbortController();
+      dispatched.current.clear();
+      upgradeDispatched.current.clear();
+    }
+    const ctrl = ctrlRef.current;
     const pass1Chain = pickPass1Chain();
     const pass2Chain = pickPass2Chain();
 
