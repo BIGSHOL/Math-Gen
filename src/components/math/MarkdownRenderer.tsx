@@ -7,7 +7,7 @@ import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import katex from "katex";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
-import { parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
+import { cleanMalformedLatex, parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
 
 /**
  * Korean math content renderer.
@@ -220,7 +220,11 @@ const renderKatex = (tex: string, displayMode: boolean): string => {
     origWarn.apply(console, args);
   };
   try {
-    return katex.renderToString(tex, {
+    // Final guard — preprocessMathText / sanitize 가 어떤 path 로 와도 못
+    // 잡은 모델 typo (\left\left, \approx, 빈 분수 등) 가 KaTeX 까지 도달하면
+    // 빨간 에러 fallback 으로 표시됨. KaTeX 가 받기 직전에 한 번 더 정상화.
+    const safeTex = cleanMalformedLatex(tex);
+    return katex.renderToString(safeTex, {
       throwOnError: false,
       strict: false,
       output: "html",

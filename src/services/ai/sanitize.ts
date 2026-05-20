@@ -8,6 +8,7 @@
  * SECURITY NOTE: this module only handles "broken icon" prevention. Full
  * XSS-safe SVG sanitization (DOMPurify) lands in Phase 5 — see the plan.
  */
+import { cleanMalformedLatex } from "@app/lib/textPreprocess";
 
 const IMG_TAG_RE = /<img[^>]*>/gi;
 const MD_IMG_RE = /!\[.*?\]\(.*?\)/g;
@@ -367,8 +368,12 @@ const preWrapLatexHeavyLines = (text: string): string =>
       const mathSpan = hangulIdx >= 0 ? mathTail.slice(0, hangulIdx).trimEnd() : mathTail.trim();
       const trailingText = hangulIdx >= 0 ? mathTail.slice(hangulIdx) : "";
       if (!mathSpan) return line;
-      const hasDisplay = /\\displaystyle\b/.test(mathSpan);
-      const wrapped = hasDisplay ? `$${mathSpan}$` : `$\\displaystyle ${mathSpan}$`;
+      // **cleanMalformedLatex 적용** — wrap 한 mathSpan 안의 `\left\left{`
+      // 같은 모델 typo 를 정상화. 안 그러면 sanitize 가 만든 새 `$...$` 가
+      // textPreprocess 의 Step 4/5 거치기 전에 KaTeX 한테 가서 빨간 글씨.
+      const cleanedSpan = cleanMalformedLatex(mathSpan);
+      const hasDisplay = /\\displaystyle\b/.test(cleanedSpan);
+      const wrapped = hasDisplay ? `$${cleanedSpan}$` : `$\\displaystyle ${cleanedSpan}$`;
       return `${prefix}${leading}${wrapped}${trailingText}`;
     })
     .join("\n");

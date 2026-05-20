@@ -186,6 +186,67 @@ const injectDisplayStyle = (inner: string): string => {
 };
 
 /**
+ * 모델이 자주 emit 하는 malformed LaTeX 패턴을 정리 — KaTeX 가 통째로
+ * 에러 fallback (빨간 텍스트) 으로 가는 걸 막는다. 사용자 보고 (14번, 8번):
+ * `\left\left\{ ... \right\right\}` 가 통째로 빨간 raw 로 노출. KaTeX 는
+ * `\left` 다음에 *단일* 구분자를 기대 — `\left` 자체가 명령이라 "Expected
+ * delimiter, got \\left" 로 에러. 정상화: 중복된 `\left` / `\right` 를 하나로.
+ *
+ * Module-level export — `protectLooseLatex` (sanitize.ts) 의 line-level
+ * pre-wrap, preprocessMathText 의 `$...$` inner 처리, Step 9 auto-wrap,
+ * 그리고 MarkdownRenderer 의 renderKatex final guard 모두에서 호출. 한
+ * 군데서만 적용하면 path 가 다를 때 leak 됨.
+ */
+export const cleanMalformedLatex = (s: string): string =>
+  s
+    // 중복 명령어 (\left\left, \right\right, \frac\frac, \sqrt\sqrt) → 단일화
+    .replace(/\\left(?=\\left\b)/g, "")
+    .replace(/\\right(?=\\right\b)/g, "")
+    .replace(/\\bigl?(?=\\left\b)/g, "")
+    .replace(/\\bigr?(?=\\right\b)/g, "")
+    .replace(/\\frac(?=\\frac\b)/g, "")
+    .replace(/\\sqrt(?=\\sqrt\b)/g, "")
+    .replace(/\\boxed(?=\\boxed\b)/g, "")
+    // 물결표 / 근사 등호 (`\approx`, `≈`) → `=` — 사용자 보고: 물결표 금지.
+    .replace(/\\approx\b/g, "=")
+    .replace(/≈/g, "=")
+    // 빈 분수 `\frac{a}{}` → `\frac{a}{1}` (KaTeX parse error 방지)
+    .replace(/\\frac\{([^{}]*)\}\{\}/g, "\\frac{$1}{1}")
+    // 빈 분수 `\frac{}{b}` → `\frac{0}{$1}` (드물지만 발생)
+    .replace(/\\frac\{\}\{([^{}]*)\}/g, "\\frac{0}{$1}")
+    // escaped delimiter typo: `\left\(` / `\left\)` 같이 escape 된 `(` `)` →
+    // 그냥 `\left(` `\left)`. 모델이 자주 over-escape 함.
+    .replace(/\\left\\\(/g, "\\left(")
+    .replace(/\\right\\\)/g, "\\right)")
+    .replace(/\\left\\\[/g, "\\left[")
+    .replace(/\\right\\\]/g, "\\right]")
+    // spacing 중복: `\;\;\;` / `\,\,\,` / `\quad\quad` → 단일화
+    .replace(/(\\;){2,}/g, "\\;")
+    .replace(/(\\,){2,}/g, "\\,")
+    .replace(/(\\quad){2,}/g, "\\quad")
+    .replace(/(\\qquad){2,}/g, "\\qquad");
+
+/**
+ * `$...$` / `$$...$$` inner 에 적용할 정규화 묶음 — 모든 wrap path 에서
+ * 동일한 변환을 거치도록 한 군데에 모음.
+ *  1) cleanMalformedLatex (모델 typo 정리)
+ *  2) `\dfrac` → `\frac` (KaTeX 가 \dfrac fontdimen 부족으로 깨질 수 있음)
+ *  3) 유니코드 수학기호 → LaTeX 명령어
+ *  4) uprightGeometryLabels (점 라벨 직립 Roman)
+ *  5) autoSizeBrackets (분수/적분 포함 괄호를 `\left/\right` 로 — 사용자 5번)
+ *  6) injectDisplayStyle (inline 안에서도 분수 큰 사이즈)
+ */
+const applyMathInnerNormalization = (inner: string): string => {
+  let s = cleanMalformedLatex(inner);
+  s = s.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
+  for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
+  s = uprightGeometryLabels(s);
+  s = autoSizeBrackets(s);
+  s = injectDisplayStyle(s);
+  return s;
+};
+
+/**
  * 기하 표기에서 점 이름을 직립(Roman)으로 강제.
  *
  * 배경: 한국 교과서 / 수능 시험지에서 점·도형·선분·호 표기는 안의 라틴
@@ -341,44 +402,17 @@ export const preprocessMathText = (content: string): string => {
     (match, inner) => (MULTILINE_ENV.test(inner) ? `$$${inner}$$` : match),
   );
 
-  // 모델이 자주 emit 하는 malformed LaTeX 패턴을 정리 — KaTeX 가 통째로
-  // 에러 fallback (빨간 텍스트) 으로 가는 걸 막는다. 사용자 보고 (14번):
-  // `\left\left\{ ... \right\right\}` 가 통째로 빨간 raw 로 노출.
-  // KaTeX 는 `\left` 다음에 *단일* 구분자를 기대 — `\left` 자체가 명령이라
-  // "Expected delimiter, got \\left" 로 에러. 정상화: 중복된 `\left` /
-  // `\right` 를 하나로.
-  const cleanMalformedLatex = (s: string): string =>
-    s
-      // \left\left{ → \left\{ 등 — 2회 연속 left/right 를 1회로
-      .replace(/\\left(?=\\left\b)/g, "")
-      .replace(/\\right(?=\\right\b)/g, "")
-      // \left가 명령어 뒤에 바로 붙는 경우는 없으니, 다른 명령어 (\bigl, \Big 등)
-      // 와 연결되는 것도 같은 식으로 정리.
-      .replace(/\\bigl?(?=\\left\b)/g, "")
-      .replace(/\\bigr?(?=\\right\b)/g, "")
-      // \frac\frac{}{} 같은 nested-without-arg 도 단일로 — 모델 typo.
-      .replace(/\\frac(?=\\frac\b)/g, "")
-      .replace(/\\sqrt(?=\\sqrt\b)/g, "");
-
-  out = out.replace(/\$(?!\$)((?:[^$\\]|\\.)*)\$/g, (_m, inner) => {
-    let fixed = cleanMalformedLatex(inner);
-    fixed = fixed.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
-    for (const [re, repl] of UNICODE_MATH_MAP) fixed = fixed.replace(re, repl);
-    fixed = uprightGeometryLabels(fixed);
-    fixed = autoSizeBrackets(fixed);
-    fixed = injectDisplayStyle(fixed);
-    return `$${fixed}$`;
-  });
-
-  out = out.replace(/\$\$([\s\S]*?)\$\$/g, (_m, inner) => {
-    let fixed = cleanMalformedLatex(inner);
-    fixed = fixed.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
-    for (const [re, repl] of UNICODE_MATH_MAP) fixed = fixed.replace(re, repl);
-    fixed = uprightGeometryLabels(fixed);
-    fixed = autoSizeBrackets(fixed);
-    fixed = injectDisplayStyle(fixed);
-    return `$$${fixed}$$`;
-  });
+  // `$...$` / `$$...$$` inner 정규화 — applyMathInnerNormalization 한 곳에서
+  // 모든 변환 (cleanMalformedLatex, dfrac→frac, unicode, uprightGeometryLabels,
+  // autoSizeBrackets, injectDisplayStyle) 일괄 적용.
+  out = out.replace(
+    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    (_m, inner) => `$${applyMathInnerNormalization(inner)}$`,
+  );
+  out = out.replace(
+    /\$\$([\s\S]*?)\$\$/g,
+    (_m, inner) => `$$${applyMathInnerNormalization(inner)}$$`,
+  );
 
   // (8) `$...$` / `$$...$$` 밖에 떠도는 math-mode-only directive 청소.
   //     LLM 이 가끔 `$수식$\displaystyle 다음 한글 문장...` 형태로 LaTeX
@@ -460,9 +494,12 @@ export const preprocessMathText = (content: string): string => {
       if (!mathSpan) return line;
 
       // `\displaystyle` 이 이미 들어 있으면 그대로, 없으면 명시적으로 prepend.
+      // **반드시 applyMathInnerNormalization 통과** — 안 그러면 `\left\left`
+      // 같은 모델 typo 가 KaTeX 까지 그대로 도달해 빨간 글씨 fallback.
       const hasDisplay = /\\displaystyle\b/.test(mathSpan);
-      const wrapped = hasDisplay ? `$${mathSpan}$` : `$\\displaystyle ${mathSpan}$`;
-      return `${prefix}${leading}${wrapped}${trailingText}`;
+      const innerRaw = hasDisplay ? mathSpan : `\\displaystyle ${mathSpan}`;
+      const innerNormalized = applyMathInnerNormalization(innerRaw);
+      return `${prefix}${leading}$${innerNormalized}$${trailingText}`;
     })
     .join("\n");
 
@@ -476,6 +513,21 @@ export const preprocessMathText = (content: string): string => {
       new RegExp(`${SENTINEL_INLINE}(\\d+)${SENTINEL_INLINE}`, "g"),
       (_m, i: string) => `$${inlines[Number(i)]}$`,
     );
+
+  // (10) Final guard — 모든 변환이 끝난 뒤 모든 `$...$` / `$$...$$` 를 한
+  // 번 더 스캔해서 cleanMalformedLatex 적용. Step 9 의 새 wrap, Step 4/5 의
+  // 기존 wrap, 복원된 원본 mask 어디서 왔든 final pass 가 잡는다. 사용자가
+  // 본 빨간 글씨 (KaTeX 의 에러 fallback) 의 근본 원인은 \left\left 같은
+  // 모델 typo 였는데 path 마다 다르게 처리돼서 leak — 이 final guard 가
+  // 마지막 안전망.
+  out = out.replace(
+    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    (_m, inner: string) => `$${cleanMalformedLatex(inner)}$`,
+  );
+  out = out.replace(
+    /\$\$([\s\S]*?)\$\$/g,
+    (_m, inner: string) => `$$${cleanMalformedLatex(inner)}$$`,
+  );
 
   return out;
 };

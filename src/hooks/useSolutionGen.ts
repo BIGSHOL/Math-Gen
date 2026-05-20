@@ -29,7 +29,11 @@ import { useWizardStore } from "@app/stores/wizardStore";
 export const useSolutionGen = () => {
   const pages = useWizardStore((s) => s.pages);
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
-  const limit = useMemo(() => pLimit(3), []);
+  // pLimit(1) — Sonnet 4.6 의 분당 RPM/TPM 한계 (~30 RPM, ~40k TPM) 가 한
+  // 시험지 (30 문항) 에 대해 빠르게 차서 429 폭발. 사용자 보고: 10+ 429
+  // 연속 발생 후 ERR_ABORTED. 1 개씩 순차 처리로 rate window 보호.
+  // 30 문항 × ~3 초/문항 = 1.5 분 — UX 충분히 acceptable.
+  const limit = useMemo(() => pLimit(1), []);
 
   // Track which (pageId, itemId) pairs were dispatched on THIS mount so we
   // don't re-fire on every re-render.
