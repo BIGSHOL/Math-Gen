@@ -118,12 +118,20 @@ export const usePageOcr = () => {
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
   const limit = useMemo(() => pLimit(2), []);
 
-  // Track which page ids we've already dispatched on THIS mount, so a
-  // re-render (any pages-array change) doesn't double-fire for a page that's
-  // already in-flight but not yet ocrComplete.
+  // Track which page ids are *currently in flight* so a re-render doesn't
+  // double-dispatch the same page mid-call. We intentionally clear the
+  // marker in the worker's `finally`, so a page that ever finishes (success,
+  // error, or abort) becomes re-dispatchable as soon as its store state
+  // says it should run again (e.g. `ocrComplete: false` after a retry, or
+  // a fresh PDF upload that reused the same `pg-N` id).
+  //
+  // Old footgun: this was a "ever-dispatched" set. Re-uploading a PDF
+  // produced pages with identical ids (`pg-1`, `pg-2`, …), found their ids
+  // already in the set, and silently skipped OCR — 0/N forever. The
+  // dedicated `resetDispatch()` helper still exists as an escape hatch for
+  // explicit retry flows that mutate store *without* going through the
+  // worker's finally.
   const dispatched = useRef<Set<string>>(new Set());
-  // Same idea for the second (Opus) pass — keyed separately so a page can
-  // legitimately do both passes once each per mount.
   const upgradeDispatched = useRef<Set<string>>(new Set());
 
   // CRITICAL: AbortController must live for the ENTIRE component mount, NOT
@@ -150,6 +158,7 @@ export const usePageOcr = () => {
     const pass1Chain = pickPass1Chain();
     const pass2Chain = pickPass2Chain();
 
+
     /**
      * 한 페이지를 모델 체인 순서대로 시도 — 1차가 throw 하면 자동으로 다음
      * 모델로 폴백. 끝까지 모두 실패하면 마지막 에러를 throw. AbortError 는
@@ -164,7 +173,28 @@ export const usePageOcr = () => {
       passLabel: string,
     ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
       if (ctrl.signal.aborted) return null;
-      const image = await getPageImage(page.imageRef);
+      // 이전에 관찰된 footgun: idb 의 `db.get()` 이 어떤 환경 (다른 탭이
+      // 같은 DB 를 잡고 있거나 upgrade event 가 미완료된 상태, 또는 dev
+      // HMR cascade 로 메인 스레드가 starved 된 상태) 에서 영구 pending
+      // 으로 끝남. await 가 settle 안 되면 worker 전체가 hang, OCR 가
+      // 0/N 에서 멈춤. 명시적 timeout 으로 hang → throw 변환.
+      const IDB_TIMEOUT_MS = 8000;
+      const image = await Promise.race([
+        getPageImage(page.imageRef),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `IndexedDB read timeout (${IDB_TIMEOUT_MS}ms) — DB 가 다른 탭에 ` +
+                    `locked 됐거나 upgrade 가 멈춰있을 수 있습니다. F12 → Application ` +
+                    `→ Storage → "Clear site data" 후 PDF 다시 업로드.`,
+                ),
+              ),
+            IDB_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       if (ctrl.signal.aborted) return null;
       if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
 
@@ -246,6 +276,11 @@ export const usePageOcr = () => {
               ocrError: (err as Error).message || "알 수 없는 오류",
               ocrComplete: true,
             });
+          } finally {
+            // Free the in-flight slot so a future store change
+            // (`ocrComplete: false` from retry, new PDF upload, etc.) can
+            // re-dispatch this page id without a manual resetDispatch call.
+            dispatched.current.delete(page.id);
           }
         });
         return;
@@ -285,6 +320,10 @@ export const usePageOcr = () => {
           // eslint-disable-next-line no-console
           console.warn(`[usePageOcr] 페이지 ${page.id} 2차 전 체인 실패 (1차 결과 유지)`, err);
           setPageOCR(page.id, { upgrading: false });
+        } finally {
+          // Symmetric with the pass-1 marker — clear so a future retry
+          // (e.g. user manually re-triggers Opus) can run again.
+          upgradeDispatched.current.delete(page.id);
         }
       });
     });

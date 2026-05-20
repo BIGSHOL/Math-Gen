@@ -38,6 +38,16 @@ export interface PageThumbnail {
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
+/**
+ * Why all the diagnostic callbacks: a hang inside `openDB` is silent —
+ * `getDb()` just never resolves, every downstream `getPageImage` /
+ * `getThumbnail` waits forever, and the OCR pipeline goes 0/N. The two
+ * realistic causes are (a) another tab holding the DB at an older version
+ * while we try to upgrade (`blocked` fires), and (b) the connection
+ * getting force-closed by another tab after we opened it (`terminated`
+ * fires after the fact). Both surface in the console here so the user
+ * doesn't have to guess.
+ */
 const getDb = (): Promise<IDBPDatabase> => {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
@@ -52,6 +62,53 @@ const getDb = (): Promise<IDBPDatabase> => {
           db.createObjectStore(PDF_BLOBS);
         }
       },
+      blocked(currentVersion, blockedVersion) {
+        // 다른 탭이 이전 version 의 DB 를 들고 있어서 우리 upgrade 가
+        // 차단됨. 이 상태에선 openDB 가 영원히 resolve 안 함 — 다른
+        // mathgen 탭을 닫아야 풀린다.
+        // eslint-disable-next-line no-console
+        console.error(
+          `[imageStore] IndexedDB upgrade BLOCKED — 다른 탭이 v${currentVersion} ` +
+            `를 잡고 있어 v${blockedVersion} 로 업그레이드 불가. 다른 모든 ` +
+            `localhost:3000 탭을 닫고 새로고침 하세요.`,
+        );
+      },
+      blocking() {
+        // eslint-disable-next-line no-console
+        console.warn("[imageStore] This tab is BLOCKING another tab's DB upgrade.");
+      },
+      terminated() {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[imageStore] IndexedDB connection terminated unexpectedly. " +
+            "Reload the page to reopen.",
+        );
+        dbPromise = null;
+      },
+    });
+    // openDB 자체에 timeout — blocked / terminated / OS-level lock 등
+    // 어떤 이유로든 5초 내 resolve 안 되면 dbPromise 를 reject 시켜서
+    // hang 대신 명확한 에러로 변환.
+    dbPromise = Promise.race([
+      dbPromise,
+      new Promise<IDBPDatabase>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "IndexedDB open timeout (5s) — 다른 탭이 DB 를 lock 하고 " +
+                  "있거나 브라우저 storage 가 손상되었을 수 있습니다. " +
+                  "F12 → Application → Storage → 'Clear site data' 후 새로고침.",
+              ),
+            ),
+          5000,
+        ),
+      ),
+    ]).catch((err) => {
+      // 캐시된 promise 가 reject 상태로 굳지 않도록 reset — 다음 호출에서
+      // 다시 openDB 시도할 기회를 준다.
+      dbPromise = null;
+      throw err;
     });
   }
   return dbPromise;

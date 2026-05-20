@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import { getPageImage } from "@app/lib/imageStore";
+import { applyRotation } from "@app/lib/pdfProcessor";
 import { usePageOcr } from "@app/hooks/usePageOcr";
-import { useWizardStore } from "@app/stores/wizardStore";
+import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
 import OCRItem from "./OCRItem";
 import PageThumbColumn from "./PageThumbColumn";
 
@@ -18,8 +19,17 @@ import PageThumbColumn from "./PageThumbColumn";
  * resolve instantly as empty results — surfaced as a "스킵" banner with an
  * escape hatch to force OCR (reviewer note #4).
  */
-const usePageImageDataUrl = (imageRef: string | undefined): string | null => {
+/**
+ * Load a page's hi-res dataURL from IndexedDB and pre-rotate it so the
+ * `<img>` can just bind `src` — no CSS `transform: rotate(...)` which
+ * leaves the box layout in its pre-rotation aspect and produces the
+ * "container is still landscape, content is portrait" footgun (user
+ * reported). Caller treats `null` as "still loading or missing".
+ */
+const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
   const [url, setUrl] = useState<string | null>(null);
+  const imageRef = page?.imageRef;
+  const rotation = page?.rotation ?? 0;
 
   useEffect(() => {
     if (!imageRef) {
@@ -29,12 +39,27 @@ const usePageImageDataUrl = (imageRef: string | undefined): string | null => {
     let cancelled = false;
     (async () => {
       const img = await getPageImage(imageRef);
-      if (!cancelled) setUrl(img?.dataUrl ?? null);
+      if (cancelled) return;
+      if (!img) {
+        setUrl(null);
+        return;
+      }
+      if (rotation === 0) {
+        setUrl(img.dataUrl);
+        return;
+      }
+      try {
+        const rotated = await applyRotation(img.dataUrl, rotation);
+        if (!cancelled) setUrl(rotated);
+      } catch {
+        // Fall back to the un-rotated original — better than blank.
+        if (!cancelled) setUrl(img.dataUrl);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [imageRef]);
+  }, [imageRef, rotation]);
 
   return url;
 };
@@ -106,7 +131,7 @@ export const Step2OCRReview = () => {
   const { resetDispatch } = usePageOcr();
 
   const activePage = pages[activeIdx];
-  const pageImage = usePageImageDataUrl(activePage?.imageRef);
+  const pageImage = usePageImageDataUrl(activePage);
 
   const setActiveIdx = (i: number) => useWizardStore.setState({ activePageIndex: i });
 
@@ -173,18 +198,15 @@ export const Step2OCRReview = () => {
         </header>
         <Card pad={16} className="flex-1 overflow-auto bg-white">
           {pageImage ? (
-            // 원본 이미지는 IndexedDB 에 그대로 두고 CSS transform 으로만
-            // 정방향 미리보기. 실제 OCR 호출 시 usePageOcr 가 applyRotation
-            // 으로 정방향 dataURL 을 만들어서 모델에 보냄.
+            // `pageImage` 는 이미 `usePageImageDataUrl` 에서 회전 적용된
+            // dataURL — 여기선 transform 없이 그대로 표시. 박스 / img 둘
+            // 다 회전 후 visual 비율에 자연스럽게 맞춰 들어간다. OCR 호출
+            // 측도 `applyRotation` 으로 동일 dataURL 을 모델에 보내므로
+            // 화면과 모델 입력이 완전히 일치.
             <img
               src={pageImage}
               alt={`page ${activeIdx + 1}`}
               className="w-full h-auto"
-              style={
-                activePage.rotation === 0
-                  ? undefined
-                  : { transform: `rotate(${activePage.rotation}deg)`, transformOrigin: "center" }
-              }
             />
           ) : (
             <div className="h-full grid place-items-center text-muted text-small">

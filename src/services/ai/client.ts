@@ -13,11 +13,27 @@ import Anthropic from "@anthropic-ai/sdk";
  */
 const apiKey = process.env.ANTHROPIC_API_KEY;
 
-if (!apiKey) {
+// Module-load warning policy:
+//   - Anthropic missing, but Gemini OR OpenAI present  → silent. The user is
+//     intentionally running on the Gemini/OpenAI route. Anthropic features
+//     (Step 3 해설 생성, single-problem variant) will surface their own
+//     error if they actually get invoked without a key.
+//   - All three providers missing                      → warn. There is no
+//     code path that can succeed without at least one provider.
+//
+// 이 조건문이 없으면 Gemini+OpenAI 로만 OCR 돌리는 사용자에게도 매번 콘솔
+// 경고가 떠 노이즈가 됨 (사용자 보고).
+const hasAnyProviderKey =
+  Boolean(apiKey) ||
+  Boolean(process.env.GEMINI_API_KEY) ||
+  Boolean(process.env.OPENAI_API_KEY);
+
+if (!hasAnyProviderKey) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[ai] ANTHROPIC_API_KEY is not set. AI calls will fail. " +
-      "Add ANTHROPIC_API_KEY=... to your .env.local file.",
+    "[ai] No provider key is set (ANTHROPIC_API_KEY / GEMINI_API_KEY / " +
+      "OPENAI_API_KEY all blank). Every AI call will fail. Add at least " +
+      "one key to your .env / .env.local file.",
   );
 }
 

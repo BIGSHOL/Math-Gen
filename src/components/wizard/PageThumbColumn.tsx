@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Chip, Eyebrow, Icon } from "@app/components/ui";
 import { getThumbnail } from "@app/lib/imageStore";
+import { applyRotation } from "@app/lib/pdfProcessor";
 import { cn } from "@app/lib/tailwind";
 import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
 
@@ -65,6 +66,12 @@ export interface PageThumbColumnProps {
 const usePageThumbnails = (pages: WizardPage[]): Map<string, string> => {
   const [thumbs, setThumbs] = useState<Map<string, string>>(new Map());
 
+  // Like `useRotatedThumbnails`, depend on the stable set of thumbRefs —
+  // not the `pages` array itself. Zustand makes a new pages array on every
+  // OCR update, which would otherwise re-fire this effect and re-read all
+  // thumbnails from IndexedDB on every keystroke of OCR progress.
+  const thumbRefsKey = pages.map((p) => p.thumbRef ?? "").join("|");
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -79,9 +86,91 @@ const usePageThumbnails = (pages: WizardPage[]): Map<string, string> => {
     return () => {
       cancelled = true;
     };
-  }, [pages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thumbRefsKey]);
 
   return thumbs;
+};
+
+/**
+ * Pre-render rotated thumbnail dataURLs so the `<img>` can use `src` only —
+ * no CSS `transform: rotate(...)` which leaves the surrounding box layout
+ * unchanged (visual content rotates but the box stays landscape, the
+ * exact "안의 내용물만 세로로" footgun the user reported).
+ *
+ * Cache key is `thumbRef@rotation`. Originals (rotation === 0) skip — the
+ * caller can reach them directly via `thumbs.get(thumbRef)`.
+ *
+ * Memory: rotated dataURLs are kept until the page set changes. Each
+ * rotated thumbnail is small (low-res JPEG ~5 KB) so 20 pages × 3
+ * rotations is still under 1 MB.
+ */
+const useRotatedThumbnails = (
+  pages: WizardPage[],
+  thumbs: Map<string, string>,
+): Map<string, string> => {
+  const [rotated, setRotated] = useState<Map<string, string>>(new Map());
+
+  // Stable identity-string for the (page,rotation,thumbRef) triple set —
+  // becomes the effect dep instead of `pages` / `thumbs` themselves.
+  // Zustand emits a NEW `pages` array reference on every store update
+  // (every OCR `setPageOCR` call), so listing `pages` directly would
+  // re-fire this effect dozens of times during a single OCR run. Each
+  // re-fire setState(new Map()) → another render → another re-fire — a
+  // silent cascade that also tied up the main thread enough to stall
+  // IndexedDB callbacks in `usePageOcr`. The string key only changes when
+  // a thumbnail actually gets a new ref id or a different rotation, which
+  // is the real signal for re-rendering rotated bitmaps.
+  const sig = pages
+    .map((p) => `${p.id}:${p.thumbRef}:${p.rotation}`)
+    .join("|");
+  // Membership test against thumb keys — separate piece of the dep string.
+  const thumbKeys = Array.from(thumbs.keys()).sort().join("|");
+
+  useEffect(() => {
+    // 회전 적용된 페이지가 하나도 없으면 setState 자체를 안 한다 — 빈
+    // Map → 빈 Map 으로 re-set 하면 reference 비교에서 항상 "변경됨"으로
+    // 판정돼 무한 re-render 가 생긴다 (이전 버그).
+    const rotatedPages = pages.filter((p) => p.rotation !== 0);
+    if (rotatedPages.length === 0) {
+      if (rotated.size !== 0) setRotated(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const next = new Map<string, string>();
+      for (const page of rotatedPages) {
+        const orig = thumbs.get(page.thumbRef);
+        if (!orig) continue;
+        try {
+          const r = await applyRotation(orig, page.rotation);
+          if (cancelled) return;
+          next.set(`${page.thumbRef}@${page.rotation}`, r);
+        } catch {
+          // Best-effort — fall back to non-rotated original at render time.
+        }
+      }
+      if (cancelled) return;
+      // 내용 equality 체크 — 같은 keys/values 면 setState skip 해서
+      // 상위 re-render cascade 안 트리거.
+      let same = next.size === rotated.size;
+      if (same) {
+        for (const [k, v] of next) {
+          if (rotated.get(k) !== v) {
+            same = false;
+            break;
+          }
+        }
+      }
+      if (!same) setRotated(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, thumbKeys]);
+
+  return rotated;
 };
 
 export const PageThumbColumn = ({
@@ -91,6 +180,7 @@ export const PageThumbColumn = ({
   onResetDispatch,
 }: PageThumbColumnProps) => {
   const thumbs = usePageThumbnails(pages);
+  const rotatedThumbs = useRotatedThumbnails(pages, thumbs);
   const setPageRotation = useWizardStore((s) => s.setPageRotation);
 
   const rotateClockwise = (page: WizardPage) => {
@@ -111,7 +201,13 @@ export const PageThumbColumn = ({
           const isPending = !page.ocrComplete && (page.isProblemPage || page.forceOcr);
           const isUpgrading = Boolean(page.upgrading);
           const hasError = Boolean(page.ocrError);
-          const thumb = thumbs.get(page.thumbRef);
+          const originalThumb = thumbs.get(page.thumbRef);
+          // Display thumbnail: rotated dataURL if available, else the
+          // original (which is in flight of being rotated, or rotation=0).
+          const thumb =
+            page.rotation === 0
+              ? originalThumb
+              : rotatedThumbs.get(`${page.thumbRef}@${page.rotation}`) ?? originalThumb;
           const inflight = page.ocrInflightModel;
 
           return (
@@ -122,7 +218,7 @@ export const PageThumbColumn = ({
               aria-current={isActive}
               aria-label={`페이지 ${idx + 1}`}
               className={cn(
-                "relative h-16 rounded-r1 bg-white text-left p-1.5 transition-all duration-[140ms]",
+                "relative w-full rounded-r1 bg-white text-left p-1.5 transition-all duration-[140ms] overflow-hidden",
                 "border-[1.5px] focus:outline-none focus-visible:shadow-accent-glow",
                 isActive
                   ? "border-accent shadow-accent-glow"
@@ -131,20 +227,26 @@ export const PageThumbColumn = ({
                   : "border-line hover:border-line-strong shadow-s1",
                 isSkipped && "opacity-55",
               )}
+              style={{
+                // PDF 자연 페이지 비율은 A4 세로 (≈ 0.71). 사용자가 90/270°
+                // 회전을 적용한 페이지는 카드도 같이 가로형으로 swap 해서
+                // 콘텐츠 / 박스 사이에 비대칭이 생기지 않게 한다.
+                // (rotation 0 인데 가로 카드, 또는 회전 90 인데 세로 카드
+                //  같은 footgun 을 막음.)
+                aspectRatio:
+                  page.rotation === 90 || page.rotation === 270 ? "7 / 5" : "5 / 7",
+              }}
             >
               {thumb ? (
+                // 회전 적용된 dataURL 을 통째로 src 에 박는다 — `transform: rotate`
+                // 만 쓰면 박스 layout 이 안 변해서 콘텐츠만 회전되고 외곽이 가로
+                // 그대로 남는 footgun 이 생긴다 (사용자 보고). useRotatedThumbnails
+                // 가 회전된 dataURL 을 미리 만들어두므로 여기서는 단순 src 교체로
+                // 충분.
                 <img
                   src={thumb}
                   alt=""
                   className="w-full h-full object-cover rounded-[2px] pointer-events-none"
-                  // 썸네일은 IndexedDB 의 원본을 그대로 두고 CSS transform 으로만
-                  // 정방향 미리보기. 실제 OCR 호출 시점에 usePageOcr 가
-                  // applyRotation 으로 정방향 dataURL 만들어서 모델에 보냄.
-                  style={
-                    page.rotation === 0
-                      ? undefined
-                      : { transform: `rotate(${page.rotation}deg)` }
-                  }
                 />
               ) : (
                 <div className="w-full h-full bg-surface2 rounded-[2px] animate-pulse" />

@@ -36,37 +36,41 @@ const parseDotenv = (file: string): Record<string, string> => {
  * `loadEnv` merges `process.env` AFTER the dotenv files, so the empty shell
  * value clobbers our file value. Reading the files ourselves sidesteps that.
  *
- * Two sources, in priority order:
- *   1. `.env.local` — canonical Vite convention.
- *   2. `.env.example` — practical fallback. The team treats it as their
- *      working key file (both files are gitignored, so neither leaks).
- *      `.env.local` still wins when both define the same key, but if a key
- *      is only in `.env.example` it gets picked up anyway.
+ * Three sources, in priority order (later wins for the same key):
+ *   1. `.env.example` — last-resort fallback. Has placeholder strip applied
+ *      so doc lines like `=sk-ant-api03-REPLACE_ME` don't poison lookups.
+ *   2. `.env`         — committed/shared baseline values.
+ *   3. `.env.local`   — canonical Vite convention; highest priority.
  *
- * The merge is non-destructive: an empty/blank value in `.env.local` does
- * NOT override a real value in `.env.example`, so users can leave optional
- * keys blank in `.env.local` and they'll fall through to `.env.example`.
+ * All three files are gitignored as of the env-unification commit, so the
+ * "which one do I put my keys in?" question is purely ergonomic. Empty
+ * values (`KEY=`) are stripped before the merge so a blank line in
+ * `.env.local` doesn't accidentally erase a real value sitting in `.env`.
  */
 const readEnvLocal = (): Record<string, string> => {
   const exampleValues = parseDotenv(path.resolve(__dirname, ".env.example"));
+  const envValues = parseDotenv(path.resolve(__dirname, ".env"));
   const localValues = parseDotenv(path.resolve(__dirname, ".env.local"));
-  // Strip placeholders so `.env.example` lines like
-  //   `ANTHROPIC_API_KEY=sk-ant-api03-REPLACE_ME`
-  // don't poison real lookups when a contributor pastes only some keys.
-  // We match the placeholder *anywhere* in the value (not just the whole
-  // string) because the convention is to glue it onto the real key prefix
-  // (`sk-…-REPLACE_ME`, `<YOUR_KEY>`, etc.) — a strict `^…$` test misses
-  // those. Real API keys have high entropy / many distinct chars, so the
-  // false-positive risk for these tokens is essentially zero.
+
+  // Strip placeholders from `.env.example` only — `.env` / `.env.local` are
+  // user-authored and any value there is treated as intentional. The match
+  // is *substring* (not anchored) because the convention is to glue the
+  // placeholder onto a real prefix: `sk-ant-api03-REPLACE_ME`, `<YOUR_KEY>`.
+  // Real API keys have enough entropy that false-positive risk is zero.
   const PLACEHOLDER_RE = /(REPLACE_ME|YOUR_[A-Z_]+|<[^>]+>|^TODO$)/i;
   for (const key of Object.keys(exampleValues)) {
     const v = exampleValues[key];
     if (!v || PLACEHOLDER_RE.test(v)) delete exampleValues[key];
   }
+  for (const key of Object.keys(envValues)) {
+    if (!envValues[key]) delete envValues[key];
+  }
   for (const key of Object.keys(localValues)) {
     if (!localValues[key]) delete localValues[key];
   }
-  return { ...exampleValues, ...localValues };
+
+  // Object spread merge order = priority order. Later spreads win.
+  return { ...exampleValues, ...envValues, ...localValues };
 };
 
 /**
@@ -128,6 +132,17 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: "0.0.0.0",
+      // HMR (Hot Module Replacement) 는 컴포넌트 변경을 라이브 reload 하지만,
+      // 무거운 async 모듈 (usePageOcr 의 worker, IndexedDB 트랜잭션, AbortController)
+      // 을 갖고 있는 hook 의 경우 HMR swap 이 좀비 worker 누적 → 메인 스레드 점유 →
+      // setTimeout/IndexedDB callback starvation 의 cascade 를 만든다.
+      //
+      // 사용자 보고: stamp 가 5~6초 간격으로 새로 찍히고 OCR 가 영원히 hang.
+      //
+      // dev 동안 코드 변경 시 수동 새로고침이 필요하지만, OCR pipeline 안정성을
+      // 확보하는 가장 robust 한 선택. Phase 5 에서 worker dispose + hmr lifecycle
+      // 정리하면 다시 켤 수 있음.
+      hmr: false,
     },
     plugins: [stubBrowserUnsafeAnthropicSdk(stubs), react()],
     define: {
