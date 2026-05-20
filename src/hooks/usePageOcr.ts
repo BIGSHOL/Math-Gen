@@ -134,59 +134,22 @@ export const usePageOcr = () => {
   const dispatched = useRef<Set<string>>(new Set());
   const upgradeDispatched = useRef<Set<string>>(new Set());
 
-  // CRITICAL: AbortController must live for the ENTIRE component mount, NOT
-  // per-effect-cycle. The hook fires `setPageOCR(..., { upgrading: true })`
-  // which mutates the `pages` array — that re-triggers this useEffect's
-  // cleanup, which (in the old code) called `ctrl.abort()` and killed the
-  // Opus request we had just started, exactly one tick after dispatching it.
-  // Result: Opus traffic was 0 even though the logic was "correct" on paper.
-  // By tying the controller to a ref initialised once + a dedicated unmount
-  // effect, we get the abort guarantees on real teardown without sabotaging
-  // mid-flight requests on routine state updates.
-  const ctrlRef = useRef<AbortController | null>(null);
-  if (ctrlRef.current === null) ctrlRef.current = new AbortController();
+  // 한 때 mount-lifetime AbortController 로 in-flight HTTP 를 cancel 했지만,
+  // React 19 StrictMode / HMR / 부모 conditional render 가 unmount 를 시뮬레이트
+  // 할 때마다 abort 가 발동 → 워커가 `ctrl.signal.aborted` 분기로 silently
+  // 빠져나오고 finally 가 dispatched 마커를 비움 → 다음 effect cycle 이 같은
+  // 페이지를 다시 dispatch. 이게 사용자가 보고 한 "INFLIGHT → 마커 사라짐 → 재
+  // dispatch" 무한 루프의 원인이었다 (워커가 "✓ image loaded" 로그 직전에서
+  // bail).
+  //
+  // 해결: AbortController 자체를 제거. 명시적 cancel 은 `resetDispatch()` 에서
+  // 마커를 지우는 것으로 충분. 워커가 자연스럽게 완료되어 setPageOCR 까지
+  // 도달하면 store 가 결과를 받고, 페이지가 이미 사라졌다면 zustand 의 `map`
+  // 매처가 no-op. 실제 unmount 중 in-flight HTTP 한 번 분의 비용은 감수.
+  const pass1Chain = useMemo(pickPass1Chain, []);
+  const pass2Chain = useMemo(pickPass2Chain, []);
 
   useEffect(() => {
-    // StrictMode-safe cleanup: abort in-flight work and null the controller
-    // so the next mount allocates a fresh one. DO NOT clear the dispatched
-    // markers here.
-    //
-    // Why not clear: in dev StrictMode the sequence is
-    //   mount-1 → effect runs (workers A1..An dispatched, dispatched={p1..pn})
-    //   → cleanup (this) → mount-2 → effect runs again.
-    // The aborted workers A1..An keep running anyway because the underlying
-    // SDKs (Gemini in particular) do not always honor an already-aborted
-    // signal — by the time we abort, the model request is already in flight
-    // and resolves normally. If cleanup also `dispatched.clear()`-s the
-    // markers, mount-2's effect sees a clean Set and re-dispatches every
-    // page, producing a SECOND identical model call per page. The user
-    // observed exactly this — every page logged `→ dispatch (pass 1)` /
-    // `▶ getPageImage` / `extractPageProblems` twice (2× cost).
-    // Leaving the markers in place means mount-2's loop sees `INFLIGHT` for
-    // each page and skips. Each worker still cleans up its own marker in
-    // its `finally` block.
-    return () => {
-      ctrlRef.current?.abort();
-      ctrlRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    // StrictMode does { run effect → cleanup → run effect again } within the
-    // same render. Hook body (above) sets `ctrlRef.current` only once per
-    // render, so after that first cleanup nulls it, the second invocation of
-    // THIS effect would otherwise grab `null` here — `ctrl.signal` later
-    // would throw `TypeError: null.signal`. Re-allocate eagerly when missing.
-    // We *don't* clear dispatched here — the previous workers (whose
-    // `ctrl` closures point at the aborted controller) are still in flight
-    // and will clean up their own markers in `finally`. Clearing would
-    // cause duplicate dispatches on the new controller; see cleanup notes.
-    if (ctrlRef.current === null) {
-      ctrlRef.current = new AbortController();
-    }
-    const ctrl = ctrlRef.current;
-    const pass1Chain = pickPass1Chain();
-    const pass2Chain = pickPass2Chain();
 
     // DEV-only progress log so the user can see at a glance whether
     // dispatch is happening, who's in-flight, and what's complete.
@@ -214,18 +177,27 @@ export const usePageOcr = () => {
 
     /**
      * 한 페이지를 모델 체인 순서대로 시도 — 1차가 throw 하면 자동으로 다음
-     * 모델로 폴백. 끝까지 모두 실패하면 마지막 에러를 throw. AbortError 는
-     * 폴백 안 함 (사용자 취소 의도 존중).
+     * 모델로 폴백. 끝까지 모두 실패하면 마지막 에러를 throw.
+     *
+     * Cancellation: 모든 await 직후 `dispatched.current.has(page.id)` 를
+     * 체크. 마커가 사라졌다는 건 `resetDispatch(page.id)` 가 명시적으로
+     * 호출됐다는 뜻 (사용자 retry 또는 회전) — 그 경우 silently return.
      *
      * 반환: `{ items, modelUsed }` — 어떤 모델이 결과를 만들었는지 함께
      * 돌려줘서 store 에 `ocrModel` 기록할 수 있게 함.
      */
+    const isCancelled = (pageId: string, marker: "pass1" | "pass2"): boolean =>
+      marker === "pass1"
+        ? !dispatched.current.has(pageId)
+        : !upgradeDispatched.current.has(pageId);
+
     const runOcrChain = async (
       page: WizardPage,
       chain: OCRModel[],
       passLabel: string,
+      marker: "pass1" | "pass2",
     ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
-      if (ctrl.signal.aborted) return null;
+      if (isCancelled(page.id, marker)) return null;
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
         console.log(`[usePageOcr] ${page.id} ${passLabel} ▶ getPageImage`);
@@ -252,7 +224,7 @@ export const usePageOcr = () => {
           ),
         ),
       ]);
-      if (ctrl.signal.aborted) return null;
+      if (isCancelled(page.id, marker)) return null;
       if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
@@ -269,7 +241,7 @@ export const usePageOcr = () => {
       let lastErr: Error | null = null;
       for (let i = 0; i < chain.length; i++) {
         const model = chain[i];
-        if (ctrl.signal.aborted) return null;
+        if (isCancelled(page.id, marker)) return null;
         // In-flight 모델 표시 — DEV 빌드에서 UI 가 보고 배지 띄움. 폴백
         // 발생 시 새 모델로 갱신, 성공·실패 시 finally 에서 unset.
         setPageOCR(page.id, { ocrInflightModel: model });
@@ -282,7 +254,6 @@ export const usePageOcr = () => {
             extractPageProblems({
               pageBase64: rotated,
               textLayer: page.textLayer,
-              signal: ctrl.signal,
               model,
             }),
           );
@@ -301,11 +272,7 @@ export const usePageOcr = () => {
           setPageOCR(page.id, { ocrInflightModel: undefined });
           return { items: result.items, modelUsed: model };
         } catch (err) {
-          if ((err as Error).name === "AbortError") {
-            setPageOCR(page.id, { ocrInflightModel: undefined });
-            throw err;
-          }
-          if (ctrl.signal.aborted) {
+          if (isCancelled(page.id, marker)) {
             setPageOCR(page.id, { ocrInflightModel: undefined });
             return null;
           }
@@ -337,16 +304,15 @@ export const usePageOcr = () => {
         }
         void limit(async () => {
           try {
-            const result = await runOcrChain(page, pass1Chain, "1차");
-            if (!result || ctrl.signal.aborted) return;
+            const result = await runOcrChain(page, pass1Chain, "1차", "pass1");
+            if (!result) return;
             setPageOCR(page.id, {
               ocrResult: result.items,
               ocrComplete: true,
               ocrModel: result.modelUsed as WizardPage["ocrModel"],
             });
           } catch (err) {
-            if (ctrl.signal.aborted) return;
-            if ((err as Error).name === "AbortError") return;
+            if (isCancelled(page.id, "pass1")) return;
             // eslint-disable-next-line no-console
             console.error(`[usePageOcr] 페이지 ${page.id} 1차 실패 (전 체인)`, err);
             setPageOCR(page.id, {
@@ -383,16 +349,15 @@ export const usePageOcr = () => {
       setPageOCR(page.id, { upgrading: true });
       void limit(async () => {
         try {
-          const result = await runOcrChain(page, pass2Chain, "2차");
-          if (!result || ctrl.signal.aborted) return;
+          const result = await runOcrChain(page, pass2Chain, "2차", "pass2");
+          if (!result) return;
           setPageOCR(page.id, {
             ocrResult: result.items,
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             upgrading: false,
           });
         } catch (err) {
-          if (ctrl.signal.aborted) return;
-          if ((err as Error).name === "AbortError") return;
+          if (isCancelled(page.id, "pass2")) return;
           // 2차 실패는 fatal 아님 — 1차 결과 그대로 보존하고 spinner 해제.
           // eslint-disable-next-line no-console
           console.warn(`[usePageOcr] 페이지 ${page.id} 2차 전 체인 실패 (1차 결과 유지)`, err);
@@ -405,9 +370,11 @@ export const usePageOcr = () => {
       });
     });
 
-    // NOTE: no cleanup that aborts here — the controller lives across all
-    // effect cycles via ctrlRef. Re-runs of this effect (caused by pages
-    // updates from our own setPageOCR calls) must NOT kill in-flight work.
+    // NOTE: no abort here — see the comment above the marker `useRef` blocks.
+    // Re-runs of this effect (caused by pages updates from our own setPageOCR
+    // calls) must NOT kill in-flight work. Workers self-cancel via
+    // `dispatched.current` membership checks; real cancellation goes through
+    // `resetDispatch(page.id)`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages]);
 

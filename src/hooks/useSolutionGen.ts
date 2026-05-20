@@ -19,17 +19,12 @@ import { useWizardStore } from "@app/stores/wizardStore";
  *   - Item.text is empty.
  *   - This component instance already dispatched this item (`dispatched` set).
  *
- * Three abort guards (lifted from `usePageOcr`):
- *   1. The controller lives in a ref for the *entire mount*, so re-running
- *      this effect (caused by our own `updateOCRItem` calls bumping the
- *      `pages` array) doesn't abort the in-flight requests.
- *   2. Each queued worker rechecks `signal.aborted` immediately before its
- *      `generateSolution` call.
- *   3. `generateSolution` passes the signal into the SDK, so unmount also
- *      cancels at the network layer.
- *
- * The hook returns the controller so callers (a per-card "재생성" button)
- * can clear the dispatched set entry and force a retry on demand.
+ * Cancellation: `usePageOcr` 와 동일하게 `dispatched` Set 멤버십이 단일
+ * 취소 신호. mount-lifetime AbortController 를 쓰면 React 19 StrictMode /
+ * HMR / 부모 conditional render 가 unmount 를 시뮬레이트할 때마다 abort 가
+ * 발동해서 워커가 silently 빠지고 dispatched 가 비워지며 재 dispatch
+ * 무한 루프가 생긴다 — 사용자가 Step 2 에서 정확히 본 footgun.
+ * resetDispatch(page, item) 이 명시적 사용자 취소 신호.
  */
 export const useSolutionGen = () => {
   const pages = useWizardStore((s) => s.pages);
@@ -40,14 +35,7 @@ export const useSolutionGen = () => {
   // don't re-fire on every re-render.
   const dispatched = useRef<Set<string>>(new Set());
 
-  // Controller lives for the whole mount (see docstring guard #1).
-  const ctrlRef = useRef<AbortController | null>(null);
-  if (ctrlRef.current === null) ctrlRef.current = new AbortController();
-
-  useEffect(() => () => ctrlRef.current?.abort(), []);
-
   useEffect(() => {
-    const ctrl = ctrlRef.current!;
     for (const page of pages) {
       // Pages skipped by the OCR pipeline (e.g. cover / answer key) won't
       // have meaningful items either.
@@ -60,15 +48,14 @@ export const useSolutionGen = () => {
         dispatched.current.add(key);
         updateOCRItem(page.id, item.id, { solutionGenerating: true });
         void limit(async () => {
-          if (ctrl.signal.aborted) return;
+          if (!dispatched.current.has(key)) return;
           try {
             const result = await withRetry(() =>
               generateSolution({
                 problem: { text: item.text, topic: item.topic },
-                signal: ctrl.signal,
               }),
             );
-            if (ctrl.signal.aborted) return;
+            if (!dispatched.current.has(key)) return;
             updateOCRItem(page.id, item.id, {
               solution: result.solution,
               answer: result.answer,
@@ -77,8 +64,7 @@ export const useSolutionGen = () => {
               solutionError: undefined,
             });
           } catch (err) {
-            if (ctrl.signal.aborted) return;
-            if ((err as Error).name === "AbortError") return;
+            if (!dispatched.current.has(key)) return;
             // eslint-disable-next-line no-console
             console.error(
               `[useSolutionGen] 페이지 ${page.id} 문항 ${item.number} 해설 실패`,
