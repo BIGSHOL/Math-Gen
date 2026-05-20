@@ -1,12 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Btn,
+  Card,
   Chip,
   Divider,
   Heading,
   Icon,
   TopBar,
 } from "@app/components/ui";
+import { ModalShell } from "@app/components/modal/ModalShell";
+import { deletePageImages, deleteThumbnails } from "@app/lib/imageStore";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { useWizardStore } from "@app/stores/wizardStore";
@@ -54,12 +57,67 @@ export const WizardScreen = () => {
   const reset = useWizardStore((s) => s.reset);
   const pages = useWizardStore((s) => s.pages);
   const testId = useWizardStore((s) => s.testId);
+  const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
 
   const backToLibrary = useAppStore((s) => s.backToLibrary);
   const getTest = useLibraryStore((s) => s.getTest);
   const sourceTest = testId ? getTest(testId) : undefined;
 
-  useWizardGuard(step > 0 && step < 5);
+  // 새로 wizard 진입할 때 sessionStorage 에 미완료 작업이 남아있으면 사용자에게
+  // 명시적으로 묻는다. Plan 4.0 의 "이전 작업 이어하기 / 새로 시작" 다이얼로그.
+  // 이 안 묻고 자동 복원하면, stale state (옛 schema, 깨진 IndexedDB ref,
+  // 잘못 저장된 ocrComplete=true) 가 새 mount 에 그대로 들어가 OCR pipeline
+  // hang / 빈 결과 같은 silent 버그를 유발했음 (사용자 보고).
+  const [resumeDialog, setResumeDialog] = useState<{
+    fileName: string;
+    step: number;
+    pagesDone: number;
+    pagesTotal: number;
+  } | null>(null);
+  const promptedRef = useRef(false);
+  useEffect(() => {
+    if (promptedRef.current) return;
+    promptedRef.current = true;
+    // 마운트 시점에 sessionStorage 가 hydrate 된 상태. uploadedFileName 또는
+    // 페이지 데이터가 살아 있으면 "이어하기 / 새로 시작" 묻는다.
+    const s = useWizardStore.getState();
+    const hasState = Boolean(s.uploadedFileName) || s.pages.length > 0;
+    if (hasState) {
+      setResumeDialog({
+        fileName: s.uploadedFileName ?? "(파일명 없음)",
+        step: s.step,
+        pagesDone: s.pages.filter((p) => p.ocrComplete).length,
+        pagesTotal: s.pages.length,
+      });
+    }
+  }, []);
+
+  const cleanupIndexedDB = async () => {
+    const refs = useWizardStore.getState().pages;
+    const imageRefs = refs.map((p) => p.imageRef).filter(Boolean);
+    const thumbRefs = refs.map((p) => p.thumbRef).filter(Boolean);
+    try {
+      await Promise.all([deletePageImages(imageRefs), deleteThumbnails(thumbRefs)]);
+    } catch (err) {
+      // best-effort cleanup — 실패해도 다음 wizard 진행에 영향 없음.
+      // eslint-disable-next-line no-console
+      console.warn("[WizardScreen] IndexedDB cleanup partial failure", err);
+    }
+  };
+
+  const handleRestart = async () => {
+    await cleanupIndexedDB();
+    reset();
+    setResumeDialog(null);
+  };
+
+  const handleExit = async () => {
+    await cleanupIndexedDB();
+    reset();
+    backToLibrary();
+  };
+
+  useWizardGuard(step > 0 && step < 5 && !resumeDialog);
 
   // ⌘← / ⌘→ navigation; ignore arrow keys when an input is focused.
   useEffect(() => {
@@ -91,10 +149,7 @@ export const WizardScreen = () => {
               kind="ghost"
               size="sm"
               icon="x"
-              onClick={() => {
-                reset();
-                backToLibrary();
-              }}
+              onClick={handleExit}
               aria-label="위자드 종료"
             >
               종료
@@ -153,6 +208,68 @@ export const WizardScreen = () => {
         onNext={next}
         canAdvance={canAdvance}
       />
+
+      {resumeDialog && (
+        <ModalShell
+          open
+          onClose={() => setResumeDialog(null)}
+          aria-label="이전 변환 작업 발견"
+          className="max-w-[460px] w-full"
+        >
+          <Card pad={24} className="border-0 shadow-none">
+            <div className="flex items-start gap-3 mb-4">
+              <div
+                className="grid place-items-center flex-shrink-0 text-accent"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  background: "rgba(14,165,233,0.12)",
+                }}
+              >
+                <Icon name="hourglass-medium" size={18} weight="duotone" />
+              </div>
+              <div className="min-w-0">
+                <Heading level="h2">진행 중인 변환이 있어요</Heading>
+                <p className="mt-1 text-small text-muted">
+                  새로고침 / 탭 재진입으로 이전 작업이 복원되었습니다. 이어할지,
+                  처음부터 새로 시작할지 선택하세요.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-r2 bg-surface2 px-4 py-3 text-small space-y-1.5">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted">시험지</span>
+                <span className="text-text truncate">{resumeDialog.fileName}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted">마지막 단계</span>
+                <span className="text-text">
+                  {STEPS[resumeDialog.step]?.label ?? `Step ${resumeDialog.step + 1}`}
+                </span>
+              </div>
+              {resumeDialog.pagesTotal > 0 && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted">OCR 진행</span>
+                  <span className="text-text">
+                    {resumeDialog.pagesDone} / {resumeDialog.pagesTotal} 페이지
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex gap-2 justify-end">
+              <Btn kind="ghost" onClick={handleRestart} icon="trash">
+                새로 시작
+              </Btn>
+              <Btn kind="accent" onClick={() => setResumeDialog(null)} icon="play">
+                이어하기
+              </Btn>
+            </div>
+          </Card>
+        </ModalShell>
+      )}
     </div>
   );
 };
