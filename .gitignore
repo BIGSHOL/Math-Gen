@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# Secrets — never commit any .env variant.
+# `*.local` above already catches `.env.local`, but the explicit patterns
+# below also block `.env`, `.env.production`, `.env.development`, etc.
+.env
+.env.*
+!.env.example
+
+# Claude Code local state (sessions, settings, agent telemetry)
+.claude/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

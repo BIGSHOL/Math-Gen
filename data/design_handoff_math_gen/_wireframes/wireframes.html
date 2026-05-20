@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>기출지 변환기 · 와이어프레임 6종</title>
+<meta name="viewport" content="width=1400" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+<style>
+  html, body { margin: 0; background: #1A1D24; font-family: Pretendard, -apple-system, sans-serif; }
+  #root { width: 100%; height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="wireframes/primitives.jsx"></script>
+<script type="text/babel" src="wireframes/v1-workbench.jsx"></script>
+<script type="text/babel" src="wireframes/v2-wizard.jsx"></script>
+<script type="text/babel" src="wireframes/v3-split.jsx"></script>
+<script type="text/babel" src="wireframes/v4-library.jsx"></script>
+<script type="text/babel" src="wireframes/v5-stream.jsx"></script>
+<script type="text/babel" src="wireframes/v6-mobile.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+(() => {
+const DesignCanvas = window.DesignCanvas;
+const DCSection = window.DCSection;
+const DCArtboard = window.DCArtboard;
+
+function App() {
+  return (
+    <DesignCanvas
+      title="수학 기출지 변환기 · 와이어프레임"
+      subtitle="6개 IA 방향 · 각 시안마다 핵심 화면 1–3개"
+    >
+      <DCSection id="v1" title="V1 · Classic Workbench" subtitle="좌: 설정 / 우: 캔버스 — 기존 Math-Gen 사이드바 패턴 계승, 기출지 변환을 1급 시민으로 승격">
+        <DCArtboard id="v1-upload" label="① 업로드 + 변환 설정" width={1280} height={820}>
+          <V1.Upload />
+        </DCArtboard>
+        <DCArtboard id="v1-result" label="② 결과 검토 (3-pane)" width={1280} height={820}>
+          <V1.Result />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="v2" title="V2 · Stepper Wizard" subtitle="5단계 풀스크린 — 한 번에 한 가지 결정, 비-전문 사용자 친화">
+        <DCArtboard id="v2-upload" label="Step 1 · 업로드" width={1280} height={820}>
+          <V2.StepUpload />
+        </DCArtboard>
+        <DCArtboard id="v2-options" label="Step 3 · 변형 옵션 + 미리보기" width={1280} height={820}>
+          <V2.StepOptions />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="v3" title="V3 · Side-by-Side" subtitle="원본 시험지 vs 변환 결과를 페이지 단위로 나란히 — 교사 검토에 최적">
+        <DCArtboard id="v3-compare" label="페이지 단위 동기 검토" width={1280} height={820}>
+          <V3.Compare />
+        </DCArtboard>
+        <DCArtboard id="v3-diff" label="단일 문항 변경점 비교" width={1280} height={820}>
+          <V3.Diff />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="v4" title="V4 · Library-First Dashboard" subtitle="'내 시험지' 컬렉션이 메인 — 기존 시험지에서 변형 N개 일괄 생성">
+        <DCArtboard id="v4-library" label="라이브러리 대시보드" width={1280} height={820}>
+          <V4.Library />
+        </DCArtboard>
+        <DCArtboard id="v4-new" label="변형 시험지 만들기 모달" width={1280} height={820}>
+          <V4.NewVariant />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="v5" title="V5 · Card Stream" subtitle="문제 카드 세로 스트림 · 인라인 컨트롤 + 코멘트 — 협업·검토 흐름에 강함">
+        <DCArtboard id="v5-stream" label="문항 스트림 + 인라인 편집" width={1280} height={900}>
+          <V5.Stream />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="v6" title="V6 · Mobile / Compact" subtitle="현장에서 즉시 촬영 → 변환 → 스와이프 검토 — 학원·과외 사용 시나리오">
+        <DCArtboard id="v6-phones" label="촬영 · 검토 · 보관함" width={1320} height={920}>
+          <V6.Phones />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+})();
+</script>
+</body>
+</html>

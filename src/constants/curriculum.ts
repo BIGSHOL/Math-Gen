@@ -1,4 +1,4 @@
-import { CurriculumUnit } from './types';
+import { CurriculumUnit } from '@app/types';
 
 export const ELEMENTARY_SCHOOL_CURRICULUM: Record<string, CurriculumUnit[]> = {
   '1학년 1학기': [

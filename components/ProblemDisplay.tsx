@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { GeneratedProblem, GenerationMode } from '../types';
-import MarkdownRenderer from './MarkdownRenderer';
-import DiagramEditor from './DiagramEditor';
+import { GeneratedProblem, GenerationMode } from '@app/types';
+import MarkdownRenderer from '@app/components/math/MarkdownRenderer';
+import DiagramEditor from '@app/components/math/DiagramEditor';
 import { Eye, EyeOff, CheckCircle, HelpCircle, FileText, Image as ImageIcon, Printer, Code, PenTool } from 'lucide-react';
 
 interface ProblemDisplayProps {

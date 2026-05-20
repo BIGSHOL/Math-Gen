@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { SelectionState, SchoolLevel, Difficulty, ProblemType, AnswerType, CurriculumUnit } from '../types';
-import { MIDDLE_SCHOOL_CURRICULUM, HIGH_SCHOOL_CURRICULUM, ELEMENTARY_SCHOOL_CURRICULUM } from '../constants';
+import { SelectionState, SchoolLevel, Difficulty, ProblemType, AnswerType, CurriculumUnit } from '@app/types';
+import { MIDDLE_SCHOOL_CURRICULUM, HIGH_SCHOOL_CURRICULUM, ELEMENTARY_SCHOOL_CURRICULUM } from '@app/constants/curriculum';
 import { BookOpen, GraduationCap, Layers, Zap, PenTool, Image as ImageIcon, Upload, X, Copy, LayoutTemplate } from 'lucide-react';
 
 interface SelectionPanelProps {
@@ -170,56 +170,41 @@ const SelectionPanel: React.FC<SelectionPanelProps> = ({ selection, onChange, on
         <p className="text-xs text-slate-500 mt-1">2022 개정 교육과정 기반</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200">
-        <button
-          onClick={() => handleChange('mode', 'curriculum')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
-            selection.mode === 'curriculum' 
-              ? 'text-indigo-600' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
-        >
-          <BookOpen size={16} />
-          교과 선택
-          {selection.mode === 'curriculum' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
-        </button>
-        <button
-          onClick={() => handleChange('mode', 'image')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
-            selection.mode === 'image' 
-              ? 'text-indigo-600' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
-        >
-          <ImageIcon size={16} />
-          유사 문제
-          {selection.mode === 'image' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
-        </button>
-        <button
-          onClick={() => handleChange('mode', 'exact')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
-            selection.mode === 'exact' 
-              ? 'text-indigo-600' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
-        >
-          <Copy size={16} />
-          동일 문제
-          {selection.mode === 'exact' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
-        </button>
-        <button
-          onClick={() => handleChange('mode', 'diagram')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
-            selection.mode === 'diagram' 
-              ? 'text-indigo-600' 
-              : 'text-slate-500 hover:bg-slate-50'
-          }`}
-        >
-          <LayoutTemplate size={16} />
-          도형 편집
-          {selection.mode === 'diagram' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
-        </button>
+      {/* Mode picker — 2x2 grid of mode cards. Replaces the cramped 4-up
+          tab row. Uses Phase 0 design tokens so it already matches the
+          new design language ahead of the Phase 2 rewrite. */}
+      <div className="px-5 py-4 border-b border-line">
+        <div className="text-micro uppercase text-muted mb-2.5">생성 모드</div>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { id: 'curriculum', icon: BookOpen, label: '교과 선택' },
+            { id: 'image',      icon: ImageIcon, label: '유사 문제' },
+            { id: 'exact',      icon: Copy,      label: '동일 문제' },
+            { id: 'diagram',    icon: LayoutTemplate, label: '도형 편집' },
+          ] as const).map(({ id, icon: ModeIcon, label }) => {
+            const active = selection.mode === id;
+            return (
+              <button
+                key={id}
+                onClick={() => handleChange('mode', id)}
+                className={[
+                  'group flex items-center gap-2.5 h-10 px-3 rounded-r2 border text-[13px] font-semibold',
+                  'transition-[background,border-color,color,box-shadow] duration-[140ms] ease-out',
+                  'focus-visible:outline-none focus-visible:shadow-accent-glow',
+                  active
+                    ? 'bg-accent-soft border-accent-soft-strong text-accent-ink shadow-s1'
+                    : 'bg-surface border-line text-text2 hover:bg-hover hover:border-line-strong',
+                ].join(' ')}
+              >
+                <ModeIcon
+                  size={16}
+                  className={active ? 'text-accent' : 'text-muted group-hover:text-text2'}
+                />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">

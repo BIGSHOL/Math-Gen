@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>수학 기출지 변환기 · Hi-Fi</title>
+<meta name="viewport" content="width=1400" />
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+
+<!-- Phosphor icons — CSS font, multiple weights -->
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css" />
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: #FAFBFC; font-family: "Pretendard Variable", Pretendard, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { overflow: auto; word-break: keep-all; }
+  #root { width: 100vw; height: 100vh; min-width: 1280px; min-height: 760px; }
+  button { font-family: inherit; }
+
+  /* KaTeX inline tweaks */
+  .katex { font-size: 1.02em !important; }
+  .katex-display { margin: 0.4em 0 !important; }
+
+  /* Phosphor icon size respects parent font-size */
+  i[class^="ph"], i[class*=" ph"] { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+  i[class^="ph"]::before, i[class*=" ph"]::before { font-size: 1em; }
+
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb { background: #D9DCE0; border-radius: 6px; border: 2px solid #FAFBFC; }
+  *::-webkit-scrollbar-thumb:hover { background: #B4B8C0; }
+  *::-webkit-scrollbar-track { background: transparent; }
+
+  /* Animations */
+  @keyframes wizSlideInRight {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes wizSlideInLeft {
+    from { opacity: 0; transform: translateX(-40px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Selection */
+  ::selection { background: rgba(14, 165, 233, 0.20); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="./hifi/tokens.jsx"></script>
+<script type="text/babel" src="./hifi/math.jsx"></script>
+<script type="text/babel" src="./hifi/library.jsx"></script>
+<script type="text/babel" src="./hifi/detail.jsx"></script>
+<script type="text/babel" src="./hifi/modal.jsx"></script>
+<script type="text/babel" src="./hifi/wizard.jsx"></script>
+<script type="text/babel" src="./hifi/wizard-steps.jsx"></script>
+<script type="text/babel" src="./hifi/app.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+(() => {
+  const App = window.AppHF;
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+})();
+</script>
+</body>
+</html>

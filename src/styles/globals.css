@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================
+   Base global styles
+   ========================================================= */
+@layer base {
+  html {
+    /* Korean word-break: keep-all per design handoff section 8 */
+    word-break: keep-all;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans;
+    font-feature-settings: "ss01", "ss02", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Exam-style serif (carried over from legacy index.html) */
+  .font-exam {
+    font-family: "Nanum Myeongjo", "Batang", "BatangChe", serif !important;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* =========================================================
+   Custom scrollbar (Linear/Notion tone)
+   ========================================================= */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* =========================================================
+   KaTeX & Korean math content rendering
+   -----------------------------------------------------------
+   Ported verbatim from F:\mathlab\src\components\math\MathRenderer.tsx
+   (`<style jsx global>` block) — these rules are the result of years of
+   tuning against real Korean workbook content. Don't tweak without a
+   regression test problem set.
+   ========================================================= */
+
+/* 인라인 수식을 원자적 단위로 — 등호/답 부분이 줄 끝에서 분리되지 않도록 */
+.katex {
+  display: inline-block;
+}
+
+/* 편집 가능한 수식 — onMathClick 활성 시에만 cursor/hover 표시 */
+.math-clickable .editable-math {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.15s, box-shadow 0.15s;
+}
+.math-clickable .editable-math:hover {
+  background-color: rgba(14, 165, 233, 0.1);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.4);
+}
+
+/* SVG 다이어그램 인라인 렌더링 */
+.diagram-svg-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+.diagram-svg-inline svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 도형 정렬 */
+.diagram-align-center {
+  display: block;
+  text-align: center;
+}
+.diagram-align-right {
+  display: block;
+  text-align: right;
+}
+
+/* blockquote 안 인라인 SVG */
+.diagram-svg-inline-bq {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+.diagram-svg-inline-bq svg {
+  max-height: 80px;
+  width: auto;
+}
+
+/* 도형 설명 플레이스홀더 박스 */
+.diagram-placeholder {
+  display: inline-block;
+  background: #f1f5f9;
+  border: 1px dashed #94a3b8;
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin: 2px 4px;
+  color: #64748b;
+  font-size: 0.85em;
+  vertical-align: middle;
+}
+
+/* Block math: horizontal scroll when expressions overflow */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+/* 세로셈(vertical operation) — 한글 교육과정 계산식 */
+.katex .arraycolsep {
+  width: 0.2em !important;
+}
+.katex .vertical-separator {
+  width: 0 !important;
+}
+.katex-display > .katex {
+  text-align: left;
+}
+
+/* prose-invert 모드: 다크 배경에서 KaTeX 수식/텍스트를 밝게 */
+.prose-invert .katex {
+  color: inherit;
+}
+.prose-invert p,
+.prose-invert span {
+  color: inherit;
+}
+
+/* 마크다운 테이블 스타일 */
+.prose table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.9em;
+}
+.prose table th,
+.prose table td {
+  border: 1px solid #cbd5e1;
+  padding: 0.35rem 0.75rem;
+  text-align: center;
+}
+.prose table th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.prose table tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+/* =========================================================
+   Print optimization
+   ========================================================= */
+@media print {
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background-color: white !important;
+  }
+  .print-break-inside-avoid {
+    break-inside: avoid;
+  }
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  /* 인쇄 시 수식이 너무 길면 크기 축소 */
+  .katex {
+    font-size: 0.95em !important;
+  }
+  .katex-display {
+    overflow: visible !important;
+  }
+}
