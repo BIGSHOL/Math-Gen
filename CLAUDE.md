@@ -143,6 +143,51 @@ if (isCancelled(page.id)) return null;
 폴백 트리거: `non-AbortError` throw → 다음 모델로 자동. AbortError 는 폴백
 안 함 (사용자 취소 의도 존중).
 
+### 1-8. Anthropic Sonnet 4.6 rate limit — pLimit + retry-after 설계
+
+**증상** (사용자 보고): 30 문항 시험지 해설 생성 시 console 에 429 Too
+Many Requests 10+ 연속 발생 → withRetry 도 429 → `ERR_ABORTED`. 해설이
+중간에서 끊김.
+
+**원인 분석**:
+- Sonnet 4.6 의 분당 RPM (요청 수) 한도 ~30, TPM (토큰 수) 한도 ~40k.
+- `useSolutionGen` 의 `pLimit(3)` 가 한 번에 3 개씩 발사 → 짧은 윈도우에
+  여러 요청 누적 → 한도 즉시 초과.
+- `withRetry` 의 backoff 1s → 2s 가 너무 짧음. Anthropic 의 rate window
+  reset 은 보통 5~30 초 단위라 backoff 끝나도 여전히 429.
+
+**해결 — 3 단계**:
+
+1. **pLimit(3) → pLimit(1)**: 해설 생성은 sequential. 한 번에 1 요청만.
+   30 문항 × ~3 초/요청 = 1.5 분 — UX 충분.
+   ```ts
+   const limit = useMemo(() => pLimit(1), []);
+   ```
+
+2. **withRetry backoff 강화**: maxRetries 2 → 4, baseDelay 1000 → 2000.
+   실제 backoff sequence: 2s → 4s → 8s → 16s → 32s (총 ~60 초).
+
+3. **`retry-after` 헤더 존중**: Anthropic SDK 의 `APIError` 는 `.headers`
+   에 `retry-after` (초 단위) 노출. 그 값이 있으면 exponential 무시하고
+   그 만큼만 대기. 60 초 cap 으로 UI hang 방지.
+   ```ts
+   const headers = (err as { headers?: Record<string, string> }).headers;
+   const raw = headers?.["retry-after"];
+   const secs = raw ? Number.parseFloat(raw) : null;
+   return Number.isFinite(secs) && secs > 0 ? Math.min(60_000, Math.ceil(secs * 1000)) : null;
+   ```
+
+**`isRetryable` 정규식 확장**: `429|529|503|502|rate|limit|quota|overloaded|temporarily|gateway|timeout` — Anthropic 외에 일반 HTTP 5xx
+도 retryable 로 처리.
+
+**원칙**: OCR (vision) 은 페이지당 한 번이라 pLimit(2) OK. 해설 (text-only)
+은 30+ 문항 단위라 pLimit(1) 안전. 모델별 RPM 한도를 미리 확인하고 pLimit
+값을 *보수적으로* 설정. 새 fan-out hook 추가 시 retry-after 헤더 처리 누락
+하지 말 것.
+
+**참고**: `src/lib/concurrency.ts` `withRetry` / `extractRetryAfterMs`,
+`src/hooks/useSolutionGen.ts` `pLimit(1)`.
+
 ---
 
 ## 2. 렌더링 함정 (SVG / KaTeX / MarkdownRenderer)
@@ -436,6 +481,58 @@ strip) 을 모두 합친 형태가 정답.
 
 **원칙**: mathlab 의 코드를 직접 카피하면 안 됨. 우리 OCR 파이프라인 특성
 (낮은 신뢰도) 을 감안한 추가 방어선을 위에 쌓는 식.
+
+### 2-17. KaTeX 빨간 글씨 에러 fallback 의 multi-path 함정 (CRITICAL)
+
+**증상**: 사용자 보고가 가장 자주 반복된 함정. 화면에 LaTeX 가 *빨간 글씨*
+로 그대로 보임. 사용자는 "raw LaTeX 가 노출됐다" 로 오인하지만, 사실 KaTeX
+가 input 을 받고 *invalid LaTeX* 라 `throwOnError: false` 의 에러 fallback
+styling (빨간 색) 으로 표시한 것. `$...$` wrap 자체는 됐다.
+
+가장 흔한 원인: `\left\left\{` (모델 typo) — KaTeX 의 `\left` 는 다음에
+*단일 구분자* 만 받음. `\left` 두 번 연속이면 "Expected delimiter, got
+\\left" 에러.
+
+**근본 함정 — 정규화가 wrap path 마다 다르게 적용됨**: 라인을 `$...$` 로
+wrap 하는 코드가 **4 군데** 에 있는데 정규화 함수 `cleanMalformedLatex`
+(`\left\left` → `\left` 등) 가 한 군데에만 호출되면, 다른 path 로 만들어진
+`$...$` 는 정규화 없이 KaTeX 까지 도달 → 빨간 글씨.
+
+**Wrap 이 발생할 수 있는 4 path**:
+1. `sanitize.ts` `preWrapLatexHeavyLines` — OCR/해설 결과의 raw LaTeX-heavy
+   라인을 `$...$` 로 wrap.
+2. `textPreprocess.ts` `$...$` inner 처리 (Step 4/5) — 이미 wrap 된 `$...$`
+   안의 normalize.
+3. `textPreprocess.ts` Step 9 auto-wrap — `$` 누락된 라인의 line-level wrap.
+4. `MarkdownRenderer.tsx` `renderKatex` — KaTeX 에 넘기기 직전.
+
+**정답 패턴 — 모든 path 에 동일 정규화**:
+- `cleanMalformedLatex` 를 module-level export 로.
+- `applyMathInnerNormalization` 헬퍼 신설 — `cleanMalformedLatex` +
+  `\dfrac → \frac` + unicode → LaTeX + `uprightGeometryLabels` +
+  `autoSizeBrackets` + `injectDisplayStyle` 일괄.
+- 4 path 모두에서 호출.
+- `preprocessMathText` 끝에 **Step 10 final pass** — 모든 변환 후 모든
+  `$...$` 한 번 더 `cleanMalformedLatex` 통과 (safety net).
+- `renderKatex` 가 `katex.renderToString` 호출 직전에 `cleanMalformedLatex`
+  한 번 더 (last guard).
+
+**`cleanMalformedLatex` 가 잡아야 할 모델 typo 카탈로그** (전부 실사례):
+- 중복 명령어: `\left\left`, `\right\right`, `\frac\frac`, `\sqrt\sqrt`,
+  `\boxed\boxed` → 첫 명령어 제거 (lookahead `(?=\\cmd\b)`)
+- 명령어 결합: `\bigl\left`, `\bigr\right` → `\bigl/r` 제거
+- 빈 분수: `\frac{a}{}` → `\frac{a}{1}`, `\frac{}{b}` → `\frac{0}{b}`
+- Escape delimiter: `\left\(` / `\left\)` / `\left\[` / `\left\]` → unescape
+- 중복 spacing: `\;\;\;`, `\,\,\,`, `\quad\quad`, `\qquad\qquad` → 단일화
+- 근사 등호: `\approx`, `≈` → `=` (사용자: 물결표 금지)
+
+**원칙**: 새 wrap path 추가하면 *반드시* 같은 정규화 묶음 통과시킬 것.
+미스하면 그 path 의 출력만 빨간 글씨가 됨 — 디버깅 가장 어려운 케이스 중 하나.
+
+**참고**: `src/lib/textPreprocess.ts` `cleanMalformedLatex` /
+`applyMathInnerNormalization`, `src/services/ai/sanitize.ts`
+`preWrapLatexHeavyLines`, `src/components/math/MarkdownRenderer.tsx`
+`renderKatex`.
 
 ---
 
@@ -825,6 +922,56 @@ prompt 에 정확한 매핑 표 + 잘못된 예 + 올바른 예 박는 게 일�
 
 **참고**: `src/services/ai/prompts.ts` `OCR_PAGE_PROMPT` / `SOLUTION_PROMPT`
 에 박힌 "사용자 보고 사례" 섹션들.
+
+### 7-6. 모델의 trial-and-error / self-correction / 답 검증 흔적 명시 금지
+
+사용자 보고 13번 — 모델이 풀이 중 잘못 계산했음을 깨닫고 *그 과정을 그대로
+출력*. "잠깐, 선택지가 작으므로 다시 확인", "다시 정리:", "여전히 선택지에
+없음" 같은 self-correction 흔적이 그대로 raw 로 emit. 결과: 풀이가 25 줄+
+폭발 + 학생이 혼란.
+
+**원인**: 일반 지시문 ("be brief") 만으로는 모델이 thinking 흔적을 못 자름.
+모델 입장에서 그게 풀이의 일부로 인식됨.
+
+**해결 — Prompt 에 명시적 금지 표현 + 사례**:
+
+```
+🚨 trial-and-error / self-correction 흔적 절대 금지
+
+  잘못된 실제 출력 (절대 emit X):
+    "...합 = 1960. **잠깐, 선택지가 작으므로 다시 확인**. ... = 1120.
+    여전히 선택지에 없음. **다시 정리:** ... = 280."
+
+  → 모델이 본인 thinking 을 raw 로 emit. 절대 금지 표현:
+  - "잠깐", "다시 확인", "재정리", "재검토", "다시 계산"
+  - "선택지가 없으니", "여전히 없음"
+  - "사실은", "실제로는"
+
+  올바른 패턴: 잘못 계산했으면 **출력에서 그 과정을 *지우고*** 처음부터
+  정답까지 직선 식 흐름만.
+```
+
+**관련 함정 — 답 검증 / 정리 / 마무리 멘트**:
+
+답이 schema 상 별도 필드 (`answer`) 로 가는 구조라면, `solution` 의 마지막
+식이 답을 보여주면 충분. "따라서 답은 ⑤", "정리하면 답: ⑤", "선택지 확인:
+⑤가 정답" 같은 검증/마무리 멘트는 *중복 정보*. prompt 에 명시적으로 금지.
+
+```
+🚨 답 검증 / 정리 / 마무리 멘트 금지
+
+  잘못된 출력:
+    "...따라서 답은 ⑤" / "정리하면 답: ⑤"
+  올바른 예 (마지막 줄):
+    "A + B = 168 + 108 = 276"  (← 끝. 다른 멘트 X.)
+```
+
+**원칙**: 모델 출력의 *형식* 을 통제하고 싶으면 일반 지시문보다 (a) 금지
+표현 카탈로그 + (b) 사용자 보고 실제 잘못 출력 + (c) 올바른 출력 비교 의
+3 종 세트가 가장 효과적. 7-5 의 패턴과 동일.
+
+**참고**: `src/services/ai/prompts.ts` `SOLUTION_PROMPT` 의 "trial-and-error
+흔적 절대 금지" / "답 검증 멘트 금지" 섹션.
 
 ---
 
