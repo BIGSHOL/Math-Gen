@@ -147,9 +147,25 @@ export const usePageOcr = () => {
   if (ctrlRef.current === null) ctrlRef.current = new AbortController();
 
   useEffect(() => {
-    // Only abort on actual component unmount.
+    // StrictMode-safe cleanup: cancel in-flight work AND reset the
+    // controller + dispatched markers so the *next* mount starts fresh.
+    //
+    // Old footgun: with only `ctrlRef.current?.abort()`, StrictMode's
+    // mount → unmount → mount sequence aborted the controller on the
+    // first cleanup, then on the second mount the same already-aborted
+    // controller was reused (the `=== null` guard didn't trigger). Every
+    // worker's `ctrl.signal.aborted` was true before the first await,
+    // so `runOcrChain` returned `null` immediately and OCR sat at 0/N
+    // forever with INFLIGHT markers but no actual work. Production
+    // builds didn't see this because StrictMode only double-mounts in
+    // dev. Resetting to `null` here forces the body-level `if` above
+    // to allocate a fresh controller on the next render — symmetric
+    // with our "fresh state on remount" intent.
     return () => {
       ctrlRef.current?.abort();
+      ctrlRef.current = null;
+      dispatched.current.clear();
+      upgradeDispatched.current.clear();
     };
   }, []);
 
