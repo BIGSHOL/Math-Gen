@@ -15,9 +15,12 @@ dist-ssr
 # Secrets — never commit any .env variant.
 # `*.local` above already catches `.env.local`, but the explicit patterns
 # below also block `.env`, `.env.production`, `.env.development`, etc.
+# `.env.example` is *also* ignored — historically it was kept as a tracked
+# placeholder template, but in practice contributors paste real keys into
+# it. Gitignoring closes that footgun. Re-introduce a tracked template
+# under a different name (e.g. `docs/env-template.md`) if needed.
 .env
 .env.*
-!.env.example
 
 # Claude Code local state (sessions, settings, agent telemetry)
 .claude/

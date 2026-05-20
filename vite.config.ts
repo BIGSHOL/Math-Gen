@@ -4,17 +4,12 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
- * Reads `.env.local` directly, returning `{}` if the file is missing.
+ * Reads a single dotenv-style file, returning `{}` if missing or empty.
  *
- * Why this instead of Vite's `loadEnv`: when the parent shell has an env var
- * set to an empty string (e.g. some agent/CI environments export
- * `ANTHROPIC_API_KEY=` to scrub keys before spawning subprocesses), Vite's
- * `loadEnv` merges `process.env` AFTER the dotenv files, so the empty shell
- * value clobbers our `.env.local` value. Reading the file ourselves
- * sidesteps that and gives `.env.local` deterministic priority.
+ * Used by `readEnvLocal` below to merge values from `.env.local` and
+ * `.env.example` deterministically.
  */
-const readEnvLocal = (): Record<string, string> => {
-  const file = path.resolve(__dirname, ".env.local");
+const parseDotenv = (file: string): Record<string, string> => {
   if (!fs.existsSync(file)) return {};
   const parsed: Record<string, string> = {};
   for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
@@ -30,6 +25,48 @@ const readEnvLocal = (): Record<string, string> => {
     parsed[k] = v;
   }
   return parsed;
+};
+
+/**
+ * Read user-supplied env vars from disk with deterministic priority.
+ *
+ * Why this instead of Vite's `loadEnv`: when the parent shell has an env var
+ * set to an empty string (e.g. some agent/CI environments export
+ * `ANTHROPIC_API_KEY=` to scrub keys before spawning subprocesses), Vite's
+ * `loadEnv` merges `process.env` AFTER the dotenv files, so the empty shell
+ * value clobbers our file value. Reading the files ourselves sidesteps that.
+ *
+ * Two sources, in priority order:
+ *   1. `.env.local` — canonical Vite convention.
+ *   2. `.env.example` — practical fallback. The team treats it as their
+ *      working key file (both files are gitignored, so neither leaks).
+ *      `.env.local` still wins when both define the same key, but if a key
+ *      is only in `.env.example` it gets picked up anyway.
+ *
+ * The merge is non-destructive: an empty/blank value in `.env.local` does
+ * NOT override a real value in `.env.example`, so users can leave optional
+ * keys blank in `.env.local` and they'll fall through to `.env.example`.
+ */
+const readEnvLocal = (): Record<string, string> => {
+  const exampleValues = parseDotenv(path.resolve(__dirname, ".env.example"));
+  const localValues = parseDotenv(path.resolve(__dirname, ".env.local"));
+  // Strip placeholders so `.env.example` lines like
+  //   `ANTHROPIC_API_KEY=sk-ant-api03-REPLACE_ME`
+  // don't poison real lookups when a contributor pastes only some keys.
+  // We match the placeholder *anywhere* in the value (not just the whole
+  // string) because the convention is to glue it onto the real key prefix
+  // (`sk-…-REPLACE_ME`, `<YOUR_KEY>`, etc.) — a strict `^…$` test misses
+  // those. Real API keys have high entropy / many distinct chars, so the
+  // false-positive risk for these tokens is essentially zero.
+  const PLACEHOLDER_RE = /(REPLACE_ME|YOUR_[A-Z_]+|<[^>]+>|^TODO$)/i;
+  for (const key of Object.keys(exampleValues)) {
+    const v = exampleValues[key];
+    if (!v || PLACEHOLDER_RE.test(v)) delete exampleValues[key];
+  }
+  for (const key of Object.keys(localValues)) {
+    if (!localValues[key]) delete localValues[key];
+  }
+  return { ...exampleValues, ...localValues };
 };
 
 /**
