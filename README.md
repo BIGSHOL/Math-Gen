@@ -1,20 +1,134 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# MathGen 변환 — 시험지 변환 도구
 
-# Run and deploy your AI Studio app
+한국 중·고등학교 수학 시험지 PDF를 업로드하면 AI가 OCR로 문제·도형을 추출하고,
+단계별 해설과 정답까지 자동 생성하는 6단계 마법사 (wizard).
 
-This contains everything you need to run your app locally.
+## 주요 기능
 
-View your app in AI Studio: https://ai.studio/apps/b001bdd3-e850-4c09-8f65-b6d0030f5e3d
+### 6단계 위자드 (`/`)
+0. **업로드** — PDF → 페이지별 hi-res 이미지 + IndexedDB 캐시. 자동 회전 감지.
+1. **OCR 검수** — Gemini 3 Flash → 폴백 3.5 Flash 로 페이지별 multi-problem
+   추출. 도형 페이지는 자동으로 GPT-5.5 → 폴백 Gemini 3.1 Pro 로 2차 정밀
+   재추출. 카드별 인라인 편집.
+2. **해설·정답 생성** — Claude Sonnet 4.6 으로 단계별 풀이 + 짧은 정답 자동
+   생성. 항목별 재생성·편집.
+3. **변환 옵션** — 변형 생성 목표·난이도·동봉 자료 (placeholder).
+4. **문항별 검토** — 원본 vs 변형 좌우 비교 (placeholder).
+5. **내보내기** — PDF / DOCX / Online (placeholder).
 
-## Run Locally
+### 보조 화면
+- **모델 비교 벤치** (`?bench`) — 같은 페이지를 여러 모델로 동시 OCR 해서
+  도형·표 렌더링 품질을 나란히 비교. 23개 모델 (Anthropic 3 + Gemini 7 +
+  OpenAI 13) 지원.
+- **KaTeX 렌더 테스트** (`?katex`) — 90+ 케이스, 14 카테고리 (분수·근호,
+  기하 표기, 삼각함수·로그, 적분·미분, 행렬 등). Direct vs Pipeline 비교.
+- **레거시 단일 페이지 UI** (`?legacy`) — 초기 SaaS rebuild 이전 UI.
+- **디자인 시스템 playground** (`?ui`) — `src/components/ui` 컴포넌트 카탈로그.
 
-**Prerequisites:**  Node.js
+## 로컬 실행
 
+**전제**: Node.js 18+
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+# 1) 의존성 설치
+npm install
+
+# 2) .env.local 작성 (3개 API 키 모두 또는 일부)
+echo 'ANTHROPIC_API_KEY=sk-ant-...'  >> .env.local
+echo 'GEMINI_API_KEY=AIza...'        >> .env.local
+echo 'OPENAI_API_KEY=sk-...'         >> .env.local
+
+# 3) 개발 서버
+npm run dev
+# → http://localhost:3005
+
+# 4) 프로덕션 빌드
+npm run build
+```
+
+> **보안 주의**: Phase 0.5 단계라 모든 API 호출이 **브라우저에서 직접** 나감
+> (`dangerouslyAllowBrowser: true`). 프로덕션 배포 시 반드시 백엔드 프록시
+> 경유하도록 옮길 것. `.env.local` 은 `.gitignore` 로 보호되어 있고
+> `vite.config.ts` 의 `readEnvLocal()` 이 shell 환경변수 우선순위 충돌을
+> 우회한다.
+
+## 모델 라우팅
+
+| 작업 | 1차 모델 | 폴백 모델 |
+|---|---|---|
+| OCR — 텍스트 | Gemini 3 Flash (Preview) | Gemini 3.5 Flash |
+| OCR — 도형 | GPT-5.5 | Gemini 3.1 Pro (Preview) |
+| 해설·정답 생성 | Claude Sonnet 4.6 | (단일 모델) |
+
+폴백 트리거: 1차가 `non-AbortError` throw 시 자동. `AbortError` 는 폴백 안 함
+(사용자 취소 의도 존중).
+
+provider 별 골격:
+- **Anthropic**: `messages.stream().finalMessage()` (max_tokens 64k, streaming
+  필수)
+- **Gemini**: `@google/genai` v1.44+ — schema 변환 `toGeminiSchema()`,
+  finishReason 체크
+- **OpenAI**: GPT-5 family + o-series 는 `max_completion_tokens`. gpt-5.5-pro
+  는 Responses API + `reasoning.effort: "low"`
+
+## 기술 스택
+
+- **Framework**: React 19 + Vite 6 + TypeScript
+- **Styling**: Tailwind CSS + 자체 디자인 토큰
+- **상태**: Zustand + sessionStorage persist
+- **PDF**: pdfjs-dist 5.x (worker = unpkg, standardFontDataUrl 포함)
+- **AI SDKs**: `@anthropic-ai/sdk`, `@google/genai`, `openai`
+- **수식**: KaTeX (npm import) + react-markdown + remark-math + rehype-katex
+- **저장**: IndexedDB (`pageImages`, `pageThumbnails`, `pdfBlobs`)
+
+## 프로젝트 구조 (요약)
+
+```
+src/
+├── App.tsx                      — URL gate 기반 라우팅 (?bench / ?katex / ?legacy / ?ui / default)
+├── components/
+│   ├── math/MarkdownRenderer.tsx — Stage 0~4 파이프라인 (SVG 추출 → KaTeX 사전 렌더 → choice grid)
+│   ├── wizard/                  — Step1Upload, Step2OCRReview, Step3SolutionReview, OCRItem, SolutionItem, PageThumbColumn ...
+│   ├── library/                 — 시험지 라이브러리 화면
+│   ├── detail/                  — 단일 시험지 상세
+│   ├── modal/                   — 모달 레이어
+│   └── ui/                      — 디자인 시스템 (Btn, Card, Chip, Icon ...)
+├── hooks/
+│   ├── usePageOcr.ts            — Step 2 페이지 단위 fan-out (pLimit + AbortController + fallback chain)
+│   └── useSolutionGen.ts        — Step 3 문제 단위 fan-out
+├── lib/
+│   ├── pdfProcessor.ts          — loadPdf / renderPageForAI / detectPageRotation / applyRotation
+│   ├── imageStore.ts            — IndexedDB CRUD (pageImages / pageThumbnails)
+│   ├── concurrency.ts           — pLimit + withRetry (mathlab 패턴)
+│   └── textPreprocess.ts        — KaTeX 입력 정규화 (\displaystyle, autoSizeBrackets, geometry labels)
+├── services/ai/
+│   ├── client.ts                — Anthropic 클라이언트 + SONNET / OPUS / HAIKU 상수
+│   ├── gemini.ts                — Gemini 클라이언트 + 모델 상수
+│   ├── openai.ts                — OpenAI 클라이언트 + GPT 모델 상수
+│   ├── ocr.ts                   — extractPageProblems (provider dispatch + parseJsonOrThrow + friendly errors)
+│   ├── ocrSchema.ts             — OCR_PAGE_SCHEMA (items[].{number, text, topic, images, confidence})
+│   ├── solutions.ts             — generateSolution (텍스트만, 16k cap)
+│   ├── solutionsSchema.ts       — SOLUTION_SCHEMA ({solution, answer})
+│   ├── prompts.ts               — COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT, SOLUTION_PROMPT, ...
+│   └── sanitize.ts              — fixLatexEscaping + protectLooseLatex (LaTeX 백슬래시 복원, raw HTML 보존)
+├── stores/
+│   ├── appStore.ts              — 최상위 화면 routing (library / detail / wizard)
+│   ├── wizardStore.ts           — WizardPage / OCRProblem / 6단계 state
+│   └── libraryStore.ts          — 라이브러리 카드 데이터
+├── screens/
+│   ├── KatexTestScreen.tsx      — KaTeX 렌더 테스트 (?katex)
+│   ├── ModelBenchScreen.tsx     — 모델 비교 벤치 (?bench)
+│   └── LegacyScreen.tsx         — 초기 단일 페이지 UI (?legacy)
+├── styles/globals.css           — Tailwind base + 도형/표/KaTeX 보정 CSS
+└── types/                       — 공유 타입 정의
+```
+
+## 작업 지침서
+
+`CLAUDE.md` 에 36개 함정·해결책 9개 섹션으로 정리되어 있다. 새 작업
+시작 전 반드시 일독 — 같은 실수 두 번 안 하기 위해 현장에서 사용자 보고로
+확인된 진짜 함정만 기록.
+
+## 라이선스
+
+내부 프로젝트 — 미정.
