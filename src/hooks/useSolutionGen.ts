@@ -56,9 +56,13 @@ export const useSolutionGen = () => {
         if (item.solution || item.solutionGenerating || item.solutionError) continue;
         if (!item.text || item.bodyMissing) continue;
         dispatched.current.add(key);
+        // solutionGenerating: true 는 dispatched 직후 set — 큐 대기 포함. 실제
+        // 호출 시작 시점은 limit() async fn 첫 줄의 solutionStartedAt 으로 구분.
         updateOCRItem(page.id, item.id, { solutionGenerating: true });
         void limit(async () => {
           if (!dispatched.current.has(key)) return;
+          // 실제 호출 시작 — 사용자 UI 의 "대기 중" → "생성 중 · 12s" 전환 신호.
+          updateOCRItem(page.id, item.id, { solutionStartedAt: Date.now() });
           try {
             const result = await withRetry(() =>
               generateSolution({
@@ -72,6 +76,7 @@ export const useSolutionGen = () => {
               answer: result.answer,
               solutionModel: result.modelUsed,
               solutionGenerating: false,
+              solutionStartedAt: undefined,
               solutionError: undefined,
             });
           } catch (err) {
@@ -84,6 +89,7 @@ export const useSolutionGen = () => {
             updateOCRItem(page.id, item.id, {
               solutionError: (err as Error).message || "알 수 없는 오류",
               solutionGenerating: false,
+              solutionStartedAt: undefined,
             });
           }
         });

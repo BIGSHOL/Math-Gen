@@ -111,10 +111,14 @@ export const useVariantGen = (): {
       if (p.status === "review" && p.variant !== p.original) continue;
 
       dispatched.current.add(p.id);
+      // generating: true 는 dispatched 직후 set — 큐 대기 포함. 실제 호출 시작
+      // 시점은 limit() async fn 첫 줄의 generatingStartedAt 으로 구분.
       updateProblem(p.id, { generating: true, genError: undefined });
       const choicesCount = p.original.choices?.length ?? 0;
       void limit(async () => {
         if (!dispatched.current.has(p.id)) return;
+        // 실제 호출 시작 — VariantItem 의 "대기 중" → "생성 중 · 12s" 전환 신호.
+        updateProblem(p.id, { generatingStartedAt: Date.now() });
         try {
           const result = await withRetry(() =>
             generateVariant({
@@ -139,6 +143,7 @@ export const useVariantGen = (): {
             variant,
             status: "review",
             generating: false,
+            generatingStartedAt: undefined,
             genError: undefined,
             genModel: result.modelUsed,
           });
@@ -151,6 +156,7 @@ export const useVariantGen = (): {
           );
           updateProblem(p.id, {
             generating: false,
+            generatingStartedAt: undefined,
             genError: (err as Error).message || "알 수 없는 오류",
             status: "pending",
           });

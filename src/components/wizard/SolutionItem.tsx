@@ -1,8 +1,32 @@
 import { useEffect, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
+import { modelShortName } from "@app/lib/modelLabel";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
+
+/**
+ * 1 초 tick — `solutionStartedAt` 기준 경과 시간을 매 초 갱신. 카드가 *실제
+ * 호출 in-flight* 일 때만 활성 — 대기 중이나 완료 후엔 정리.
+ */
+const useElapsedTick = (active: boolean): number => {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return tick;
+};
+
+const formatElapsed = (startedAt: number | undefined): string => {
+  if (!startedAt) return "";
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+};
 
 /**
  * Step 3 — solution + answer card for a single OCR problem.
@@ -67,23 +91,58 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
   };
 
   // ─── State branches ─────────────────────────────────────────────
+  // solutionGenerating: true 는 dispatched 직후 즉시 set (큐 대기 포함).
+  // solutionStartedAt 으로 실제 *진행* 인지 *큐 대기* 인지 구분 — useSolutionGen
+  // 의 limit() async fn 첫 줄에서 startedAt 을 set 한다.
+  const isInFlight = item.solutionGenerating && Boolean(item.solutionStartedAt);
+  useElapsedTick(isInFlight);
+
   if (item.solutionGenerating) {
+    const elapsed = formatElapsed(item.solutionStartedAt);
     return (
       <Card pad={14} className="border-line">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span
             className="grid place-items-center bg-ink text-white rounded-r1 font-mono font-bold"
             style={{ width: 24, height: 24, fontSize: 11 }}
           >
             {item.number}
           </span>
-          <Chip size="sm" tone="accent" dot>
-            해설 생성 중
-          </Chip>
+          {isInFlight ? (
+            <>
+              <Chip size="sm" tone="accent" dot>
+                해설 생성 중
+              </Chip>
+              {item.solutionModel && (
+                <span
+                  className="text-caption text-muted font-mono"
+                  title={item.solutionModel}
+                >
+                  {modelShortName(item.solutionModel)}
+                </span>
+              )}
+              {elapsed && (
+                <span className="text-caption font-mono text-accent">· {elapsed}</span>
+              )}
+            </>
+          ) : (
+            <Chip size="sm" tone="soft" icon="hourglass-medium">
+              대기 중
+            </Chip>
+          )}
         </div>
         <div className="flex items-center gap-2 text-muted text-small">
-          <Icon name="circle-notch" weight="bold" className="animate-spin" />
-          <span>잠시 기다려 주세요…</span>
+          {isInFlight ? (
+            <>
+              <Icon name="circle-notch" weight="bold" className="animate-spin" />
+              <span>Sonnet 호출 중 — 평균 3~5 초</span>
+            </>
+          ) : (
+            <>
+              <Icon name="hourglass-medium" weight="duotone" />
+              <span>다른 문항 처리 완료 후 시작합니다 (큐 슬롯 대기)</span>
+            </>
+          )}
         </div>
       </Card>
     );

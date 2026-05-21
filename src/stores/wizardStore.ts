@@ -177,8 +177,16 @@ export interface OCRProblem {
    * (`"5"` / `"$\\frac{4\\pi}{3}$"` / `"x=2"`).
    */
   answer?: string;
-  /** 해설 생성 in-flight 플래그 — UI 에서 spinner 표시용. */
+  /** 해설 생성 in-flight 플래그 — UI 에서 spinner 표시용. dispatched 직후 즉시
+   *  true 가 됨 (limit 큐 대기 포함). 실제 *진행* 인지 *대기* 인지 구분하려면
+   *  `solutionStartedAt` 도 같이 확인. */
   solutionGenerating?: boolean;
+  /**
+   * 해설 생성의 *실제 호출 시작* timestamp (ms). useSolutionGen 의 limit() async
+   * fn 첫 줄에서 set. 큐 대기 중에는 undefined → SolutionItem 의 "대기 중"
+   * vs "생성 중 · 12s" 구분에 사용. 완료/실패 시 unset. partialize 에서 제외.
+   */
+  solutionStartedAt?: number;
   /** 해설 생성 실패 메시지 (친화적 한국어). 재시도 버튼과 함께 표시. */
   solutionError?: string;
   /** 어떤 모델이 해설을 만들었는지 (디버그·UI 배지). */
@@ -209,8 +217,15 @@ export interface ProblemReview {
    * 다를 수 있음.
    */
   genModel?: string;
-  /** 변형 생성 in-flight 플래그 — UI spinner 표시용. */
+  /** 변형 생성 in-flight 플래그 — UI spinner 표시용. dispatched 직후 즉시 true.
+   *  실제 *진행* vs *큐 대기* 는 `generatingStartedAt` 으로 구분. */
   generating?: boolean;
+  /**
+   * 변형 생성의 *실제 호출 시작* timestamp (ms). useVariantGen 의 limit()
+   * async fn 첫 줄에서 set. `solutionStartedAt` 과 동일 패턴 — VariantItem 의
+   * "대기 중" vs "생성 중 · 12s" 구분에 사용.
+   */
+  generatingStartedAt?: number;
 }
 
 export interface WizardState {
@@ -397,14 +412,20 @@ export const useWizardStore = create<WizardState>()(
         uploadedFileName: s.uploadedFileName,
         selectedGrade: s.selectedGrade,
         examCategory: s.examCategory,
-        // 페이지별 휘발성 필드 (in-flight 모델명, 업그레이드 진행 플래그,
-        // 호출 시작 timestamp) 는 새로고침 후 살아 있어 봤자 의미 없으므로
-        // stripping. rotation 은 사용자가 명시적으로 정해 둔 값이라 persist.
+        // 페이지/문항별 휘발성 필드 (in-flight 모델명, 업그레이드 진행 플래그,
+        // 호출 시작 timestamp, 해설 생성 in-flight 플래그) 는 새로고침 후 살아
+        // 있어 봤자 의미 없으므로 stripping. rotation / solution / answer 등
+        // 사용자가 명시적으로 정해 둔 값이나 결과물은 그대로 persist.
         pages: s.pages.map((p) => ({
           ...p,
           ocrInflightModel: undefined,
           ocrStartedAt: undefined,
           upgrading: false,
+          ocrResult: p.ocrResult.map((item) => ({
+            ...item,
+            solutionGenerating: false,
+            solutionStartedAt: undefined,
+          })),
         })),
         activePageIndex: s.activePageIndex,
         goal: s.goal,

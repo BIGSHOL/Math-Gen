@@ -6,6 +6,29 @@ import { useWizardStore, type ProblemReview } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
 
 /**
+ * 1 초 tick — `generatingStartedAt` 기준 경과 시간을 매 초 갱신. 카드가
+ * 실제 호출 in-flight 일 때만 활성.
+ */
+const useElapsedTick = (active: boolean): number => {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return tick;
+};
+
+const formatElapsed = (startedAt: number | undefined): string => {
+  if (!startedAt) return "";
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+};
+
+/**
  * Step 4 — variant problem card.
  *
  * `SolutionItem` 의 5-state 패턴 차용:
@@ -128,18 +151,37 @@ export const VariantItem = ({
   }
 
   // ── State 2: 생성 중 ────────────────────────────────────────────
+  // problem.generating: true 는 dispatched 직후 즉시 set (큐 대기 포함).
+  // generatingStartedAt 으로 실제 *진행* 인지 *큐 대기* 인지 구분.
+  const isInFlight = problem.generating && Boolean(problem.generatingStartedAt);
+  useElapsedTick(Boolean(isInFlight));
+
   if (problem.generating) {
+    const elapsed = formatElapsed(problem.generatingStartedAt);
     return (
-      <Card pad={14} className="border-line opacity-80">
-        <div className="flex items-center gap-2">
+      <Card pad={14} className="border-line opacity-90">
+        <div className="flex items-center gap-2 flex-wrap">
           <span
             className="grid place-items-center bg-accent text-white rounded-r1 font-mono font-bold"
             style={{ width: 24, height: 24, fontSize: 11 }}
           >
             {index}
           </span>
-          <Icon name="spinner-gap" size={14} className="animate-spin text-accent" />
-          <span className="text-small text-muted">변형 생성 중…</span>
+          {isInFlight ? (
+            <>
+              <Icon name="spinner-gap" size={14} className="animate-spin text-accent" />
+              <span className="text-small text-accent font-semibold">변형 생성 중</span>
+              {elapsed && (
+                <span className="text-caption font-mono text-accent">· {elapsed}</span>
+              )}
+            </>
+          ) : (
+            <>
+              <Icon name="hourglass-medium" size={14} weight="duotone" className="text-muted" />
+              <span className="text-small text-muted font-semibold">대기 중</span>
+              <span className="text-caption text-muted">· 다른 문항 처리 후 시작</span>
+            </>
+          )}
         </div>
       </Card>
     );
