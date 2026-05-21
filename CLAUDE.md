@@ -1399,15 +1399,315 @@ token / 비용 / 절감 옵션 별도.
 
 ---
 
+## 16. Step 4 Variant Pipeline 함정 카탈로그
 
+이번 phase 구현 (Step 3 옵션 → Step 4 변형 검토 파이프라인, ~1,400 줄 신규
++ 4 파일 수정) 에서 부딪힌 함정 + 해결 패턴. *다음 fan-out hook + AI 서비스
+조합 작업 시 첫번째로 읽을 섹션*.
+
+### 16-1. 답 구조 검증 — caller withRetry × service throw 의 역할 분담
+
+**증상 가설**: 객관식 5지선다를 변형했더니 모델이 4지선다로 emit. UI 가
+choices index out of range 로 깨짐. 또는 주관식을 객관식으로 emit.
+
+**root cause**: 모델은 *원본의 보기 개수* 를 prompt 로 받지만, output 토큰
+한도 / context 잘림 / mathDefense 의 self-correction 권유 등으로 *답 구조*
+까지 무의식적으로 변경할 수 있음. prompt 룰만으로 100% 보장 안 됨.
+
+**3-layer 방어**:
+
+1. **schema 강제** (`variantSchema.ts`):
+   - `choices` 는 항상 `type: "array"` (`required` 에 포함). 빈 array `[]`
+     (주관식) 또는 정확히 5 items (객관식) 만 허용.
+   - schema 만으로는 *5 vs 4* 차이는 못 잡음 (둘 다 array). length validation
+     은 caller 책임.
+
+2. **service throw** (`variants.ts`):
+   ```ts
+   const expectedCount = input.choicesCount ?? 0;
+   const actualChoices = Array.isArray(parsed.choices) ? parsed.choices : [];
+   if (expectedCount !== actualChoices.length) {
+     throw new Error(`변형 결과의 보기 개수가 원본과 불일치합니다 (원본 ${expectedCount} → 변형 ${actualChoices.length})`);
+   }
+   ```
+   parse 직후 즉시 throw — *post-process 까지 도달 X*. caller 가 received
+   exception 으로 retry 결정.
+
+3. **caller `withRetry`** (`useVariantGen.ts`):
+   ```ts
+   const result = await withRetry(() =>
+     generateVariant({ problem, goal, difficulty, grade, choicesCount }),
+   );
+   ```
+   `withRetry` 의 maxRetries 4 (concurrency.ts 기본) 가 받음. 첫 실패 → 1~2
+   초 backoff → 재시도. 모두 실패하면 `genError` 로 surfacing → VariantItem
+   이 "재시도" 버튼 노출.
+
+**원칙**: AI 출력의 *구조적 contract* 는 service layer 에서 throw 로 단단하게
+verify. caller 는 retry 로직만 책임. UI 는 final genError 만 본다 — *3-layer
+모두 책임 분리*.
+
+### 16-2. `ProblemReview` optional 필드 — sessionStorage 자동 hydration
+
+`wizardStore.ts` 의 `ProblemReview` 에 3 필드 추가 (`genError`, `genModel`,
+`generating`). 모두 optional (`?:`).
+
+**왜 optional 가 중요한가**: persist middleware 가 `sessionStorage` 에 저장
+했던 *이전 schema 의 `problems`* 를 새 mount 에서 그대로 hydrate 한다. 새
+필드가 *required* 면 `undefined` 가 들어가 TS 타입은 통과하지만 runtime
+에서 `if (p.generating)` 같은 분기가 false 로 흘러 *silent bug*. optional
+이면 `undefined` 가 의미적으로 명확.
+
+**partialize 자동 포함** (3-1 함정 참고): `partialize: (s) => ({ problems:
+s.problems, ... })` 가 spread 로 모든 필드 그대로 통과. 따라서:
+- 신규 필드가 휘발성 (`generating: true` 같은 in-flight) 이면 `partialize`
+  에서 명시적으로 strip — 새 mount 가 "생성 중…" 상태로 stuck 됨.
+- 신규 필드가 영속성 (`genError`, `genModel`) 이면 그대로 둔다.
+
+**현재 결정**: `generating` 만 strip 대상 — 그러나 effect-B 의 dispatched
+Set 이 mount-lifetime 이라 *어쨌든 새 mount 면 false 로 reset 됨*. 별도
+처리 불필요. `genError` 는 유지 — 사용자가 page refresh 후 "재시도" 버튼을
+다시 볼 수 있어야 함.
+
+**참고**: `src/stores/wizardStore.ts` `ProblemReview`.
+
+### 16-3. byte-identical split 의 핵심 — 공유 헬퍼 *단일 source of truth*
+
+`SOLUTION_PROMPT` (Step 2) 와 `VARIANT_PROMPT` (Step 4) 둘 다 Anthropic
+prompt caching 적용. cacheable prefix 는 *byte-identical* 이어야 한다
+(11-2 함정 참고).
+
+**위험**: 같은 persona + mathDefense 를 *두 prompt 가 별도로 박으면* 한쪽
+수정 시 다른 쪽 미반영 → 비용 1.4 배 (cache miss).
+
+**해결**: `buildPersonaAndDefense(grade)` 공유 헬퍼 — `prompts.ts` module
+top level. `buildSolutionPrompt` + `buildVariantPrompt` 모두 이걸 호출.
+한 곳만 수정하면 두 prompt 가 자동 동기화.
+
+검증 방법:
+```ts
+// 임시 assert (개발 중에만):
+const a = buildSolutionPrompt(problem, "middle1");
+const b = buildSolutionPromptBlocksAnthropic(problem, "middle1");
+console.assert(b.map(x => x.text).join("") === a, "split mismatch");
+```
+
+VARIANT 의 경우 *21 학년-difficulty 시나리오 × 6.x goal-direct = 135 cases*
+모두 verify. 한 번이라도 mismatch 면 cache key 가 부분 미스 → 비용 손해.
+
+**원칙**: 새 prompt template 추가 시 *기존 prompt 와 공유할 prefix* 가 있다면
+*반드시 헬퍼로 추출*. 복사-붙여넣기 절대 금지.
+
+**참고**: `src/services/ai/prompts.ts` `buildPersonaAndDefense`,
+`buildSolutionPrompt` / `buildVariantPrompt` / `*BlocksAnthropic`.
+
+### 16-4. seed + dispatch 2-effect 패턴 (fan-out hook standard)
+
+`useSolutionGen` / `useVariantGen` 의 표준 구조 — fan-out AI 호출 hook 의
+정답 패턴 (1-6, 3-3 함정 모두 회피).
+
+**effect-A (seed, mount 1회)**:
+```ts
+useEffect(() => {
+  if (problems.length > 0) return;  // 이미 시드 또는 hydrate 됨
+  const eligible = pages.flatMap(p => p.ocrResult)
+    .filter(it => /* eligibility checks */);
+  const seeded = eligible.map(it => ({ id, original, variant: original, status: "pending" }));
+  setProblems(seeded);
+}, [pages, problems.length, goal, setProblems]);
+```
+
+- `problems.length > 0` 가드는 *세션 복원* 케이스 보호. 새로고침 후 *기존
+  problems* 가 hydrate 되면 reseed X.
+- eligible filter 는 *시드 단계* 에서만. effect-B 가 받을 때는 이미 통과한
+  것들만.
+
+**effect-B (dispatch, problems 변경 시마다)**:
+```ts
+useEffect(() => {
+  if (goal === "digitize") return;  // fast path
+  for (const p of problems) {
+    if (dispatched.current.has(p.id)) continue;
+    if (p.status === "confirmed" || p.generating || p.genError) continue;
+    if (p.status === "review" && p.variant !== p.original) continue;  // 이미 완료
+
+    dispatched.current.add(p.id);
+    updateProblem(p.id, { generating: true });
+    void limit(async () => {
+      if (!dispatched.current.has(p.id)) return;  // 취소 check
+      try {
+        const result = await withRetry(() => generateVariant({...}));
+        if (!dispatched.current.has(p.id)) return;
+        updateProblem(p.id, { variant, status: "review", generating: false });
+      } catch (err) {
+        updateProblem(p.id, { status: "pending", generating: false, genError: ... });
+      }
+    });
+  }
+}, [problems, goal, difficulty, ...]);
+```
+
+- *모든* dispatch 조건은 if-continue chain 으로. early-skip 으로 명확.
+- `dispatched.add` 와 `updateProblem({generating:true})` 는 *limit() 호출
+  직전*. 비동기 작업 시작 마커 + UI 즉시 반영.
+- async 안에서 *await 직후마다* `dispatched.has(p.id)` 재체크 — 사용자
+  중간 취소 / page change / unmount 대응.
+- catch 안에서 `status: "pending"` 으로 되돌림 — VariantItem 이 *대기 중*
+  대신 *재시도* 버튼 노출 (genError 가 truthy 라서).
+
+**resetDispatch(id) + reseedAll() 콜백 export** — 1-6-a 와 동일 패턴.
+
+**참고**: `src/hooks/useVariantGen.ts`, `src/hooks/useSolutionGen.ts`.
+
+### 16-5. digitize fast path — 호출 0 / 비용 0
+
+사용자가 Step 3 옵션에서 `goal: "digitize"` 선택 시: OCR 결과를 *그대로*
+사용 (변형 X). AI 호출 0, 비용 0.
+
+**구현 위치**: `useVariantGen` effect-A 의 seed 단계.
+```ts
+const isDigitize = goal === "digitize";
+const seeded = eligible.map(it => ({
+  id: it.id,
+  original: ocrToGenerated(it),
+  variant: ocrToGenerated(it),
+  status: isDigitize ? "confirmed" : "pending",
+  generating: false,
+}));
+setProblems(seeded);
+```
+
+effect-B 의 첫 줄 `if (goal === "digitize") return;` — fast exit. 사용자가
+*전체 자료 확정* 상태로 Step 4 진입.
+
+**원칙**: AI 호출 비용은 *기본값* 이 아니다. 사용자 옵션이 *결과를 안 바꾼다*
+면 호출 0 path 명시. fast path 가 코드의 *첫 줄* 에 와야 가독성·실수 0.
+
+### 16-6. 도형 미변형 정책 (사용자 결정 — 이번 phase)
+
+`OCRProblem.images.length > 0` 인 *도형 포함 문항* 의 처리:
+- **현재**: 원본 도형 그대로 사용. `diagramSVG: null` 로 emit.
+- **UI**: VariantItem 헤더에 `<Chip tone="soft">도형 미변형</Chip>` —
+  사용자에게 "이 문항은 도형이 변형되지 않았음" 명시.
+
+**prompt 강제** (VARIANT_PROMPT):
+- "diagramSVG: null 로만 emit. 도형 SVG 직접 그리지 마세요."
+- schema `diagramSVG: { type: ["string", "null"] }` + post-process 에서
+  null 외 값은 무시.
+
+**왜 도형 변형은 *후속 phase***:
+- SVG 재생성은 별도 reasoning task — Sonnet 으로는 부족, GPT-5.5 / Opus
+  필요 (1-5 참고)
+- 비용 ~2 배 + 품질 평가 필요
+- 도형 *동등성* 검증 (변형 후에도 원본과 같은 답이 나오는지) 미정의
+
+**참고**: `src/components/wizard/VariantItem.tsx` `hasDiagram` chip,
+`src/services/ai/prompts.ts` VARIANT_PROMPT R7 룰.
+
+### 16-7. 옵션 변경 후 재생성 — 버튼 only (다이얼로그 X)
+
+사용자가 Step 4 진입 후 Step 3 으로 돌아가 옵션 (goal / difficulty / extras)
+변경 → Step 4 재진입 시:
+- **현재 정책**: 기존 problems 그대로 유지. 사용자가 *명시적으로* "옵션 재생성"
+  버튼 누를 때만 reseed.
+- **사용자 결정 이유**: 자동 reseed 는 *부주의한 옵션 변경* 으로 기존 작업
+  날려먹는 위험. confirm 다이얼로그 path 는 UX 흐름 끊김.
+
+**구현** (Step4Review):
+```tsx
+<Btn icon="arrow-clockwise" onClick={() => {
+  if (window.confirm(`현재 옵션 (${goal} / ${difficulty}) 으로 모든 문항의 변형을 다시 생성합니다. 기존 변형 결과는 사라집니다. 계속하시겠습니까?`)) {
+    reseedAll();
+  }
+}}>
+  옵션 재생성
+</Btn>
+```
+
+`reseedAll()` 이 dispatched.current.clear() + setProblems([]) 호출 → effect-A
+가 빈 problems 감지 → 새 옵션으로 재시드. 자연스럽게 effect-B 픽업.
+
+**향후 폴리시**: 다이얼로그를 `ModalShell` 로 교체 (브라우저 native confirm
+은 UX 빈약). 일단 `window.confirm` 으로 빠르게.
+
+### 16-8. Step 3 problemCount 정확화 — 시드 필터와 일관성
+
+`Step3Options.tsx` 의 미리보기 카드의 `problemCount` (예상 문항 수) 가
+*useVariantGen 의 eligible filter 와 동일* 해야 한다. 다르면:
+- Step 3 에서 "30 문항" 으로 보이다가 Step 4 진입 후 "15 문항" — 사용자 혼란
+- "변형 불가 N개 (OCR 결손)" chip 누락
+
+**해결** (Step3Options L149-155):
+```ts
+const problemCount = useMemo(() => {
+  const items = pages
+    .filter(p => p.isProblemPage || p.forceOcr)
+    .flatMap(p => p.ocrResult)
+    .filter(it => it.text && !it.bodyMissing && !it.choicesMissing
+                  && it.solution && !it.solutionError);
+  return items.length > 0 ? items.length : 0;
+}, [pages]);
+```
+
+`useVariantGen` 의 eligible filter 와 *byte-identical*. 새로 필터 룰 추가
+시 *두 곳 모두 수정*. (또는 `lib/eligibility.ts` 헬퍼 추출.)
+
+### 16-9. VARIANT_PROMPT 의 4×3 directive matrix
+
+`goal` (4-way) × `difficulty` (3-way) = 12 시나리오. prompt 안에 *명시 텍스트*
+로 모두 박았음:
+
+| goal | 설명 |
+|---|---|
+| `digitize` | (호출 X — fast path) |
+| `similar` | 같은 단원 / 같은 유형 / 숫자만 변경 |
+| `variant` | 같은 단원 / 다른 유형 / 핵심 개념 유지 |
+| `targeted` | 특정 단원 강화 (extras 기반) |
+
+| difficulty | 설명 |
+|---|---|
+| `easier` | 더 단순한 단계로 |
+| `same` | 원본과 동등 |
+| `harder` | 더 복잡한 단계로 |
+
+prompt 안에서 `goalDirectiveText(goal)` + `difficultyDirectiveText(difficulty)`
+헬퍼가 placeholder 치환. *각 case 별로 다른 instruction* 필요 시 헬퍼 안에서
+switch.
+
+**중요**: 12 시나리오 × 학년 7 × 문제 유형 N → 백만 case. *prompt 룰* 만으로
+못 잡는 edge case 발생. 사용자 보고 사례 박는 패턴 (7-5) 으로 점진 보강.
+
+**참고**: `src/services/ai/prompts.ts` `goalDirectiveText`,
+`difficultyDirectiveText`, VARIANT_PROMPT.
+
+### 16-10. extras (함께 만들 자료) 의 deferred semantics
+
+Step 3 의 *함께 만들 자료* row (단원평가 / 진단평가 / 학습지 / 학습체크리스트)
+는 *현재 미구현 placeholder*. Toggle 만 작동, 실제 별도 자료 생성 X.
+
+**현재 동작**: extras 선택 정보는 store 에 저장. Step 4 변형 생성 결과에
+영향 없음. *옵션 재생성* 시에도 무시.
+
+**왜 placeholder**:
+- 단원평가·진단평가는 *별도 prompt + 별도 schema* 필요. 변형 prompt 와 다름.
+- 학습지·체크리스트는 출력 포맷이 다름 (PDF / DOCX 별도 layout).
+- Step 5 (export) 구현 시 통합 — 변형 검토 끝난 후 *다른 자료 추가 생성*.
+
+**원칙**: deferred 기능의 UI 는 Toggle 만 두고 *실제 효과는 후속 phase*.
+사용자에게 "준비 중" tooltip 으로 명시. 가짜 동작 만들지 말 것 — 디버깅
+어렵고 *실제 구현 시 backward compat* 문제.
+
+---
+
+## 17. 다음 phase 후보
 
 현재 mathg-gen 은 6단계 wizard:
 - **Step 0 (업로드)**: PDF → IndexedDB 이미지 + 자동 회전 감지 ✅
 - **Step 1 (OCR)**: 페이지별 multi-problem 추출, 폴백 체인, 회전 적용 ✅
 - **Step 2 (해설)**: 단계별 해설 + 정답 자동 생성 (Sonnet 4.6 기본) ✅
-- **Step 3 (옵션)**: 변형 옵션 — placeholder 🟡
-- **Step 4 (검토)**: 문항별 원본·변형 비교 — placeholder 🟡
+- **Step 3 (옵션)**: 변형 옵션 — UI 완성 ✅, extras 는 deferred 🟡
+- **Step 4 (검토)**: 문항별 원본·변형 비교 ✅
 - **Step 5 (내보내기)**: PDF / DOCX — placeholder 🟡
 
-다음 작업 시 Phase 4 (옵션) 또는 후속 개선 (in-flight 모델 표시 보강, Step3
+다음 작업 시 Phase 5 (내보내기) 또는 후속 개선 (in-flight 모델 표시 보강, Step3
 회전 동기화 등) 으로.
