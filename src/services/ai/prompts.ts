@@ -46,6 +46,10 @@ Output Requirements:
      · Correct:   $\\frac{4}{3}$ ≈ 약 1.33  ← 수식 닫고 자연어로 (가분수→대분수 적용 시: $1\\frac{1}{3}$ ≈ 약 1.33)
      · Correct:   $\\pi$ 는 약 3.14
      · "거의", "근사적으로 같다", "approximately" 같은 영어 표현 X — "약" 만.
+   - **분수 크기 일관 (STRICT) — 한 식 안의 모든 분수는 *같은 크기*로 표시**. 사용자 보고: 잘못된 식 $\\square \\times 1\\frac{2}{3} = -\\frac{1}{2}$ 이후 식에서 분수가 들쭉날쭉 (대분수 안 분수와 진분수 크기 차이). 한국 교과서는 *모든 분수가 동일 displaystyle 크기*.
+     · 모델은 \\\\frac 만 사용 (\\\\dfrac / \\\\tfrac 와 섞지 말 것 — 일관성).
+     · \\\\displaystyle 수동 prefix 추가 X — renderer 가 모든 \\\\frac 를 자동 \\\\dfrac (= displaystyle) 로 업그레이드한다.
+     · 대분수 ($1\\frac{2}{3}$) 와 진분수 ($\\frac{1}{2}$) 모두 같은 크기로 자동 처리됨.
 
 3. [Question Format Rules — CRITICAL]
    - If the question format is '객관식 (5지선다)':

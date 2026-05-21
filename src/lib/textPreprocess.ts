@@ -263,24 +263,32 @@ export const cleanMalformedLatex = (s: string): string =>
 /**
  * `$...$` / `$$...$$` inner 에 적용할 정규화 묶음 — 모든 wrap path 에서
  * 동일한 변환을 거치도록 한 군데에 모음.
+ *
  *  1) cleanMalformedLatex (모델 typo 정리)
- *  2) `\dfrac` → `\frac` (KaTeX 가 \dfrac fontdimen 부족으로 깨질 수 있음)
- *  3) 유니코드 수학기호 → LaTeX 명령어
+ *  2) 유니코드 수학기호 → LaTeX 명령어
+ *  3) `improperToMixed` — `\frac`/`\dfrac` 정수 가분수 → 대분수 (한국 교과서)
  *  4) uprightGeometryLabels (점 라벨 직립 Roman)
- *  5) autoSizeBrackets (분수/적분 포함 괄호를 `\left/\right` 로 — 사용자 5번)
- *  6) injectDisplayStyle (inline 안에서도 분수 큰 사이즈)
+ *  5) autoSizeBrackets (분수/적분 포함 괄호를 `\left/\right` 로)
+ *  6) **`\frac` → `\dfrac` 업그레이드** — 한국 교과서 룰: 인라인 모드에서도
+ *     모든 분수가 *같은 displaystyle 크기*. 사용자 보고: 한 식 안에 인라인
+ *     `\frac` 와 디스플레이 `\frac` 가 섞여 들쭉날쭉. KaTeX 0.16.35 + 번들
+ *     woff2 폰트 환경에서 `\dfrac` 정상 작동 → 강제 업그레이드가 가장 강력한
+ *     fix. `\tfrac` (textstyle 강제) 는 모델이 *명시 의도* 한 경우라 보존.
+ *  7) injectDisplayStyle (보조 안전망 — `\sum`, `\int`, `\lim` 같은 큰
+ *     연산자가 있는 식 + dfrac 안 쓰이는 외부 식에도 displaystyle 보장)
  */
 const applyMathInnerNormalization = (inner: string): string => {
   let s = cleanMalformedLatex(inner);
-  s = s.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
   for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
-  // ⚠ 가분수→대분수 변환은 *dfrac→frac* 정규화 *뒤*, *uprightGeometryLabels*
-  //   *전* 에 두어야 한다. 1) `\dfrac{4}{3}` 형태도 잡으려면 `\frac` 표준화
-  //   먼저. 2) `\mathrm{}` wrapping 이 끼면 \frac 의 분자/분모가 더 이상
-  //   순수 정수로 안 보여 변환 누락.
+  // improperToMixed 가 `\frac` 와 `\dfrac` 둘 다 매치, 반환은 `\frac` 표준화.
+  // 그 뒤 단계 6 에서 모두 `\dfrac` 로 업그레이드.
   s = improperToMixed(s);
   s = uprightGeometryLabels(s);
   s = autoSizeBrackets(s);
+  // 6) `\frac` → `\dfrac` 강제 업그레이드.
+  //    - `(?![a-zA-Z])` lookahead 로 `\fraction` 같은 가상 명령에 안 걸리게.
+  //    - `\tfrac` / `\cfrac` 는 매치 안 함 (모델 명시 의도 보존).
+  s = s.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
   s = injectDisplayStyle(s);
   return s;
 };
