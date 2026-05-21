@@ -188,6 +188,58 @@ Many Requests 10+ 연속 발생 → withRetry 도 429 → `ERR_ABORTED`. 해설�
 **참고**: `src/lib/concurrency.ts` `withRetry` / `extractRetryAfterMs`,
 `src/hooks/useSolutionGen.ts` `pLimit(1)`.
 
+### 1-9. 한국 교과서 분수·근사 표기 관행 (STRICT — CRITICAL)
+
+한국 중·고등 시험지·교과서는 **가분수 (improper fraction) 를 그대로 두지
+않고 항상 대분수로 표기**한다. 이유:
+- 중1 수준은 순환소수 미학습 — `\frac{4}{3} = 1.333...` 는 학생이 인식 못 함
+- 크기 비교·근사 판단에 정수부 + 분수부 분리가 훨씬 직관적
+- 한국 수능·내신·문제집이 모두 이 관행을 따름
+
+또한 **근사 기호 `\approx` / `≈` 대신 한국어 "약" 사용**. "≈ 1.33" 이 아니라
+"약 1.33". `\approx` 는 수학적 동등 근사 기호로 학생들이 그대로 못 읽음.
+
+**이중 방어선**:
+
+1. **프롬프트로 모델 강제** (`COMMON_INSTRUCTIONS` 의 2번 섹션):
+   - 가분수 → 대분수: `\frac{4}{3}` X, `1\frac{1}{3}` ✓
+   - 정수로 떨어지면 정수만: `\frac{6}{3}` X, `2` ✓ (`2\frac{0}{3}` 도 X)
+   - 진분수 (`\frac{1}{3}`) 와 식 분수 (`\frac{a+1}{2}`) 는 그대로
+   - `\approx` X, 한국어 "약 X" ✓
+
+2. **후처리 자동 보정** (`textPreprocess.ts` 의 `improperToMixed`):
+   ```ts
+   const improperToMixed = (math: string): string =>
+     math.replace(
+       /(-?)\\d?frac\{(\d{1,4})\}\{(\d{1,4})\}/g,
+       (full, sign, numStr, denStr) => {
+         const num = parseInt(numStr, 10);
+         const den = parseInt(denStr, 10);
+         if (num < den || den === 0) return full;
+         const whole = Math.floor(num / den);
+         const remainder = num % den;
+         if (remainder === 0) return `${sign}${whole}`;
+         return `${sign}${whole}\\frac{${remainder}}{${den}}`;
+       },
+     );
+   ```
+   `applyMathInnerNormalization` 에서 *dfrac→frac 정규화 직후*, *uprightGeometryLabels
+   직전* 에 호출. 순서 중요 — `\mathrm{}` wrapping 이 끼면 정수 패턴 매칭이
+   안 됨.
+
+**보수적 휴리스틱**: 분자·분모가 모두 1~4자리 순수 정수일 때만 변환.
+식 분수 (`\frac{a+b}{c}`, `\frac{\sqrt{2}}{2}`) 는 false positive 위험으로
+제외. KaTeX 단순화는 그쪽 분수에 대해선 무능하므로 모델이 알아서 emit
+하는 형태를 존중.
+
+**`\approx` 후처리는 안 함**. 수식 안에서 `\approx` 가 다른 의미로 쓰일
+수 있고 (예: 함수의 점근선 표기), 자연어 "약" 으로 변환하려면 `$` 닫고
+새로 여는 구조 변경이라 부작용 큼. 프롬프트 가이드로 모델이 처음부터
+"약" 자연어로 emit 하도록 유도.
+
+**참고**: `src/lib/textPreprocess.ts` `improperToMixed`,
+`src/services/ai/prompts.ts` `COMMON_INSTRUCTIONS` 의 2번 섹션.
+
 ---
 
 ## 2. 렌더링 함정 (SVG / KaTeX / MarkdownRenderer)
@@ -1036,7 +1088,318 @@ performance.getEntriesByType('resource')
 
 ---
 
-## 9. Phase 진행 상황 (참고용)
+## 10. mathDefense — 학년별 fragment 시스템
+
+### 10-1. 학년 fragment 의 token 절감 (~75 %)
+
+`SOLUTION_PROMPT` 의 *방어 프롬프트 영역* (패턴 A-I + 자가 검증 + 단원별 함정
+표) 을 전부 박으면 ~570 줄. 사용자 결정으로 **학년별 fragment** 로 분리:
+
+- `MATH_DEFENSE_COMMON` (~2,574 tokens) — 모든 학년 공통
+- `MATH_DEFENSE_BY_GRADE` (10 키, 각 200~1000 tokens) — 학년별 단원 함정
+
+`buildMathDefense(grade)` 가 한 시험지 단위로 결합. 학년 미선택 fallback 은
+공통만 inject.
+
+**Token 비용** (30 문제, Sonnet 4.6):
+- 전체 박기: 시험지당 $0.32
+- 학년 분리: 시험지당 ~$0.07~0.09 (약 75% 절감)
+
+### 10-2. fragment 의 정규식 추출 함정
+
+mathDefense.ts 의 학년별 fragment 는 `\`${MIDDLE_SCHOOL_NOTATION_GUARD}\n
+─── 중1...` 같이 *nested template literal* 형태. 단순 regex `const NAME =
+\`(...)\`` 는 `${VAR}` interpolation 때문에 *첫 번째 backtick* 에서 끊김.
+
+**해결**: token 측정 / fragment 검증 등은 **dynamic import** 로:
+```ts
+import { MATH_DEFENSE_BY_GRADE } from "./src/services/ai/mathDefense";
+// 정규식 추출 X — 실제 평가된 값 사용
+```
+
+`tsx` 또는 `vite-node` 로 `.mts` 스크립트 실행 (`npx tsx token_est.mts`).
+
+### 10-3. 중학 (1~3) 집합 기호 금지 (사용자 강력 보고)
+
+중학 교육과정에 *집합 개념이 없다* (집합은 고1 공통수학2). 사용자 보고:
+
+  잘못된 출력: `□ = 2^a × 3^b (a ∈ {0, 1, 2}, b ∈ {0, 1, 2, 3})`
+  → 중1 학생은 `∈`, `{}` 못 읽음.
+
+**해결**: `MIDDLE_SCHOOL_NOTATION_GUARD` 헬퍼 신설 → middle1/2/3 fragment 가
+공유. 다음 기호 모두 금지:
+- `∈` / `\\in`, `{ ... }` 집합 brace, `∪`, `∩`, `⊂`, `⊃`, `∅`, `∀`, `∃`
+
+올바른 대안:
+- 자연어: "\`a\` 는 0, 1, 2 중 하나"
+- 부등식 (중2+): "0 ≤ a ≤ 2, a 는 정수"
+
+### 10-4. 패턴 A-I (메타 인지 오류) — 사용자 두 차례 심각 보고 반영
+
+- **패턴 A (max-condition)**: "필수 vs 상한" 혼동. `\\max(A, B) = C` 일 때
+  `A ≥ C` 면 `B` 는 *0~C 모두 가능*. 사용자 13번 LCM 문제 사례 박기.
+- **패턴 B (constraint-stage)**: "서로 다른" 조건을 *중간 단계* 에 적용해
+  case 조기 제외. 절댓값 분해 `{2, 5, 5}` 가 부호 배정 후 `(-5, 2, 5)` 로
+  *세 정수 서로 다름* 만족.
+- **패턴 I (sign-consistency)**: 부호 배정 후 *음수 개수 패리티* ↔ 곱 부호
+  일치 확인. (5, -2, -5) 는 음수 2개 → 곱 +50 → -50 조건 위반.
+
+세 패턴 모두 사용자 보고 *그대로* (잘못된 풀이 + 진짜 정답) prompt 에 인용.
+일반 지시문 ("be careful") 보다 훨씬 효과적 (7-5 원칙 재확인).
+
+---
+
+## 11. Anthropic Prompt Caching
+
+### 11-1. 도입 동기 + 효과
+
+해설 생성 (Sonnet 4.6) 의 input 비용 절감. 한 시험지 30 호출이 *같은 학년·
+prompt prefix* (~6,270 tokens) 공유 → 첫 호출 cache write, 29 호출 cache
+read (90% 할인) → input ~87% 절감, 전체 ~46% 절감 ($1.00 → $0.54).
+
+### 11-2. byte-identical split CRITICAL
+
+cache hit 의 *전제 조건*: 같은 model + max_tokens + temperature + system +
+content blocks 의 *byte-identical prefix*. 1 글자라도 다르면 cache miss.
+
+**해결 패턴** (`prompts.ts`):
+1. 헬퍼 `buildPersonaAndDefense(grade)` 추출 — persona + defense 의 *단일
+   source of truth*. 두 함수가 같은 헬퍼 호출 → byte-identical 자동 보장.
+2. `buildSolutionPrompt` (string) 유지 — Gemini/OpenAI 호환.
+3. `buildSolutionPromptBlocksAnthropic` 신규 — `SPLIT_MARKER = "{problemText}"`
+   기준 `slice + replace` 로 2 blocks 분리. **fallback**: marker 없으면 단일
+   block 반환 (cache X, 동작 보존).
+4. **검증 필수**: `[b0.text, b1.text].join("") === buildSolutionPrompt(...)`
+   를 임시 assert 또는 별도 검증 스크립트 (21 시나리오 = 7 학년 × 3 문제) 로
+   100% 통과 확인.
+
+### 11-3. SDK 타입 패턴
+
+`@anthropic-ai/sdk` 0.97.1 의 `CacheControlEphemeral = { type: 'ephemeral';
+ttl?: '5m' | '1h' }`. TextBlockParam 의 `cache_control?` field.
+
+**우리 컨벤션** (generate.ts SYSTEM_BLOCKS 와 동일): `import type Anthropic`
+없이 `as const literal` 패턴:
+```ts
+{ type: "text", text: prefix, cache_control: { type: "ephemeral" } }
+```
+
+### 11-4. 회귀 방지
+
+- Gemini / OpenAI 호출 경로 **0 줄 변경** — `callGemini` / `callOpenAI` 의
+  `buildSolutionPrompt(input.problem, input.grade)` 그대로 유지.
+- 변경 commit 1 개, 파일 2 개 (prompts.ts + solutions.ts) — 충돌 0 으로
+  격리.
+- 롤백 1 줄: `content: userBlocks` → `content: [{type:"text", text: buildSolutionPrompt(...)}]`.
+
+### 11-5. cache hit 측정 (DEV-only)
+
+```ts
+if (import.meta.env.DEV) {
+  const u = (response as { usage?: ... }).usage;
+  console.debug(`[ai/solutions] cache_read=${u?.cache_read_input_tokens ?? 0}
+    cache_create=${u?.cache_creation_input_tokens ?? 0}`);
+}
+```
+
+조기 경고: *2번째 호출* 부터 `cache_read = 0` 이면 즉시 롤백.
+
+### 11-6. cache TTL vs 우리 호출 패턴
+
+TTL 기본 5분. `pLimitWithGap(1, 1500ms)` × 30 호출 = ~45초. 안전 범위 (TTL
+의 15%). 학년 chip 변경 → cache 자동 무효 (의도된 동작).
+
+### 11-7. 사용자 아이디어 — OCR + 해설 통합의 trade-off
+
+사용자가 "OCR 결과를 다시 prompt 에 넣는 게 비효율" 정확히 진단. *근본
+해결*은 같은 모델로 통합:
+- Sonnet 4.6 vision: OCR + 해설 한 호출 → input 중복 0
+- 단 OCR 정확도 (vs Gemini Flash-Lite) 불확실 — 1 시험지 spot-check 후 도입
+- 절감 ~$0.40 (vs prompt caching $0.45)
+
+**결론** (사용자 결정): prompt caching 우선 (위험 0, 효과 비슷). 통합은 후속.
+
+---
+
+## 12. 다른 프로젝트 통합 검토 패턴 (mathlab 사례)
+
+### 12-1. *우리 시스템 우수성* 먼저 평가
+
+다른 프로젝트 (`D:\mathlab`) 의 utilities 활용 검토 시:
+- 우리 *동등 함수* 가 이미 있나? 우리가 더 정교한가?
+- *진짜 신규 가치* 만 추출, 나머지는 미통합
+
+mathlab 분석 결과:
+- 우리 `curriculum.ts` 402 줄 > mathlab 347 줄 — **미통합** (우리가 우수)
+- 우리 `sanitize.ts` + `textPreprocess.ts` 1100 줄 > mathlab `post-processor.ts`
+  325 줄 — **9 함수 중 3 함수만 통합**
+- 우리 패턴 A-I (mathDefense) > mathlab H1-H8 — *우리가 더 깊음*
+
+### 12-2. Explore agent 의 *방향 통제*
+
+Agent 가 "D:\mathlab 탐색" 명령 받고 *D:\mathg-gen* 자체를 탐색해버린 사례.
+
+**해결 패턴**:
+- prompt 에 "**절대 D:\mathg-gen 보지 말 것**" 명시
+- 가능한 모든 경로를 explicit list 로
+- 첫 결과 신뢰성 의심되면 새 prompt 로 재실행
+
+### 12-3. 통합 우선순위
+
+3 카테고리로 분류:
+1. **즉시 적용** — 신규 가치 명확 + 충돌 없음
+2. **후속 (Phase 2)** — 가치 있지만 기능 도입 후
+3. **미통합** — 충돌 / 도메인 차이 / 우리가 우수
+
+mathlab 의 9 함수 통합 결정:
+
+| 함수 | 결정 | 이유 |
+|---|---|---|
+| `normalizeCircledMarkers` (textcircled → ①㉠㉮) | ⭐ 통합 | 한글 특화 유니코드 맵, 우리에 없음 |
+| `resolveMCAnswer` (값 → 마커) | ⭐ 통합 | 정답 정규화, 우리에 없음 |
+| `deepFixText` (객체 재귀) | ⭐ 통합 | 미래 schema 확장 가치 |
+| `fixLatexEscaping` | 미통합 | 우리 30 줄 lookbehind 가 더 보수적 |
+| `normalizeMathText` | 미통합 | 우리 `preprocessMathText` 445 줄 |
+| `[N단계]` → bold 변환 | 미통합 | 우리 단계 축소 정책과 충돌 |
+| `\therefore` → 자연어화 | 미통합 | prompt 강제로 충분 |
+| `\text{한글}` 제거 | 후속 | `uprightGeometryLabels` 충돌 평가 후 |
+| `stripCodeFence` | 미통합 | 우리 `stripCodeFences` 있음 |
+
+### 12-4. 통합 전 sanitize 순서 검증 (CRITICAL)
+
+`normalizeCircledMarkers` 를 잘못된 단계에 두면 KaTeX 에러:
+- `protectLooseLatex` *이후* → `\textcircled{1}` 이 `$` 안에 wrap → "Unknown
+  command" 에러
+- 권장 순서: `IMG_TAG_RE` → `MD_IMG_RE` → `normalizeCircledMarkers` →
+  `fixLatexEscaping` → `protectLooseLatex`
+
+새 sanitize 함수 추가 시 *순서가 영향 미치는지* 반드시 검토.
+
+---
+
+## 13. UI / 상호작용 패턴
+
+### 13-1. OS-aware 단축키 표시
+
+키 핸들러는 `e.metaKey || e.ctrlKey` 로 양쪽 인식 가능. *UI 표시*만 분기:
+
+```ts
+// src/lib/platform.ts
+export const isMac = () => /Mac|iPhone|iPad/i.test(navigator.platform);
+export const modKey = () => isMac() ? "⌘" : "Ctrl";
+```
+
+`<ModKey/>` 컴포넌트 (Kbd.tsx) 로 일관 사용. SSR-safe (`navigator` 없으면
+false → Windows fallback).
+
+### 13-2. inline-flex 의 margin 함정
+
+정답 박스의 *content-fit width* 처리 시 `inline-flex` 사용하면 vertical
+margin (mb-3 등) 이 부모 line-height 와 충돌해 *마진 적용 불안정*.
+
+**해결**: `flex w-fit max-w-full flex-wrap` 패턴.
+- `flex` — block-level flex container (margin 정상)
+- `w-fit` — fit-content (짧으면 작게)
+- `max-w-full` — 너무 길면 부모 폭 cap
+- `flex-wrap` — 줄바꿈
+
+### 13-3. Chip 컴포넌트의 한계
+
+`Chip` 은 `<span>` 으로 렌더 — `onClick` / `title` prop 받지 않음.
+
+- **클릭 가능 chip** 필요 시: 자체 `<button>` 으로 chip-style 직접 작성
+  (`SelectablePill` 패턴, Step1Upload 학년 chip 참고).
+- **tooltip** 필요 시: `<span title="...">` wrapper 로 감싸기:
+  ```tsx
+  <span title={`full id: ${model}`}>
+    <Chip size="sm">{shortLabel}</Chip>
+  </span>
+  ```
+
+### 13-4. 모델명 표시 — 페이지 vs 문항
+
+페이지 단위 OCR 호출이므로 *같은 페이지 안의 모든 item* 은 기본적으로 같은
+모델. 단 task #41 (item 별 재실행) 도입 시 다를 수 있음.
+
+**구조**:
+- `WizardPage.ocrModel` — 페이지 단위 (현재)
+- `OCRProblem.ocrModel` — 문항 단위 (페이지 모델 복사 + item 재실행 시
+  override)
+- `OCRProblem.solutionModel` — 해설 모델 (이미 있음)
+
+`src/lib/modelLabel.ts` 의 `modelShortName()` 헬퍼 — PageThumbColumn /
+OCRItem / SolutionItem 등 *모든 모델 chip* 이 공유.
+
+---
+
+## 14. Plan mode 활용 패턴
+
+### 14-1. 5 phase 워크플로우
+
+복잡한 변경 (mathlab 통합, prompt caching 등) 에 *plan mode* 매우 효과적:
+
+1. **Phase 1 (Initial Understanding)** — 1~3 Explore agent 병렬. 각각 *다른
+   관점*. `D:\mathlab` 같은 다른 프로젝트 탐색 시 *우리 프로젝트 절대 X*
+   prompt 에 명시.
+2. **Phase 2 (Design)** — 1~3 Plan agent. 사용자 의도가 명확하면 1 개 충분.
+3. **Phase 3 (Review)** — Plan agent 가 인용한 *SDK 타입·파일 경로* 를 실제
+   파일에서 grep 으로 검증.
+4. **Phase 4 (Final Plan)** — `phase-bright-nygaard.md` 에 최종 결정 +
+   변경 영역 + 회귀 방지 체크리스트.
+5. **Phase 5 (ExitPlanMode)** — `allowedPrompts` 로 필요한 Bash 명령 권한
+   미리 요청.
+
+### 14-2. AskUserQuestion 의 효과적 사용
+
+- 통합 정도 (전체 / 핵심 / 선택적 / 생략) 같은 *선택지* 가 명확할 때
+- 의도 모호하면 *plan 작성 전* 질문 (plan 끝에는 ExitPlanMode 만)
+- "사용자 결정" 카테고리: 단원별 함정 통합 정도, 학년 selector vs 자동 추정,
+  fragment 구조 위치 등
+
+### 14-3. 사용자 보고 사례를 *그대로* 인용하는 패턴
+
+"동일 보고 2번 → prompt 에 사례 그대로 박기" (7-5 원칙) 의 *plan 의 변형*:
+사용자가 한 번에 여러 보고 (max/min, 정답 정렬, 변수 도입 누락, 곱 부호
+일관성 등) 던지면 *각 사례를 prompt 에 *별도 섹션* 으로* 박기. 한 줄 일반
+지시문보다 사례 풀 인용이 훨씬 효과적.
+
+---
+
+## 15. 토큰 비용 측정 패턴
+
+### 15-1. 실측 스크립트 (`token_est.mts`)
+
+추정 (한국어 1글자 ≈ 0.5 token) 만으로는 부정확. *실제 build 된 prompt* 의
+char 수 측정:
+
+```ts
+import { buildSolutionPrompt } from "./src/services/ai/prompts";
+const full = buildSolutionPrompt(problem, grade);
+console.log(full.length, "chars,", Math.round(full.length * 0.5), "tokens");
+```
+
+`npx tsx token_est.mts` 로 즉시 실행. 모든 학년 × 모든 시나리오 측정 후
+스크립트 삭제 (one-shot).
+
+### 15-2. 비용 모델
+
+| 모델 | input | output | cache write | cache read |
+|---|---|---|---|---|
+| Sonnet 4.6 | $3/M | $15/M | $3.75/M | $0.30/M |
+| Haiku 4.5 | $0.30/M | $1.50/M | — | — |
+
+30 문제 시험지 (중1, mathDefense 통합 후): input 8,238 + output 1,500 평균.
+- 도입 전: ~$1.00 / 시험지
+- prompt caching 후: ~$0.54 / 시험지
+
+### 15-3. 사용자 비용 질문 시 *각 단계 분리* 답변
+
+OCR (Gemini 페이지 단위) + 해설 (Sonnet 문항 단위) 분리해서 합산. 각 단계의
+token / 비용 / 절감 옵션 별도.
+
+---
+
+
 
 현재 mathg-gen 은 6단계 wizard:
 - **Step 0 (업로드)**: PDF → IndexedDB 이미지 + 자동 회전 감지 ✅

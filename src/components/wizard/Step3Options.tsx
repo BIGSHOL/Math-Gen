@@ -158,7 +158,7 @@ export const Step3Options = () => {
     setOptions({ extras: { ...extras, [id]: !extras[id] } });
 
   return (
-    <div className="max-w-[1200px] mx-auto px-12 py-8 grid grid-cols-[1.15fr_1fr] gap-8">
+    <div className="max-w-[1400px] mx-auto px-12 py-8 grid grid-cols-[1.15fr_1fr] gap-8">
       {/* ── Left column — pick goals + difficulty + extras ───────────── */}
       <div>
         <Heading

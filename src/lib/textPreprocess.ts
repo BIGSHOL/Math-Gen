@@ -186,6 +186,40 @@ const injectDisplayStyle = (inner: string): string => {
 };
 
 /**
+ * 단순 정수 가분수 → 대분수 변환. 한국 중·고등 교과 관행 — 특히 중1
+ * 수준에선 순환소수 미학습이라 대분수가 크기 비교·근사 판단에 훨씬 직관적.
+ * 예: `\frac{4}{3}` → `1\frac{1}{3}`, `\frac{7}{2}` → `3\frac{1}{2}`,
+ *     `-\frac{5}{2}` → `-2\frac{1}{2}`, `\frac{6}{3}` → `2` (정수로 떨어짐).
+ *
+ * **보수적 휴리스틱** — 분자·분모가 모두 *순수 정수* (1~3자리) 인 가분수만
+ * 변환. 식 분수 (`\frac{a+1}{2}` / `\frac{\sqrt{2}}{3}` 등) 는 의도된 표기일
+ * 수 있고 KaTeX 가 단순화 못 하므로 그대로 둔다. 진분수 (`\frac{1}{3}`),
+ * 분모 0, 분자 = 분모 (1), 분자 < 분모 도 모두 그대로.
+ *
+ * 음수: 부호를 외부로 빼서 같은 변환 적용한다. `\dfrac` 도 대상에 포함 —
+ * 이 시점이 preprocessMathText 안이라 `\dfrac` → `\frac` 정규화 이후라
+ * 신경 안 써도 되지만, 호출 순서가 바뀌어도 안전하게 둘 다 매치.
+ */
+const improperToMixed = (math: string): string =>
+  math.replace(
+    /(-?)\\d?frac\{(\d{1,4})\}\{(\d{1,4})\}/g,
+    (full, sign: string, numStr: string, denStr: string) => {
+      const num = parseInt(numStr, 10);
+      const den = parseInt(denStr, 10);
+      if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return full;
+      if (num < den) return full; // 진분수 — 손대지 않음.
+      const whole = Math.floor(num / den);
+      const remainder = num % den;
+      if (remainder === 0) {
+        // 정수로 떨어짐 — 그냥 정수로 표기.
+        return `${sign}${whole}`;
+      }
+      // 대분수 — `n\frac{r}{q}`. KaTeX는 정수 옆 \frac 을 자동 spacing 처리.
+      return `${sign}${whole}\\frac{${remainder}}{${den}}`;
+    },
+  );
+
+/**
  * 모델이 자주 emit 하는 malformed LaTeX 패턴을 정리 — KaTeX 가 통째로
  * 에러 fallback (빨간 텍스트) 으로 가는 걸 막는다. 사용자 보고 (14번, 8번):
  * `\left\left\{ ... \right\right\}` 가 통째로 빨간 raw 로 노출. KaTeX 는
@@ -240,6 +274,11 @@ const applyMathInnerNormalization = (inner: string): string => {
   let s = cleanMalformedLatex(inner);
   s = s.replace(/\\dfrac(?![a-zA-Z])/g, "\\frac");
   for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
+  // ⚠ 가분수→대분수 변환은 *dfrac→frac* 정규화 *뒤*, *uprightGeometryLabels*
+  //   *전* 에 두어야 한다. 1) `\dfrac{4}{3}` 형태도 잡으려면 `\frac` 표준화
+  //   먼저. 2) `\mathrm{}` wrapping 이 끼면 \frac 의 분자/분모가 더 이상
+  //   순수 정수로 안 보여 변환 누락.
+  s = improperToMixed(s);
   s = uprightGeometryLabels(s);
   s = autoSizeBrackets(s);
   s = injectDisplayStyle(s);

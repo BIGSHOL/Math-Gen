@@ -193,8 +193,18 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
         </div>
       </div>
 
-      {/* Answer — highlighted strip just below the header. */}
-      <div className="mb-3 px-3 py-2 rounded-r2 bg-accent-soft border border-accent/30 flex items-baseline gap-2">
+      {/* Answer — highlighted strip just below the header.
+          읽기 모드는 w-fit + max-w-full + flex-wrap 으로 content-fit
+          (사용자 보고: 짧은 정답이 부모 100% 폭으로 늘어나서 어색). 편집 모드는
+          input 이 들어가야 하므로 w-full 유지. flex (block-level) 로 두고
+          width 만 fit-content / full 로 분기 — inline-flex 는 mb-3 적용이
+          불안정. */}
+      <div
+        className={cn(
+          "mb-3 px-3 py-2 rounded-r2 bg-accent-soft border border-accent/30 flex items-baseline gap-2 flex-wrap",
+          editing ? "w-full" : "w-fit max-w-full",
+        )}
+      >
         <span className="text-caption text-muted font-semibold">정답</span>
         {editing ? (
           <input
@@ -206,8 +216,22 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
             aria-label="정답"
           />
         ) : (
-          <span className="text-body font-semibold text-accent-ink">
-            <MarkdownRenderer content={item.answer ?? ""} inline />
+          <span className="text-[15px] font-semibold text-accent-ink flex items-baseline gap-1">
+            {/* 객관식 마커 (①②③④⑤) 가 답 앞에 오면 큰 폰트로 분리 — 사용자
+                보고: ①②③ 가 일반 본문 폰트로 그려져 작아 보임. */}
+            {(() => {
+              const raw = item.answer ?? "";
+              const m = raw.match(/^([①②③④⑤])\s*(.*)$/s);
+              if (m) {
+                return (
+                  <>
+                    <span className="answer-marker">{m[1]}</span>
+                    <MarkdownRenderer content={m[2]} inline />
+                  </>
+                );
+              }
+              return <MarkdownRenderer content={raw} inline />;
+            })()}
           </span>
         )}
       </div>

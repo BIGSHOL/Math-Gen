@@ -48,14 +48,25 @@ import {
   type OCRModel,
 } from "./ocr";
 import { SYSTEM_BLOCKS, extractJsonText, stripCodeFences } from "./generate";
-import { COMMON_INSTRUCTIONS, buildSolutionPrompt } from "./prompts";
+import {
+  COMMON_INSTRUCTIONS,
+  buildSolutionPrompt,
+  buildSolutionPromptBlocksAnthropic,
+} from "./prompts";
 import { SOLUTION_SCHEMA } from "./solutionsSchema";
-import { sanitizeText } from "./sanitize";
+import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize";
+import type { GradeKey } from "./mathDefense";
 import type { OCRProblem } from "@app/stores/wizardStore";
 
 export interface SolutionGenInput {
   /** The OCR'd problem to explain. Only `text` (and optionally `topic`) is used. */
   problem: Pick<OCRProblem, "text" | "topic">;
+  /**
+   * 객관식 보기 배열 (옵션) — 모델이 답을 "9" 같은 *값* 으로 emit 했을 때
+   * `resolveMCAnswer` 가 보기 배열과 대조해 "③" 등 마커 형태로 자동 교정.
+   * 보기 없으면 매칭 불가능 — undefined 로 두면 skip.
+   */
+  choices?: string[];
   /** Cancel in-flight call when set. */
   signal?: AbortSignal;
   /**
@@ -63,6 +74,11 @@ export interface SolutionGenInput {
    * starting from Claude Sonnet 4.6.
    */
   model?: OCRModel;
+  /**
+   * 학년·과목 fragment key — buildSolutionPrompt 에 전달돼 mathDefense 의
+   * 학년별 단원 함정 표가 prompt 에 inject 됨. null/미지정 시 공통 fragment 만.
+   */
+  grade?: GradeKey | null;
 }
 
 export interface SolutionGenResult {
@@ -101,6 +117,12 @@ const callAnthropic = async (
 ): Promise<RawSolutionResponse> => {
   // 16k stays under the SDK's ~21k non-streaming threshold, so we can use
   // the simpler `messages.create` path here (no streaming gymnastics).
+  //
+  // **Prompt caching**: user content 를 2 blocks 로 분리. Block 0 (~6,000
+  // tokens) 은 `cache_control: ephemeral` 마킹 — 같은 시험지의 30 호출이
+  // 같은 학년·prompt prefix 공유하므로 첫 호출 cache write, 나머지는 cache
+  // read (90% 할인). Block 1 (~100~300 tokens) 은 호출마다 dynamic.
+  const userBlocks = buildSolutionPromptBlocksAnthropic(input.problem, input.grade);
   const response = await anthropic.messages.create(
     {
       model,
@@ -112,7 +134,7 @@ const callAnthropic = async (
       messages: [
         {
           role: "user",
-          content: [{ type: "text", text: buildSolutionPrompt(input.problem) }],
+          content: userBlocks,
         },
       ],
       output_config: {
@@ -124,6 +146,16 @@ const callAnthropic = async (
     },
     input.signal ? { signal: input.signal } : undefined,
   );
+
+  // DEV-only — cache hit 측정. 1 호출: creation > 0, read = 0. 2~30 호출:
+  // read > 0, creation = 0. Production 빌드에선 dead-code elimination.
+  if (import.meta.env.DEV) {
+    const usage = (response as { usage?: { cache_read_input_tokens?: number; cache_creation_input_tokens?: number; input_tokens?: number } }).usage;
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[ai/solutions] cache_read=${usage?.cache_read_input_tokens ?? 0} cache_create=${usage?.cache_creation_input_tokens ?? 0} input=${usage?.input_tokens ?? 0} model=${model}`,
+    );
+  }
 
   const rawJson = stripCodeFences(extractJsonText(response));
   return parseJsonOrThrow<RawSolutionResponse>(rawJson);
@@ -140,7 +172,7 @@ const callGemini = async (
 
   const ai = getGeminiClient();
   const system = COMMON_INSTRUCTIONS;
-  const userText = buildSolutionPrompt(input.problem);
+  const userText = buildSolutionPrompt(input.problem, input.grade);
 
   try {
     const response = await ai.models.generateContent({
@@ -194,7 +226,7 @@ const callOpenAIResponsesAPI = async (
   model: OpenAIModel,
 ): Promise<RawSolutionResponse> => {
   const client = getOpenAIClient();
-  const userText = buildSolutionPrompt(input.problem);
+  const userText = buildSolutionPrompt(input.problem, input.grade);
   const maxOutput = model === "gpt-5.5-pro" ? 16000 : 16000;
   const response = await client.responses.create(
     {
@@ -264,7 +296,7 @@ const callOpenAI = async (
     }
 
     const client = getOpenAIClient();
-    const userText = buildSolutionPrompt(input.problem);
+    const userText = buildSolutionPrompt(input.problem, input.grade);
     const useCompletionTokens = usesCompletionTokens(model);
     const response = await client.chat.completions.create(
       {
@@ -331,9 +363,17 @@ export const generateSolution = async (
     parsed = await callOpenAI(input, model as OpenAIModel);
   }
 
+  // 답 후처리 순서: (1) sanitizeAnswer (쉼표 공백 + LaTeX 정규화) →
+  // (2) resolveMCAnswer (값 → ①②③ 마커, choices 가 있을 때만 — 보기 없으면 skip).
+  // mathlab post-processor 패턴 차용.
+  const cleanedAnswer = sanitizeAnswer(parsed.answer ?? "");
+  const finalAnswer = input.choices
+    ? resolveMCAnswer(cleanedAnswer, input.choices)
+    : cleanedAnswer;
+
   return {
     solution: sanitizeText(parsed.solution ?? ""),
-    answer: sanitizeText(parsed.answer ?? ""),
+    answer: finalAnswer,
     modelUsed: model,
   };
 };

@@ -271,9 +271,23 @@ svg text {
   min-width: 0;
 }
 .choice-row .choice .choice-marker {
-  font-weight: 600;
-  margin-right: 4px;
+  /* 사용자 보고: ①②③ 마커가 작아 잘 안 보임. font-size·weight 강화로
+     가독성 개선. 1.15em 으로 부모 텍스트보다 살짝 크게. */
+  font-weight: 700;
+  margin-right: 5px;
   flex-shrink: 0;
+  font-size: 1.15em;
+  color: #374151;
+}
+
+/* 인라인 답 / 본문에서 ①②③④⑤ 글리프가 등장하면 그 자체로 크게 보이도록
+   font-feature-settings 와 line-height 조정. 사용자 보고: 정답 strip 의
+   "① 211" 의 ① 가 본문 폰트로 그려져 작게 보임. 모든 답·풀이 본문에 적용. */
+.answer-marker,
+.prose .answer-marker {
+  font-size: 1.15em;
+  font-weight: 700;
+  margin-right: 2px;
 }
 
 /* Block math: horizontal scroll when expressions overflow */

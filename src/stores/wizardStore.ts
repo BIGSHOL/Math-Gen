@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { GeneratedProblem } from "@app/types";
+import type { GradeKey } from "@app/services/ai/mathDefense";
 
 /**
  * 5-step Wizard state.
@@ -20,6 +21,13 @@ export type WizardStepIndex = 0 | 1 | 2 | 3 | 4 | 5;
 export type ConversionGoal = "digitize" | "similar" | "variant" | "targeted";
 export type DifficultyShift = "easier" | "same" | "harder";
 export type ExportFormat = "pdf" | "hwp" | "docx" | "online";
+
+/**
+ * 시험 종류 — mathlab `ExamUploadForm.tsx` 의 examCategory 벤치마킹. 현재는
+ * 메타데이터로만 저장. 후속 phase 에서 검증 프롬프트에 활용 예정 (예: 수능
+ * 기출에 대해선 더 엄격한 표기 규칙).
+ */
+export type ExamCategory = "MIDTERM" | "FINAL" | "MOCK" | "OTHER";
 
 export interface WizardPage {
   id: string;
@@ -117,6 +125,14 @@ export interface OCRProblem {
   solutionError?: string;
   /** 어떤 모델이 해설을 만들었는지 (디버그·UI 배지). */
   solutionModel?: string;
+  /**
+   * 이 문항을 OCR 한 모델 (디버그·UI 배지). 같은 페이지 안의 모든 item 은
+   * 기본적으로 동일 (페이지 단위 호출이라). task #41 (item 별 재실행) 도입
+   * 시 item 마다 다른 모델 가능 — 그 때 자연스럽게 분기.
+   *
+   * `usePageOcr` 가 페이지 OCR 성공 시 각 item 에 페이지 모델을 복사.
+   */
+  ocrModel?: string;
 }
 
 export interface ProblemReview {
@@ -133,6 +149,14 @@ export interface WizardState {
   // Step 1 — Upload
   uploadedFileName: string | null;
   uploadProgress: number;
+  /**
+   * 사용자가 PDF 업로드 시 선택한 학년·과목 (mathDefense fragment key).
+   * 해설 생성 시 buildSolutionPrompt 에 전달돼 학년별 단원 함정 fragment
+   * 가 prompt 에 inject 됨. null 이면 공통 fragment 만.
+   */
+  selectedGrade: GradeKey | null;
+  /** 시험 종류 — 현재는 메타데이터, 후속 phase 에서 prompt 활용 예정. */
+  examCategory: ExamCategory | null;
 
   // Step 2 — OCR Review
   pages: WizardPage[];
@@ -163,6 +187,8 @@ export interface WizardState {
   next: () => void;
   prev: () => void;
   setUploadedFile: (filename: string) => void;
+  setSelectedGrade: (grade: GradeKey | null) => void;
+  setExamCategory: (cat: ExamCategory | null) => void;
   setPages: (pages: WizardPage[]) => void;
   setPageOCR: (
     pageId: string,
@@ -194,6 +220,8 @@ const initialState = {
   step: 0 as WizardStepIndex,
   uploadedFileName: null,
   uploadProgress: 0,
+  selectedGrade: null as GradeKey | null,
+  examCategory: null as ExamCategory | null,
   pages: [] as WizardPage[],
   activePageIndex: 0,
   goal: "similar" as ConversionGoal,
@@ -223,6 +251,8 @@ export const useWizardStore = create<WizardState>()(
       },
 
       setUploadedFile: (filename) => set({ uploadedFileName: filename, uploadProgress: 100 }),
+      setSelectedGrade: (grade) => set({ selectedGrade: grade }),
+      setExamCategory: (cat) => set({ examCategory: cat }),
       setPages: (pages) => set({ pages }),
       setPageOCR: (pageId, patch) =>
         set((state) => ({
@@ -279,6 +309,8 @@ export const useWizardStore = create<WizardState>()(
         testId: s.testId,
         step: s.step,
         uploadedFileName: s.uploadedFileName,
+        selectedGrade: s.selectedGrade,
+        examCategory: s.examCategory,
         // 페이지별 휘발성 필드 (in-flight 모델명, 업그레이드 진행 플래그)는
         // 새로고침 후 살아 있어 봤자 의미 없으므로 stripping. rotation 은
         // 사용자가 명시적으로 정해 둔 값이라 persist.

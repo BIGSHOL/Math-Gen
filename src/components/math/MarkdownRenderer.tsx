@@ -533,7 +533,26 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     "풀이",
     "보기",
     "조건",
+    // 해설 서브섹션 라벨 — 사용자 보고: `[음수 1개인 경우]`, `[음수 3개인 경우]`
+    // 같은 케이스 분기가 대시드 박스로 잘못 렌더링되던 문제. "음수"·"양수" 로
+    // 시작하면 박스 X.
+    "음수",
+    "양수",
+    "정수",
+    "홀수",
+    "짝수",
+    "소수",
+    "단계",
+    "방법",
+    "경우",
+    "조건",
+    "참",
+    "거짓",
   ];
+  // Suffix guard — 해설 서브섹션 라벨은 "~인 경우 / ~인 단계 / ~인 조건" 처럼
+  // 케이스 마무리 키워드로 끝나는 패턴이 많다. prefix 만으론 못 잡는 케이스
+  // (`[가위가 나오는 경우]`, `[합이 7인 단계]`) 를 잡기 위한 보조 가드.
+  const LABEL_SUFFIXES = ["인경우", "는경우", "한경우", "의경우", "경우", "단계", "조건", "방법", "유형", "이유"];
   const processedContent = svgReplacedContent.replace(
     /(?<!!)\[([가-힣\s\d/,×÷+\-a-zA-Z]+)\](?!\()/g,
     (match, desc: string) => {
@@ -544,6 +563,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       if (COMMON_LABEL_WORDS.has(compact)) return match;
       // Prefix match — `[서술형4]`, `[단답형 3]` etc. stay as bracketed text.
       if (LABEL_PREFIXES.some((p) => compact.startsWith(p))) return match;
+      // Suffix match — `[음수 1개인 경우]` 등 케이스 분기 라벨.
+      if (LABEL_SUFFIXES.some((s) => compact.endsWith(s))) return match;
       return `<span class="diagram-placeholder">${desc}</span>`;
     },
   );

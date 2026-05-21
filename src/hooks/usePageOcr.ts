@@ -257,8 +257,14 @@ export const usePageOcr = () => {
           try {
             const result = await runOcrChain(page, pass1Chain, "1차", "pass1");
             if (!result) return;
+            // 각 item 에 페이지 모델 복사 — 문항별 모델 추적 (task #99).
+            // 향후 item 별 재실행 (task #41) 시 그 item 만 업데이트 가능.
+            const itemsWithModel = result.items.map((it) => ({
+              ...it,
+              ocrModel: result.modelUsed,
+            }));
             setPageOCR(page.id, {
-              ocrResult: result.items,
+              ocrResult: itemsWithModel,
               ocrComplete: true,
               ocrModel: result.modelUsed as WizardPage["ocrModel"],
             });
@@ -302,8 +308,13 @@ export const usePageOcr = () => {
         try {
           const result = await runOcrChain(page, pass2Chain, "2차", "pass2");
           if (!result) return;
+          // Pass 2 도 각 item 에 모델 복사 (task #99).
+          const itemsWithModel = result.items.map((it) => ({
+            ...it,
+            ocrModel: result.modelUsed,
+          }));
           setPageOCR(page.id, {
-            ocrResult: result.items,
+            ocrResult: itemsWithModel,
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             upgrading: false,
           });

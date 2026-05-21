@@ -437,20 +437,113 @@ export const protectLooseLatex = (text: string): string => {
   );
 };
 
+/**
+ * `\textcircled{N}` 같은 LaTeX 명령을 한국 교과서 유니코드 글리프로 변환.
+ *
+ * D:\mathlab\src\lib\pdf-extract-engine\ai\post-processor.ts 75~103 줄 포팅.
+ * Gemini 가 가끔 `\textcircled{1}` 으로 emit 하는데 KaTeX 가 못 그림 →
+ * 화면에 raw 노출. 직접 유니코드로 변환.
+ *
+ * 매핑:
+ *   `\textcircled{1..20}` → `①②③…⑳` (U+2460 + N-1)
+ *   `\textcircled{가나다…하}` → `㉮㉯㉰…㉻` (한글 음절, 14 개)
+ *   `\textcircled{ㄱㄴㄷ…ㅎ}` → `㉠㉡㉢…㉭` (자모, 14 개)
+ *
+ * 호출 순서 CRITICAL: `protectLooseLatex` *전* 에 호출. 안 그러면
+ * `\textcircled` 가 `$` 안으로 wrap 되어 KaTeX "Unknown command" 에러.
+ */
+export const normalizeCircledMarkers = (text: string): string => {
+  if (!text) return text;
+  return (
+    text
+      // \text{\textcircled{N}} 중첩 → \text{①} (수식 내부 보호 위해 \text 유지)
+      .replace(/\\text\{\\textcircled\{(\d+)\}\}/g, (m, n: string) => {
+        const num = Number(n);
+        if (num >= 1 && num <= 20) return `\\text{${String.fromCharCode(0x2460 + num - 1)}}`;
+        return m;
+      })
+      // \textcircled{N} (1~20) → ①②③…⑳
+      .replace(/\\textcircled\{(\d+)\}/g, (m, n: string) => {
+        const num = Number(n);
+        if (num >= 1 && num <= 20) return String.fromCharCode(0x2460 + num - 1);
+        return m;
+      })
+      // \textcircled{한글음절 가~하} → ㉮㉯㉰…
+      .replace(/\\textcircled\{([가-힣])\}/g, (m, ch: string) => {
+        const map: Record<string, string> = {
+          가: "㉮", 나: "㉯", 다: "㉰", 라: "㉱", 마: "㉲",
+          바: "㉳", 사: "㉴", 아: "㉵", 자: "㉶", 차: "㉷",
+          카: "㉸", 타: "㉹", 파: "㉺", 하: "㉻",
+        };
+        return map[ch] ?? m;
+      })
+      // \textcircled{자음 ㄱ~ㅎ} → ㉠㉡㉢…
+      .replace(/\\textcircled\{([ㄱ-ㅎ])\}/g, (m, ch: string) => {
+        const map: Record<string, string> = {
+          ㄱ: "㉠", ㄴ: "㉡", ㄷ: "㉢", ㄹ: "㉣", ㅁ: "㉤",
+          ㅂ: "㉥", ㅅ: "㉦", ㅇ: "㉧", ㅈ: "㉨", ㅊ: "㉩",
+          ㅋ: "㉪", ㅌ: "㉫", ㅍ: "㉬", ㅎ: "㉭",
+        };
+        return map[ch] ?? m;
+      })
+  );
+};
+
 export const sanitizeText = (text: string | undefined): string => {
   if (!text) return text ?? "";
-  // 순서: (1) HTML 노이즈 제거 → (2) JSON.parse 백슬래시 복원 →
-  //       (3) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.
-  // (3) 은 (2) 다음에 와야 한다 — (2) 가 `frac` → `\frac` 같이 복원해서
-  // 우리가 wrap 대상으로 인식 가능한 형태로 만든 다음 wrap 한다.
+  // 순서: (1) HTML 노이즈 제거 → (2) `\textcircled{N}` 유니코드 변환 →
+  //       (3) JSON.parse 백슬래시 복원 →
+  //       (4) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.
+  // (2) 는 protectLooseLatex 보다 *앞* 이어야 한다 — `\textcircled` 가 `$`
+  // 안으로 wrap 되면 KaTeX 가 unknown command 에러를 낸다.
+  // (4) 는 (3) 다음 — (3) 이 `frac` → `\frac` 같이 복원해서 (4) 가 wrap
+  // 대상으로 인식 가능한 형태로 만든 다음 wrap 한다.
   return protectLooseLatex(
     fixLatexEscaping(
-      text
-        .replace(IMG_TAG_RE, "")
-        .replace(MD_IMG_RE, "")
-        .replace(EMPTY_CENTER_RE, "")
-        .trim(),
+      normalizeCircledMarkers(
+        text
+          .replace(IMG_TAG_RE, "")
+          .replace(MD_IMG_RE, "")
+          .replace(EMPTY_CENTER_RE, "")
+          .trim(),
+      ),
     ),
+  );
+};
+
+/**
+ * 정답 (`answer` 필드) 전용 sanitizer. `sanitizeText` 의 모든 처리에 더해
+ * **쉼표 다음 공백 보장** 처리.
+ *
+ * 사용자 보고: 나열형 정답 `-28,-22,-16,...` 처럼 쉼표 다음 공백이 없어
+ * 다닥다닥 붙어 가독성 떨어짐. KaTeX 의 thin space 는 math mode 안 쉼표
+ * 에만 적용되므로, plain text 쉼표는 직접 공백을 박아야 함.
+ *
+ * `$...$` 안의 쉼표는 KaTeX 가 알아서 처리하므로 건드리지 않음 — math
+ * block 을 placeholder 로 분리한 뒤 외부만 가공.
+ */
+export const sanitizeAnswer = (text: string | undefined): string => {
+  const base = sanitizeText(text);
+  if (!base) return base;
+  // `$...$` (블록 + 인라인) 보호. PUA sentinel 사용 — Edit 도구 함정 회피
+  // 위해 String.fromCharCode 명시 (CLAUDE.md 4-1).
+  const SENTINEL = String.fromCharCode(57346); // U+E002
+  const protectedBlocks: string[] = [];
+  let i = 0;
+  let protectedText = base.replace(/\$\$[\s\S]+?\$\$/g, (m) => {
+    protectedBlocks.push(m);
+    return `${SENTINEL}B${i++}${SENTINEL}`;
+  });
+  protectedText = protectedText.replace(/\$[^$\n]+?\$/g, (m) => {
+    protectedBlocks.push(m);
+    return `${SENTINEL}I${i++}${SENTINEL}`;
+  });
+  // 쉼표 다음에 공백이 없으면 한 칸 주입. ", " (이미 공백) 은 그대로.
+  const spaced = protectedText.replace(/,(?!\s)/g, ", ");
+  // 복원.
+  return spaced.replace(
+    new RegExp(`${SENTINEL}[BI](\\d+)${SENTINEL}`, "g"),
+    (_, idx: string) => protectedBlocks[parseInt(idx, 10)] ?? "",
   );
 };
 
@@ -517,4 +610,70 @@ export const parseDataUrl = (
     return { mediaType: "image/jpeg", data: match[2] };
   }
   return { mediaType, data: match[2] };
+};
+
+/**
+ * 모델이 객관식 답을 "9" / "$\\frac{1}{2}$" 같은 *값* 으로 줬을 때, 보기
+ * 배열과 대조해서 ①②③ 마커 + 값 으로 정규화.
+ *
+ * D:\mathlab\src\lib\pdf-extract-engine\ai\post-processor.ts 248~266 줄 포팅.
+ *
+ * **가드** (mathlab 코드 252 줄 보존): 이미 ①②③④⑤ 마커가 있는 답은 skip.
+ * `normalize` 가 `$` 제거 후 비교하므로 `"② $\\frac{1}{2}$"` 같은 형태가
+ * *오매치* 될 위험이 있음 — 가드 절대 제거 X.
+ *
+ * 매칭 실패 시 원본 그대로 반환 (보수적).
+ */
+export const resolveMCAnswer = (
+  answer: string,
+  choices: string[] | null | undefined,
+): string => {
+  if (!answer || !Array.isArray(choices) || choices.length === 0) return answer;
+  const trimmed = answer.trim();
+  // 이미 올바른 마커 형식이면 건드리지 않음 (CRITICAL — 가드 절대 제거 X).
+  if (/^[①②③④⑤⑥⑦⑧⑨⑩,\s]+$/.test(trimmed)) return trimmed;
+  if (/^[ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊ,\s]+$/.test(trimmed)) return trimmed;
+  if (/^[㉠㉡㉢㉣㉤㉮㉯㉰㉱㉲,\s]+$/.test(trimmed)) return trimmed;
+
+  // 정규화 — `$` 제거 + 공백 제거 + 안전 char 만 남김. 둘 다 같은 처리.
+  const normalize = (s: string): string =>
+    s
+      .replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/, "")
+      .replace(/\$/g, "")
+      .replace(/\s+/g, "")
+      .replace(/[^0-9A-Za-z\-+/\\{}.()]/g, "");
+
+  const normAns = normalize(trimmed);
+  if (!normAns) return trimmed;
+  const idx = choices.findIndex((c) => normalize(c) === normAns);
+  if (idx < 0) return trimmed;
+  return "①②③④⑤⑥⑦⑧⑨⑩"[idx] ?? trimmed;
+};
+
+/**
+ * 객체의 모든 문자열 필드에 sanitize 함수를 재귀 적용.
+ *
+ * D:\mathlab\src\lib\pdf-extract-engine\ai\post-processor.ts 290~308 줄 포팅.
+ *
+ * 미래 schema 확장 시 활용. 현재는 `{ solution, answer }` 같은 단순 객체에도
+ * 안전하게 적용 가능. maxDepth 가드로 무한 재귀 방지.
+ */
+export const deepFixText = <T>(
+  obj: T,
+  fixText: (text: string) => string,
+  maxDepth = 5,
+): T => {
+  if (maxDepth <= 0) return obj;
+  if (typeof obj === "string") return fixText(obj) as T;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepFixText(item, fixText, maxDepth - 1)) as T;
+  }
+  if (obj && typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = deepFixText(value, fixText, maxDepth - 1);
+    }
+    return result as T;
+  }
+  return obj;
 };

@@ -8,6 +8,7 @@ import {
   Icon,
   Kbd,
   Logo,
+  ModKey,
   Segmented,
   TopBar,
 } from "@app/components/ui";
@@ -76,7 +77,7 @@ export const LibraryScreen = () => {
             <div className="flex items-center gap-2 pl-2 pr-2.5 h-[30px] bg-surface2 rounded-r2 text-muted text-[12.5px] min-w-[220px]">
               <Icon name="magnifying-glass" size={14} />
               <span className="flex-1">검색</span>
-              <Kbd>⌘</Kbd>
+              <ModKey />
               <Kbd>K</Kbd>
             </div>
             <Btn kind="ghost" size="sm" icon="bell-simple" aria-label="알림" />
@@ -97,7 +98,11 @@ export const LibraryScreen = () => {
         <LibrarySidebar collection={collection} onCollectionChange={setCollection} />
 
         <main className="flex-1 overflow-auto min-w-0">
-          <div className="px-9 py-7 max-w-[1280px] min-w-0">
+          {/* 2400px 캡 — 1920·2560 (2K) 모니터까지 자연스럽게 활용하고,
+              4K (3840) 같은 초대형 디스플레이에서는 좌우 여백으로 가독성
+              확보. 1920 에선 사이드바 제외 ~1700 폭을 모두 카드 그리드로
+              씀 (6 열). 2K 에선 8 열 자연 분기. */}
+          <div className="px-9 py-7 max-w-[2400px] min-w-0">
             <Heading
               level="h1"
               sub={`${tests.length}개 · 최근 7일 12개 추가`}

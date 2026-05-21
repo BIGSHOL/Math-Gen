@@ -1,45 +1,10 @@
 import { useEffect, useState } from "react";
 import { Chip, Eyebrow, Icon } from "@app/components/ui";
 import { getThumbnail } from "@app/lib/imageStore";
+import { modelShortName } from "@app/lib/modelLabel";
 import { applyRotation } from "@app/lib/pdfProcessor";
 import { cn } from "@app/lib/tailwind";
 import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
-
-/**
- * DEV-only short label for a model id — keeps the thumbnail badge to ~6 px
- * of width. Returns just the model name's distinctive token. Maintained as
- * a switch so unknown models fall back to their full id (truncated).
- */
-const modelShortName = (model: string): string => {
-  switch (model) {
-    case "gemini-3-flash-preview":
-      return "G3F";
-    case "gemini-3.5-flash":
-      return "G3.5F";
-    case "gemini-3.1-pro-preview":
-      return "G3.1P";
-    case "gemini-3.1-flash-lite":
-      return "G3.1FL";
-    case "gemini-2.5-flash":
-      return "G2.5F";
-    case "gemini-2.5-pro":
-      return "G2.5P";
-    case "gpt-5.5":
-      return "GPT5.5";
-    case "gpt-5.5-pro":
-      return "GPT5.5P";
-    case "gpt-5":
-      return "GPT5";
-    case "claude-sonnet-4-6":
-      return "Sonnet";
-    case "claude-opus-4-7":
-      return "Opus";
-    case "claude-haiku-4-5":
-      return "Haiku";
-    default:
-      return model.length > 8 ? `${model.slice(0, 7)}…` : model;
-  }
-};
 
 /**
  * Step 2 — left-most 92 px column listing every page as a 64 px paper-style

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
+import { modelShortName } from "@app/lib/modelLabel";
 import { cropPageImageData } from "@app/lib/pdfProcessor";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
@@ -167,6 +168,18 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemPro
         )}
 
         <StatusChip status={item.status} reviewed={item.reviewed} />
+
+        {/* 문항별 OCR 모델 chip — 사용자 요청 (task #99). 같은 페이지 내
+            모든 item 은 기본적으로 동일하지만, task #41 (item 별 재실행)
+            도입 시 item 마다 다를 수 있음. wrapper span 의 native title
+            attribute 로 full 모델 id tooltip. */}
+        {item.ocrModel && (
+          <span title={`OCR: ${item.ocrModel}`}>
+            <Chip tone="soft" size="sm">
+              {modelShortName(item.ocrModel)}
+            </Chip>
+          </span>
+        )}
 
         {editing ? (
           <input

@@ -309,7 +309,7 @@ export const ModelBenchScreen = () => {
         }
       />
 
-      <div className="max-w-[1400px] mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-[2400px] mx-auto px-6 py-8 space-y-6">
         <Heading level="h1" sub="같은 페이지를 여러 모델로 동시에 OCR해 도형/표 렌더링 품질을 직접 비교합니다.">
           모델 비교
         </Heading>

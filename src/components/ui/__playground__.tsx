@@ -12,6 +12,7 @@ import {
   Input,
   Kbd,
   Logo,
+  ModKey,
   Progress,
   Segmented,
   StatCard,
@@ -171,7 +172,7 @@ export const UIPlayground = () => {
           <Heading level="h1">Kbd · Divider · Icon</Heading>
           <div className="mt-4 flex items-center gap-3 text-small text-text2">
             <span>저장하기</span>
-            <Kbd>⌘</Kbd>
+            <ModKey />
             <Kbd>S</Kbd>
             <Divider vertical className="h-4" />
             <span>닫기</span>

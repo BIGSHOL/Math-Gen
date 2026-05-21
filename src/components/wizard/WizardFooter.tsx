@@ -1,4 +1,4 @@
-import { Btn, Kbd } from "@app/components/ui";
+import { Btn, Kbd, ModKey } from "@app/components/ui";
 import { cn } from "@app/lib/tailwind";
 import type { WizardStepIndex } from "@app/stores/wizardStore";
 
@@ -16,7 +16,9 @@ export interface WizardFooterProps {
 }
 
 /**
- * Sticky bottom bar — 이전/다음 buttons, step-progress dots, ⌘← / ⌘→ hint.
+ * Sticky bottom bar — 이전/다음 buttons, step-progress dots, modkey+arrow hint.
+ * Modifier 키는 OS-aware (`ModKey` 컴포넌트): Mac ⌘ / Windows·Linux Ctrl.
+ * 키 핸들러도 `e.metaKey || e.ctrlKey` 로 OS-aware (WizardScreen).
  * Mirrors hifi/wizard.jsx but adapted for our design tokens.
  */
 export const WizardFooter = ({
@@ -36,11 +38,11 @@ export const WizardFooter = ({
       <div className="flex items-center gap-3">
         {leftSlot ?? (
           <span className="text-small text-muted flex items-center gap-2">
-            <Kbd>⌘</Kbd>
+            <ModKey />
             <Kbd>←</Kbd>
             <span>이전</span>
             <span className="mx-1 text-line-strong">·</span>
-            <Kbd>⌘</Kbd>
+            <ModKey />
             <Kbd>→</Kbd>
             <span>다음</span>
           </span>

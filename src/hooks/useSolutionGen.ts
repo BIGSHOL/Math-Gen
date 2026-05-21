@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { pLimit, withRetry } from "@app/lib/concurrency";
+import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
 import { generateSolution } from "@app/services/ai/solutions";
 import { useWizardStore } from "@app/stores/wizardStore";
 
@@ -29,11 +29,17 @@ import { useWizardStore } from "@app/stores/wizardStore";
 export const useSolutionGen = () => {
   const pages = useWizardStore((s) => s.pages);
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
-  // pLimit(1) — Sonnet 4.6 의 분당 RPM/TPM 한계 (~30 RPM, ~40k TPM) 가 한
-  // 시험지 (30 문항) 에 대해 빠르게 차서 429 폭발. 사용자 보고: 10+ 429
-  // 연속 발생 후 ERR_ABORTED. 1 개씩 순차 처리로 rate window 보호.
-  // 30 문항 × ~3 초/문항 = 1.5 분 — UX 충분히 acceptable.
-  const limit = useMemo(() => pLimit(1), []);
+  // 학년 fragment key — buildSolutionPrompt 에 prop drill 해서 학년별 단원
+  // 함정 표가 prompt 에 inject 되게 함. null 이면 공통 검증 절차만.
+  const selectedGrade = useWizardStore((s) => s.selectedGrade);
+  // pLimitWithGap(1, 1500) — Sonnet 4.6 의 분당 RPM/TPM 한계 (Tier 1 기준
+  // RPM 50, OTPM 8k) 가 한 시험지 (30 문항) 에 대해 빠르게 차서 429 폭발.
+  // 사용자 보고: 10+ 429
+  // 연속 발생 후 ERR_ABORTED. pLimit(1) 만으로는 부족 — 한 호출이 빠르게
+  // 끝나면 직후 다음 호출이 0초 간격으로 발사돼 RPM 폭주. minGap 1500 ms
+  // 으로 RPM ~ 40 자연 제한. Tier 2 로 업그레이드 (RPM 1000) 하면 이 값을
+  // 500 또는 0 으로 줄일 수 있음. 사용자가 Tier 1 일 때 안전한 디폴트.
+  const limit = useMemo(() => pLimitWithGap(1, 1500), []);
 
   // Track which (pageId, itemId) pairs were dispatched on THIS mount so we
   // don't re-fire on every re-render.
@@ -57,6 +63,7 @@ export const useSolutionGen = () => {
             const result = await withRetry(() =>
               generateSolution({
                 problem: { text: item.text, topic: item.topic },
+                grade: selectedGrade,
               }),
             );
             if (!dispatched.current.has(key)) return;

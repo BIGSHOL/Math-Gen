@@ -112,7 +112,10 @@ export const DetailScreen = () => {
           onSelect={setActivePage}
         />
 
-        <main className="flex-1 overflow-auto px-8 py-6">
+        <main className="flex-1 overflow-auto">
+          {/* 2400px 캡 — 2K 모니터까지 자연 활용, 4K 에선 가독성 위해
+              여백 확보. 이전엔 cap 이 없어 표·도형이 끝까지 늘어났음. */}
+          <div className="max-w-[2400px] mx-auto px-8 py-6">
           <HeroCard test={test} />
 
           <div className="mt-[22px] mb-5">
@@ -151,6 +154,7 @@ export const DetailScreen = () => {
           )}
 
           <CtaBanner onLaunch={() => openModal("new-variant")} />
+          </div>
         </main>
 
         <DetailMetaSidebar test={test} />

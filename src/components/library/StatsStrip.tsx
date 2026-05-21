@@ -5,7 +5,13 @@ import { StatCard } from "@app/components/ui";
  * Phase 6 (backend) will compute these from real activity logs.
  */
 export const StatsStrip = () => (
-  <div className="grid grid-cols-4 gap-3">
+  // 카드 폭 260 px 고정 — 하단 TestCard 와 정확히 동일한 폭으로 통일.
+  // `1fr` 분배 안 씀 — 사용자 의도가 "와이드 모니터에서 카드 자체가
+  // 늘어나는 것이 아니라 열 수만 분기되는 것".
+  <div
+    className="grid gap-3 justify-start"
+    style={{ gridTemplateColumns: "repeat(auto-fill, 260px)" }}
+  >
     <StatCard
       icon="check-circle"
       label="변환 완료"

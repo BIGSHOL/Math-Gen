@@ -119,7 +119,8 @@ export const WizardScreen = () => {
 
   useWizardGuard(step > 0 && step < 5 && !resumeDialog);
 
-  // ⌘← / ⌘→ navigation; ignore arrow keys when an input is focused.
+  // Mod+← / Mod+→ navigation (Mac ⌘, Windows/Linux Ctrl — `metaKey || ctrlKey`).
+  // Ignore arrow keys when an input is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;

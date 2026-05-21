@@ -12,6 +12,12 @@ export default {
   ],
   theme: {
     extend: {
+      // 와이드 모니터(≥1600 px) 전용 breakpoint. Tailwind 기본은 2xl(1536)
+      // 까지라 1920 px 모니터에서 추가 분기를 못 잡았다. 3xl 이후로는
+      // `3xl:grid-cols-5` 같은 분기로 카드를 더 펼칠 수 있다.
+      screens: {
+        "3xl": "1600px",
+      },
       colors: {
         // Neutrals
         ink: "#0F1117",

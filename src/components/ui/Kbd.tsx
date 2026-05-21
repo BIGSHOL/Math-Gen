@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@app/lib/tailwind";
+import { modKey } from "@app/lib/platform";
 
 export interface KbdProps {
   children: ReactNode;
@@ -21,6 +22,17 @@ export const Kbd = ({ children, className }: KbdProps) => (
   >
     {children}
   </kbd>
+);
+
+/**
+ * OS-aware modifier 키 표시 — Mac 은 `⌘`, Windows/Linux 는 `Ctrl`.
+ * 사용자 보고: ⌘ 만 박혀 있어서 Windows 사용자가 헷갈림.
+ *
+ * 사용:
+ *   <ModKey /> <Kbd>K</Kbd>  →  Mac: ⌘ K, Windows: Ctrl K
+ */
+export const ModKey = ({ className }: { className?: string }) => (
+  <Kbd className={className}>{modKey()}</Kbd>
 );
 
 export default Kbd;

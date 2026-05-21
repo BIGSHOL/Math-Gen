@@ -299,7 +299,7 @@ export const KatexTestScreen = () => {
           </>
         }
       />
-      <div className="max-w-[1200px] mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-[2400px] mx-auto px-6 py-8 space-y-6">
         <Heading level="h1" sub="KaTeX 모든 폰트/기호가 실제로 렌더링되는지 시각 검증.">
           KaTeX 렌더 테스트
         </Heading>

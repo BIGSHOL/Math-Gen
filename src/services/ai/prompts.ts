@@ -1,4 +1,5 @@
 import type { SelectionState } from "@app/types";
+import { buildMathDefense, GRADE_LABELS, type GradeKey } from "./mathDefense";
 
 /**
  * COMMON_INSTRUCTIONS is the shared system prompt that goes through prompt
@@ -28,6 +29,19 @@ Output Requirements:
      - Incorrect: "x^2 + x"
      - Correct: "$x^2 + x$"
    - NO IMAGES IN TEXT: do not include <img> tags, Markdown images (![...](...)), or placeholders like "[Diagram]" in question/solution.
+
+   **분수·근사 표기 — 한국 중·고등 교과 관행 (STRICT)**:
+   - **가분수는 절대 그대로 두지 말 것 — 항상 대분수로**. 한국 중1 수준에서는 순환소수를 배우지 않고, 정수 부분과 분수 부분이 분리된 대분수가 크기·근사 비교에 훨씬 직관적이다.
+     · Incorrect: $\\frac{4}{3}$, $\\dfrac{7}{2}$, $-\\frac{5}{2}$
+     · Correct:   $1\\frac{1}{3}$, $3\\frac{1}{2}$, $-2\\frac{1}{2}$
+     · 정수로 떨어지면 그냥 정수: $\\frac{6}{3}$ → $2$ ($2$ 로 쓰지 $\\frac{6}{3}$ 또는 $2\\frac{0}{3}$ 로 쓰지 말 것).
+     · 진분수 (분자 < 분모) 는 그대로: $\\frac{1}{3}$ (변환 X).
+     · 식 분수 ($\\frac{a+1}{2}$ 같이 분자에 변수·기호 포함) 는 그대로.
+   - **근사 표기 — \\\\approx / ≈ 금지, "약 X" 자연어 사용**. 한국 교과서는 "≈" 기호 대신 "약 1.33" 처럼 한국어 "약" 으로 표기한다.
+     · Incorrect: $\\frac{4}{3} \\approx 1.33$, $\\pi \\approx 3.14$
+     · Correct:   $\\frac{4}{3}$ ≈ 약 1.33  ← 수식 닫고 자연어로 (가분수→대분수 적용 시: $1\\frac{1}{3}$ ≈ 약 1.33)
+     · Correct:   $\\pi$ 는 약 3.14
+     · "거의", "근사적으로 같다", "approximately" 같은 영어 표현 X — "약" 만.
 
 3. [Question Format Rules — CRITICAL]
    - If the question format is '객관식 (5지선다)':
@@ -131,7 +145,9 @@ export const buildImageVariantPrompt = (selection: SelectionState): string => {
  * the **solution depth** (학원·문제집 스타일) and **answer format** (객관식
  * vs 주관식). JSON schema (`SOLUTION_SCHEMA`) forces exactly two keys.
  */
-export const SOLUTION_PROMPT = `Task: 아래 한국 수학 문제에 대해 **풀이**와 **짧은 정답** 두 가지를 생성하세요. 절대 문제 자체를 다시 적거나, 변형하거나, 다른 문제를 만들지 마세요.
+export const SOLUTION_PROMPT = `{persona}
+
+Task: 아래 한국 수학 문제에 대해 **풀이**와 **짧은 정답** 두 가지를 생성하세요. 절대 문제 자체를 다시 적거나, 변형하거나, 다른 문제를 만들지 마세요.
 
 ──────────────────────────────────────────────────────────────────
 출력 (JSON, schema 강제):
@@ -218,6 +234,31 @@ solution — **문제 난이도에 따라 분량을 다르게**
   - 등호 옆에 매번 "왜냐하면" 추가하지 말 것. 식 자체가 설명.
   - 정답을 도출하는 단 하나의 직선적 경로 — *증명* 이 아니라 *풀이*.
 
+🚨 **문제의 기호·빈칸·변수 — 그대로 활용 (사용자 보고 — 정의 없는 새 변수 도입 금지, CRITICAL)**:
+
+  문제에 \`□\`, \`○\`, \`★\`, \`A\`, \`B\`, \`x\`, \`y\` 같은 기호나 빈칸이 등장하면 풀이에서도 **같은 기호를 그대로** 사용한다. 정의 없이 새 변수를 *처음부터* 도입하지 말 것.
+
+  잘못된 출력 (실제 사례 — 사용자 보고 13번 문제):
+    문제: "두 자연수 324와 \`21 × □\` 의 최소공배수가 \`2^2 × 3^4 × 7\` 일 때, \`□\` 안에 들어갈 수 있는 모든 자연수들의 합은?"
+    풀이 첫 줄: "\`324 = 2^2 × 3^4\`, \`21 = 3 × 7\` 이므로 \`21 × n = 3 × 7 × n\` ..."
+    → 문제에 "n" 이라는 문자가 *없는데* 풀이에서 갑자기 \`n\` 도입. 학생이 어디서 온 변수인지 모름.
+
+  올바른 패턴 A — 빈칸 기호 그대로 (가장 권장):
+    "\`324 = 2^2 × 3^4\` 이고 \`21 = 3 × 7\` 이므로 \`21 × □ = 3 × 7 × □\`.
+    최소공배수가 \`2^2 × 3^4 × 7\` 이 되려면 \`□\` 는 \`2^2\` 을 포함해야 하고 \`3\` 의 지수가 4 를 넘으면 안 됨.
+    \`□ = 2^2 × 3^k × m\` (단, \`m\` 은 \`2, 3, 7\` 과 서로소, \`k = 0, 1, 2, 3\`) ..."
+
+  올바른 패턴 B — 새 변수 도입 시 *반드시 정의 명시*:
+    "\`□\` 안에 들어갈 수를 \`n\` 이라 두자. 그러면 \`21 × n = 3 × 7 × n\` 이고 ..."
+    (즉, "□ = n" 라는 식의 정의가 *변수 첫 등장 줄* 에 있어야 함.)
+
+  같은 원칙이 적용되는 케이스:
+  - "어떤 수를 \`x\` 라 두자", "\`y\` 의 값", "각 \`A\` 를 \`\\theta\` 라 하면" 처럼 *처음 도입* 줄에 정의 한 번 명시
+  - 문제에 등장한 \`A\`, \`B\` 같은 점·각·길이 라벨은 풀이에서도 같은 라벨 사용 (\`P\`, \`Q\` 로 임의 변경 X)
+  - 임의로 도입한 보조 변수 (\`k\`, \`m\`) 은 옆에 *제약 조건* (서로소, 자연수, 정수 등) 도 같이 명시
+
+{mathDefense}
+
 **공통 형식 규칙**:
   1. **모든 수식 / 변수 / 숫자**는 \`$...$\` (인라인) 또는 \`$$...$$\` (블록) 으로 감싸기.
      - 백슬래시 명령은 반드시 \`\\\\sqrt\`, \`\\\\frac\`, \`\\\\pm\`, \`\\\\int\` 처럼 *JSON wire 위에서 두 번* 이스케이프 (JSON.parse 후 \`\\sqrt\` 로 복원되도록).
@@ -242,13 +283,23 @@ solution — **문제 난이도에 따라 분량을 다르게**
   영문 약어 → 한국 교과서 표현:
    - \`gcd(a, b)\` → "**최대공약수**" (또는 \`a\` 와 \`b\` 의 최대공약수)
    - \`lcm(a, b)\` → "**최소공배수**"
-   - \`max(a, b)\` → "\`a\` 와 \`b\` 중 큰 값" 또는 "\`a\`, \`b\` 의 최댓값"
-   - \`min(a, b)\` → "\`a\` 와 \`b\` 중 작은 값" 또는 "최솟값"
    - \`\\\\gcd(45, 75) = 15\` 같이 식으로 쓸 필요가 있으면 그대로 두되, 본문 설명은 한글로.
    - \`\\\\deg(P)\` → "\`P\` 의 차수"
    - \`A \\\\cup B\` 는 그대로 (집합 단원 표준), 단 본문에선 "\`A\` 와 \`B\` 의 합집합" 처럼 한 번은 풀어쓰기.
    - \`\\\\Leftrightarrow\` → "동치이다" / "다음과 같다"
    - \`\\\\Rightarrow\` → "이므로" / "따라서"
+
+  **🚨🚨 \`\\\\max\` / \`\\\\min\` / \`\\\\max(a,b)\` / \`\\\\min(a,b)\` 함수 표기 절대 금지 — 식 안·밖 모두 (CRITICAL, 사용자 반복 보고)**:
+   - 한국 중·고등 교과서·시험지에는 \`max(a, b)\` 같은 함수형 표기가 **단 한 번도 나오지 않는다**. 학생이 그 표기 자체를 학습하지 않았기 때문에 풀이에 등장하면 즉시 이해 단절.
+   - 모든 max/min 비교는 **자연어 풀어쓰기 + 부등식** 으로 표현해야 한다.
+   - 잘못된 예 (사용자 13번 풀이 — *실제로 모델이 emit 한 표현*):
+     · \`\\\\max(4, k+1) = 4\` ← 절대 금지
+     · \`최소공배수의 3의 지수는 \\\\max(4, k+1)이어야 하므로 k \\\\le 3\` ← 절대 금지
+   - 옳은 예 (같은 의미를 풀어쓰기):
+     · "\`4\` 와 \`k+1\` 중 큰 값이 \`4\` 가 되려면 \`k+1 \\\\le 4\`, 즉 \`k \\\\le 3\`."
+     · "최소공배수의 \`3\` 의 지수는 \`3^4\` 의 \`4\` 와 \`3^{k+1}\` 의 \`k+1\` 중 더 큰 값이다. 이 값이 \`4\` 가 되려면 \`k+1 \\\\le 4\`."
+   - 같은 원칙: \`\\\\gcd\`, \`\\\\lcm\`, \`\\\\arg\\\\min\`, \`\\\\arg\\\\max\` 등 모든 *함수형* 표기 자제. 단원 표준인 \`\\\\cup\`, \`\\\\cap\` 만 예외.
+   - 자기 검수: solution emit 직전에 본문에서 \`\\\\max\`, \`\\\\min\`, \`max(\`, \`min(\` 토큰을 검색해 *0건* 인지 확인하라. 발견되면 자연어로 다시 풀어써라.
    - \`\\\\therefore\` → "따라서" (문장 시작)
    - \`\\\\because\` → "왜냐하면"
    - \`A | B\` (나눔 기호) → "\`A\` 가 \`B\` 를 나눈다" 또는 "\`A\` 는 \`B\` 의 약수"
@@ -279,18 +330,133 @@ answer 작성 규칙
 - **객관식 (①②③④⑤)**: 원본의 동그라미 마커 + 값. 예: \`"③ 5"\`, \`"② $\\\\frac{1}{2}$"\`.
 - **주관식 / 단답**: 최종 값만. 예: \`"5"\`, \`"$\\\\frac{4\\\\pi}{3}$"\`, \`"x=2"\`, \`"6$\\\\pi$ cm²"\`.
 - "정답은 …", "따라서 …" 같은 부연 X. 단답 형태만.
-- 답이 여러 개면 쉼표로: \`"x = 1, 3"\`.
+- 답이 여러 개면 쉼표로: \`"x = 1, 3"\`. **쉼표 다음에 반드시 한 칸 공백** (\`-28, -22, -16\` 형태, \`-28,-22,-16\` 금지). \`$...$\` 안의 쉼표는 KaTeX 가 자동 처리하므로 그대로 둬도 OK.
+
+- **🚨 나열형 정답 — 오름차순 정렬 (작은 수 → 큰 수) 강제 (사용자 반복 보고, CRITICAL)**:
+   - "모든 ~의 합", "가능한 모든 값", "모든 자연수" 같이 *값을 다 나열하는* 답은 반드시 **오름차순 (작은 수 → 큰 수)** 정렬.
+   - 잘못된 예 (실제 사용자 보고 — 정답 필드): \`"-28, -16, -22, -4, 6, 14, 24, 26"\` ← \`-16\` 다음에 \`-22\` 가 와서 정렬 깨짐.
+   - 올바른 예: \`"-28, -22, -16, -4, 6, 14, 24, 26"\` ← 음수는 절댓값 큰 것이 작은 수.
+   - 음수 정렬 규칙: \`-28 < -22 < -16 < -4 < 6 < 14 < 24 < 26\` (수직선 왼쪽 → 오른쪽).
+   - 자기 검수: answer emit 직전에 쉼표로 분리해 *왼쪽 → 오른쪽* 으로 단조 증가하는지 확인. 한 곳이라도 어긋나면 정렬 다시.
+   - 풀이 본문에 case 별로 합을 나열할 때도 같은 원칙 — 마지막 "따라서 가능한 값은 ..." 줄은 항상 오름차순.
+
+──────────────────────────────────────────────────────────────────
+🔍 **출력 직전 형식 자가 검증 (V1-V4, 1 초 안에 점검)**
+
+mathlab 의 hard-constraint 형식을 차용. 본문 emit *직전* 마지막 안전망:
+
+  V1. 모든 LaTeX 명령어가 \`$...$\` 안에 있는가? \`$\` 밖에 \`\\\\frac\`/\`\\\\sqrt\`/\`\\\\displaystyle\` 단 한 건도 없는가?
+  V2. \`\\\\dfrac\` / \`\\\\max(\` / \`\\\\min(\` / \`\\\\approx\` / \`≈\` 토큰 검색해 0 건인가?
+  V3. 나열형 답이면 쉼표 분리 후 왼쪽→오른쪽 오름차순인가? (음수: 절댓값 큰 것이 작음)
+  V4. solution 본문에 "잠깐", "다시 확인", "재정리" 같은 self-correction 흔적이 없는가?
+
+(이 V1-V4 점검은 *모델 내부에서만* 수행 — 풀이 본문에 단계 헤더·자가 점검 멘트 노출 X. 검증 결과 위반 발견되면 *말 없이 수정* 후 emit.)
 
 ──────────────────────────────────────────────────────────────────
 [문제 본문]
 {problemText}
 `;
 
-export const buildSolutionPrompt = (problem: { text: string; topic?: string }): string => {
+/**
+ * 학년 dynamic 페르소나 + mathDefense 결합 헬퍼.
+ *
+ * `buildSolutionPrompt` (string) 와 `buildSolutionPromptBlocksAnthropic` (blocks)
+ * 양쪽에서 호출 — *같은 출력* 을 보장하기 위해 단일 source of truth 화.
+ * 두 함수의 최종 prompt 가 byte-identical 이어야 prompt caching 의 cache
+ * key 일관성이 보장됨.
+ *
+ * mathlab `generate-solutions/route.ts` 페르소나 패턴 차용 + 우리 HARD CAP
+ * 과 시너지 (정답지 스타일 = 짧고 직선적).
+ */
+const buildPersonaAndDefense = (
+  grade: GradeKey | null | undefined,
+): { persona: string; defense: string } => {
+  const gradeLabel = grade ? GRADE_LABELS[grade] : null;
+  const persona = gradeLabel
+    ? `당신은 한국 ${gradeLabel} 수학 풀이 전문가입니다 — "센", "블랙라벨", "일품" 같은 검증된 문제집의 정답지 스타일로 풀이를 작성합니다. 학생이 학년 교육과정 안에서 이해할 수 있는 표기·기호만 사용하고, 자가 검증을 거친 결정된 풀이만 emit 합니다.`
+    : `당신은 한국 수학 풀이 전문가입니다 — "센", "블랙라벨", "일품" 같은 검증된 문제집의 정답지 스타일로 풀이를 작성합니다. 자가 검증을 거친 결정된 풀이만 emit 합니다.`;
+  const defense = buildMathDefense(grade ?? null);
+  return { persona, defense };
+};
+
+/**
+ * SOLUTION_PROMPT 를 문제·학년 별로 구체화. 3 개 placeholder 채움:
+ *   `{persona}` — 학년 dynamic 페르소나
+ *   `{mathDefense}` — 학년별 단원 함정 + 공통 패턴 A-I (학년 미선택 시 공통만)
+ *   `{problemText}` — 문제 본문 + topic hint
+ *
+ * **사용처**: Gemini / OpenAI provider — 단일 string content 형태.
+ * Anthropic 은 `buildSolutionPromptBlocksAnthropic` 사용 (prompt caching).
+ *
+ * 학년 fragment 분리 이유: 전체 방어 프롬프트 (~570 줄) 를 매 호출마다
+ * inject 하면 token 비용 폭발 — 선택된 학년만 inject 해서 ~75% 절감.
+ */
+export const buildSolutionPrompt = (
+  problem: { text: string; topic?: string },
+  grade?: GradeKey | null,
+): string => {
   const topicHint = problem.topic?.trim()
     ? `\n[주제 힌트] ${problem.topic.trim()}\n`
     : "";
-  return SOLUTION_PROMPT.replace("{problemText}", `${topicHint}${problem.text}`);
+  const { persona, defense } = buildPersonaAndDefense(grade);
+  return SOLUTION_PROMPT.replace("{persona}", persona)
+    .replace("{mathDefense}", defense)
+    .replace("{problemText}", `${topicHint}${problem.text}`);
+};
+
+/**
+ * Anthropic 전용 — `prompt caching` 을 위해 user content 를 2 blocks 로 분리.
+ *
+ * **분리 정책**:
+ *   - Block 0: SOLUTION_PROMPT 의 *학년 dynamic 이지만 시험지 내 모든 호출
+ *     공통* 인 prefix (persona + mathDefense + 정적 본문). `cache_control:
+ *     ephemeral` 마킹. ~6,000 tokens.
+ *   - Block 1: `{problemText}` 영역만 (호출마다 dynamic). cache 없음.
+ *
+ * **byte-identical 보장**: 두 block 의 text 를 concat 하면 `buildSolutionPrompt`
+ * 결과와 *1 글자 차이 없음*. cache key 일관성 유지.
+ *
+ * **fallback**: split marker 가 발견 안 되면 단일 block 반환 (cache X) —
+ * 회귀 0 안전망.
+ *
+ * **TTL**: `type: 'ephemeral'` 기본값 5 분. 우리 `pLimitWithGap(1, 1500ms)`
+ * × 30 호출 = ~45 초이므로 TTL 안전 범위.
+ */
+export const buildSolutionPromptBlocksAnthropic = (
+  problem: { text: string; topic?: string },
+  grade?: GradeKey | null,
+): Array<{
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+}> => {
+  const { persona, defense } = buildPersonaAndDefense(grade);
+  const SPLIT_MARKER = "{problemText}";
+  // persona / defense 먼저 치환 — {problemText} placeholder 만 잔존 → split 안전.
+  const fullTemplate = SOLUTION_PROMPT.replace("{persona}", persona).replace(
+    "{mathDefense}",
+    defense,
+  );
+  const idx = fullTemplate.indexOf(SPLIT_MARKER);
+  // 안전망: split 실패 시 단일 block 반환 (cache 효과는 잃지만 동작 보존).
+  if (idx < 0) {
+    return [{ type: "text", text: buildSolutionPrompt(problem, grade) }];
+  }
+  const cacheablePrefix = fullTemplate.slice(0, idx);
+  const topicHint = problem.topic?.trim()
+    ? `\n[주제 힌트] ${problem.topic.trim()}\n`
+    : "";
+  const problemTextSuffix = fullTemplate
+    .slice(idx)
+    .replace(SPLIT_MARKER, `${topicHint}${problem.text}`);
+  return [
+    {
+      type: "text",
+      text: cacheablePrefix,
+      cache_control: { type: "ephemeral" },
+    },
+    { type: "text", text: problemTextSuffix },
+  ];
 };
 
 /**

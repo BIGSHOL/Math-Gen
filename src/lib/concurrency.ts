@@ -35,6 +35,41 @@ export const pLimit = (n: number) => {
     });
 };
 
+/**
+ * pLimit 변형 — 호출 *시작* 사이에 최소 `minGapMs` 간격을 강제한다.
+ *
+ * 왜 필요한가: `pLimit(1)` 만으로는 "동시 1개" 만 보장할 뿐, 한 호출이
+ * 0.5 초만에 끝나면 그 직후 다음 호출이 0.5 초 만에 발사된다 → 분당 120개
+ * = 429 폭주. Anthropic Tier 1 의 Sonnet RPM 50 / OTPM 8k 한도에 즉시 막힘.
+ *
+ * `minGapMs = 1500` 으로 두면 RPM 약 40 으로 자연 제한 → Tier 1 한도
+ * 안전 내. 사용자가 Tier 2 로 업그레이드하면 (RPM 1000) 이 gap 줄이거나
+ * 제거 가능.
+ *
+ * 사용 패턴:
+ *   const limit = useMemo(() => pLimitWithGap(1, 1500), []);
+ *   await Promise.all(items.map((it) => limit(() => generate(it))));
+ *
+ * 첫 호출은 즉시 실행 — gap 은 *2번째* 호출부터 적용된다 (마지막 호출
+ * 시작 시각 기준). retry 와 충돌하지 않음 — withRetry 의 backoff 는 호출
+ * *실패 후* 대기지만, 여기 gap 은 *성공 직후 다음 호출* 직전 대기.
+ */
+const sleepInternal = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export const pLimitWithGap = (n: number, minGapMs: number) => {
+  const base = pLimit(n);
+  let lastStart = 0;
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    base(async () => {
+      const elapsed = Date.now() - lastStart;
+      if (lastStart > 0 && elapsed < minGapMs) {
+        await sleepInternal(minGapMs - elapsed);
+      }
+      lastStart = Date.now();
+      return fn();
+    });
+};
+
 /** Heuristic: error message indicates a transient rate-limit / overload? */
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;

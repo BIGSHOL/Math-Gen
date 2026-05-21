@@ -7,6 +7,7 @@ import {
   Heading,
   Icon,
   Progress,
+  type ChipTone,
 } from "@app/components/ui";
 import {
   deletePageImages,
@@ -22,7 +23,16 @@ import {
   renderPageForAI,
   renderPageThumbnail,
 } from "@app/lib/pdfProcessor";
-import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
+import {
+  useWizardStore,
+  type ExamCategory,
+  type WizardPage,
+} from "@app/stores/wizardStore";
+import {
+  GRADE_GROUPS,
+  GRADE_LABELS,
+  type GradeKey,
+} from "@app/services/ai/mathDefense";
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_PAGES = 20;
@@ -51,11 +61,23 @@ interface PreviewPage {
  *  - >MAX_PAGES → reject with page hint.
  *  - pdfjs throws → show the message; preserve the file picker for retry.
  */
+/** mathlab `ExamUploadForm.tsx` 의 examCategory enum 벤치마킹. */
+const EXAM_CATEGORY_OPTIONS: Array<{ value: ExamCategory; label: string }> = [
+  { value: "MIDTERM", label: "중간고사" },
+  { value: "FINAL", label: "기말고사" },
+  { value: "MOCK", label: "모의고사" },
+  { value: "OTHER", label: "기타" },
+];
+
 export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
   const setUploadedFile = useWizardStore((s) => s.setUploadedFile);
   const setPages = useWizardStore((s) => s.setPages);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
   const persistedPages = useWizardStore((s) => s.pages);
+  const selectedGrade = useWizardStore((s) => s.selectedGrade);
+  const setSelectedGrade = useWizardStore((s) => s.setSelectedGrade);
+  const examCategory = useWizardStore((s) => s.examCategory);
+  const setExamCategory = useWizardStore((s) => s.setExamCategory);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -182,7 +204,34 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
   };
 
   const showFinished = phase === "done" || (phase === "idle" && persistedPages.length > 0);
-  const finishedPageCount = phase === "done" ? progress.total : persistedPages.length;
+  // 완료 카드용 진행 통계 — 사용자 보고: 새로고침 후 progress.total = 0 으로
+  // 리셋돼서 "0 페이지" 로 표시되던 버그. persistedPages 에서 직접 계산해야
+  // refresh-safe. OCR / 해설 진행 상황도 같이 보여줘서 Step 2 / Step 3 안 들어
+  // 가도 한눈에 파악 가능.
+  const totalPageCount =
+    phase === "done" && progress.total > 0 ? progress.total : persistedPages.length;
+  const problemPages = persistedPages.filter((p) => p.isProblemPage || p.forceOcr);
+  const ocrDoneCount = problemPages.filter((p) => p.ocrComplete && !p.ocrError).length;
+  const ocrErrorCount = problemPages.filter((p) => !!p.ocrError).length;
+  const allItems = persistedPages.flatMap((p) => p.ocrResult);
+  const solutionEligible = allItems.filter((it) => !!it.text && !it.bodyMissing);
+  const solutionDoneCount = solutionEligible.filter((it) => !!it.solution).length;
+  const solutionErrorCount = solutionEligible.filter((it) => !!it.solutionError).length;
+
+  // 전체 상태 한 줄로 — OCR/해설 모두 정상 완료면 "완료" (ok), 오류 있으면
+  // "일부 오류" (danger), 아직 진행 중이면 "진행 중" (warn). idle 상태에서
+  // persistedPages 만 남고 OCR 아직 안 한 경우는 "대기" (neutral).
+  const anyError = ocrErrorCount > 0 || solutionErrorCount > 0;
+  const ocrAllDone = problemPages.length > 0 && ocrDoneCount === problemPages.length;
+  const solutionAllDone =
+    solutionEligible.length > 0 && solutionDoneCount === solutionEligible.length;
+  const statusChip: { tone: ChipTone; label: string } = anyError
+    ? { tone: "danger", label: "일부 오류" }
+    : ocrAllDone && solutionAllDone
+      ? { tone: "ok", label: "완료" }
+      : ocrDoneCount > 0 || solutionDoneCount > 0
+        ? { tone: "warn", label: "진행 중" }
+        : { tone: "neutral", label: "대기" };
 
   return (
     <div className="max-w-[920px] mx-auto px-6 py-8">
@@ -192,6 +241,46 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
       >
         시험지 업로드
       </Heading>
+
+      {/* 학년·시험 종류 selector — 해설 생성 시 학년별 mathDefense fragment 가
+          prompt 에 inject 됨. mathlab ExamUploadForm.tsx 벤치마킹. 선택 즉시
+          wizardStore 에 저장 → sessionStorage 영속화 (새로고침 후 유지). */}
+      <div className="mt-5">
+        <Eyebrow className="mb-2">학년 · 과목 (선택 사항)</Eyebrow>
+        <div className="space-y-2">
+          {GRADE_GROUPS.map((group) => (
+            <div key={group.label} className="flex items-center gap-2 flex-wrap">
+              <span className="text-caption text-muted w-8 flex-shrink-0">{group.label}</span>
+              {group.items.map((key) => (
+                <SelectablePill
+                  key={key}
+                  active={selectedGrade === key}
+                  onClick={() => setSelectedGrade(selectedGrade === key ? null : key)}
+                >
+                  {GRADE_LABELS[key]}
+                </SelectablePill>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <Eyebrow className="mb-2">시험 종류 (선택 사항)</Eyebrow>
+        <div className="flex items-center gap-2 flex-wrap">
+          {EXAM_CATEGORY_OPTIONS.map((opt) => (
+            <SelectablePill
+              key={opt.value}
+              active={examCategory === opt.value}
+              onClick={() =>
+                setExamCategory(examCategory === opt.value ? null : opt.value)
+              }
+            >
+              {opt.label}
+            </SelectablePill>
+          ))}
+        </div>
+      </div>
 
       {error && (
         <div className="mt-4 px-4 py-3 rounded-r2 border border-[#FECACA] bg-danger-soft text-[#991B1B] text-small flex items-center gap-2">
@@ -295,11 +384,33 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
                 <div className="text-h3 text-text truncate">
                   {uploadedFileName ?? "업로드된 PDF"}
                 </div>
-                <div className="mt-0.5 text-small text-muted flex items-center gap-2">
-                  <Chip tone="ok" size="sm" dot>
-                    완료
+                <div className="mt-0.5 text-small text-muted flex items-center gap-2 flex-wrap">
+                  <Chip tone={statusChip.tone} size="sm" dot>
+                    {statusChip.label}
                   </Chip>
-                  <span>{finishedPageCount} 페이지 · IndexedDB에 저장</span>
+                  <span>{totalPageCount} 페이지</span>
+                  {problemPages.length > 0 && (
+                    <>
+                      <span className="text-line-strong">·</span>
+                      <span>
+                        문항 인식 {ocrDoneCount}/{problemPages.length}
+                        {ocrErrorCount > 0 && (
+                          <span className="text-danger ml-1">(오류 {ocrErrorCount})</span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                  {solutionEligible.length > 0 && (
+                    <>
+                      <span className="text-line-strong">·</span>
+                      <span>
+                        해설 {solutionDoneCount}/{solutionEligible.length}
+                        {solutionErrorCount > 0 && (
+                          <span className="text-danger ml-1">(오류 {solutionErrorCount})</span>
+                        )}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -341,3 +452,33 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
 };
 
 export default Step1Upload;
+
+/**
+ * 학년·시험종류 selector 의 단일 pill. Chip 컴포넌트는 span 으로만 렌더돼
+ * onClick 지원 X — 직접 button 으로 chip-style 렌더링.
+ *
+ * 같은 그룹 안에서 *단일 선택* — 이미 선택된 pill 을 다시 누르면 해제 (toggle).
+ */
+const SelectablePill = ({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "px-3 py-1 rounded-full border text-small font-medium transition-colors whitespace-nowrap",
+      active
+        ? "bg-accent text-white border-accent shadow-sm"
+        : "bg-surface text-text2 border-line hover:border-accent",
+    )}
+    aria-pressed={active}
+  >
+    {children}
+  </button>
+);

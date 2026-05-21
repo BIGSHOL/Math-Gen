@@ -10,7 +10,7 @@ export { Icon, type IconProps, type IconWeight } from "./Icon";
 export { Btn, type BtnProps, type BtnKind, type BtnSize } from "./Button";
 export { Chip, type ChipProps, type ChipTone, type ChipSize } from "./Chip";
 export { Card, type CardProps } from "./Card";
-export { Kbd, type KbdProps } from "./Kbd";
+export { Kbd, ModKey, type KbdProps } from "./Kbd";
 export { Divider, type DividerProps } from "./Divider";
 
 export { Input, type InputProps, type InputSize } from "./Input";
