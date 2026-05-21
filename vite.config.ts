@@ -135,7 +135,15 @@ export default defineConfig(({ mode }) => {
       // strictPort: true 면 충돌 시 그냥 종료되는데, 우리는 두 번째 인스턴스가
       // 무리 없이 다음 port 로 옮겨가야 한다 (멀티 세션 / 다른 vite 앱과 공존).
       strictPort: false,
-      host: "0.0.0.0",
+      // **host 결정**: 기본 "localhost" 사용 — Windows + Node.js 의 SO_REUSEADDR
+      // 동작상 host: "0.0.0.0" 일 때 두 vite 가 *같은 port 에 동시 listen* 성공
+      // 해버리는 함정이 있음 (EADDRINUSE 가 안 떠서 strictPort:false fallback 도
+      // 동작 안 함). 사용자 보고: 다른 dev 가 3000 점유 중인데 npm run dev 했더니
+      // 또 3000 으로 떠 충돌이 silent.
+      //
+      // LAN 접근 필요 시 (휴대폰 / 다른 PC 에서 같은 wifi 로 확인) 다음 명령:
+      //   npm run dev -- --host 0.0.0.0
+      host: "localhost",
       // HMR (Hot Module Replacement) 는 컴포넌트 변경을 라이브 reload 하지만,
       // 무거운 async 모듈 (usePageOcr 의 worker, IndexedDB 트랜잭션, AbortController)
       // 을 갖고 있는 hook 의 경우 HMR swap 이 좀비 worker 누적 → 메인 스레드 점유 →
