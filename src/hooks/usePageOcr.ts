@@ -116,7 +116,14 @@ const pageHasFigures = (items: OCRProblem[]): boolean =>
 export const usePageOcr = () => {
   const pages = useWizardStore((s) => s.pages);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
-  const limit = useMemo(() => pLimit(2), []);
+  // **Pass1 / Pass2 limit 분리** — 같은 limit 슬롯을 공유하면 도형 페이지의 느린
+  // Pass2 (GPT-5.5, 30~60s) 가 *다른 페이지의 Pass1* 까지 막아 사용자가 stuck
+  // 으로 인식. 분리 후:
+  //   - Pass1 = pLimit(3) — Gemini Free Tier RPM 15 / TPM 1M 한도 안전 내.
+  //     3 페이지 시험지면 동시 처리로 시간 약 50% 단축.
+  //   - Pass2 = pLimit(1) — 느린 모델은 동시 1 개만. Pass1 슬롯 안 잡아먹음.
+  const pass1Limit = useMemo(() => pLimit(3), []);
+  const pass2Limit = useMemo(() => pLimit(1), []);
 
   // Track which page ids are *currently in flight* so a re-render doesn't
   // double-dispatch the same page mid-call. We intentionally clear the
@@ -207,9 +214,9 @@ export const usePageOcr = () => {
       for (let i = 0; i < chain.length; i++) {
         const model = chain[i];
         if (isCancelled(page.id, marker)) return null;
-        // In-flight 모델 표시 — DEV 빌드에서 UI 가 보고 배지 띄움. 폴백
-        // 발생 시 새 모델로 갱신, 성공·실패 시 finally 에서 unset.
-        setPageOCR(page.id, { ocrInflightModel: model });
+        // In-flight 모델 + 시작 timestamp 표시. PageThumbColumn 의 경과 시간
+        // 표시에 사용. 폴백 시 timestamp 도 갱신 (새 모델 시작 시각 기준).
+        setPageOCR(page.id, { ocrInflightModel: model, ocrStartedAt: Date.now() });
         try {
           const result = await withRetry(() =>
             extractPageProblems({
@@ -224,11 +231,11 @@ export const usePageOcr = () => {
               `[usePageOcr] ${passLabel} 페이지 ${page.id}: ${chain[0]} 실패 → ${model} 폴백 성공`,
             );
           }
-          setPageOCR(page.id, { ocrInflightModel: undefined });
+          setPageOCR(page.id, { ocrInflightModel: undefined, ocrStartedAt: undefined });
           return { items: result.items, modelUsed: model };
         } catch (err) {
           if (isCancelled(page.id, marker)) {
-            setPageOCR(page.id, { ocrInflightModel: undefined });
+            setPageOCR(page.id, { ocrInflightModel: undefined, ocrStartedAt: undefined });
             return null;
           }
           lastErr = err as Error;
@@ -240,7 +247,7 @@ export const usePageOcr = () => {
           );
         }
       }
-      setPageOCR(page.id, { ocrInflightModel: undefined });
+      setPageOCR(page.id, { ocrInflightModel: undefined, ocrStartedAt: undefined });
       throw lastErr ?? new Error("모든 모델 실패");
     };
 
@@ -253,7 +260,8 @@ export const usePageOcr = () => {
           return;
         }
         dispatched.current.add(page.id);
-        void limit(async () => {
+        const pass1Start = Date.now();
+        void pass1Limit(async () => {
           try {
             const result = await runOcrChain(page, pass1Chain, "1차", "pass1");
             if (!result) return;
@@ -268,6 +276,12 @@ export const usePageOcr = () => {
               ocrComplete: true,
               ocrModel: result.modelUsed as WizardPage["ocrModel"],
             });
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.debug(
+                `[usePageOcr] ${page.id} 1차 ${result.modelUsed} 완료 — ${((Date.now() - pass1Start) / 1000).toFixed(1)}s (${result.items.length} 문항)`,
+              );
+            }
           } catch (err) {
             if (isCancelled(page.id, "pass1")) return;
             // eslint-disable-next-line no-console
@@ -304,7 +318,8 @@ export const usePageOcr = () => {
 
       upgradeDispatched.current.add(page.id);
       setPageOCR(page.id, { upgrading: true });
-      void limit(async () => {
+      const pass2Start = Date.now();
+      void pass2Limit(async () => {
         try {
           const result = await runOcrChain(page, pass2Chain, "2차", "pass2");
           if (!result) return;
@@ -318,6 +333,12 @@ export const usePageOcr = () => {
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             upgrading: false,
           });
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.debug(
+              `[usePageOcr] ${page.id} 2차 ${result.modelUsed} 완료 — ${((Date.now() - pass2Start) / 1000).toFixed(1)}s (${result.items.length} 문항)`,
+            );
+          }
         } catch (err) {
           if (isCancelled(page.id, "pass2")) return;
           // 2차 실패는 fatal 아님 — 1차 결과 그대로 보존하고 spinner 해제.

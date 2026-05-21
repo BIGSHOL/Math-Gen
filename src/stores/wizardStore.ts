@@ -124,10 +124,15 @@ export interface WizardPage {
   rotation: 0 | 90 | 180 | 270;
   /**
    * 현재 OCR 진행 중인 모델 id (체인 폴백 시 갱신됨). 비어 있으면 진행
-   * 중인 호출이 없다는 뜻. DEV 빌드에서만 UI 배지로 노출 — 프로덕션엔
-   * 안 보임. `partialize` 에서 *제외* (휘발성 in-flight 상태).
+   * 중인 호출이 없다는 뜻. `partialize` 에서 *제외* (휘발성 in-flight 상태).
    */
   ocrInflightModel?: string;
+  /**
+   * OCR worker 가 *호출을 시작한 시점* 의 timestamp (ms). PageThumbColumn 의
+   * 경과 시간 표시 ("12s") 와 stuck 감지에 사용. `ocrInflightModel` set 직전에
+   * set, unset 직후에 unset. `partialize` 에서 *제외* (휘발성).
+   */
+  ocrStartedAt?: number;
 }
 
 export interface OCRImage {
@@ -276,6 +281,7 @@ export interface WizardState {
         | "ocrModel"
         | "upgrading"
         | "ocrInflightModel"
+        | "ocrStartedAt"
       >
     >,
   ) => void;
@@ -391,12 +397,13 @@ export const useWizardStore = create<WizardState>()(
         uploadedFileName: s.uploadedFileName,
         selectedGrade: s.selectedGrade,
         examCategory: s.examCategory,
-        // 페이지별 휘발성 필드 (in-flight 모델명, 업그레이드 진행 플래그)는
-        // 새로고침 후 살아 있어 봤자 의미 없으므로 stripping. rotation 은
-        // 사용자가 명시적으로 정해 둔 값이라 persist.
+        // 페이지별 휘발성 필드 (in-flight 모델명, 업그레이드 진행 플래그,
+        // 호출 시작 timestamp) 는 새로고침 후 살아 있어 봤자 의미 없으므로
+        // stripping. rotation 은 사용자가 명시적으로 정해 둔 값이라 persist.
         pages: s.pages.map((p) => ({
           ...p,
           ocrInflightModel: undefined,
+          ocrStartedAt: undefined,
           upgrading: false,
         })),
         activePageIndex: s.activePageIndex,

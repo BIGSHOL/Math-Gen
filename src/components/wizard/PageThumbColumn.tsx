@@ -138,6 +138,30 @@ const useRotatedThumbnails = (
   return rotated;
 };
 
+/**
+ * 1 초 tick — inflight 페이지의 경과 시간 표시를 매 초 갱신하기 위한 가벼운
+ * re-render trigger. 활성 inflight 가 하나라도 있을 때만 작동 — 없으면
+ * setInterval 정리해서 idle CPU 비용 zero.
+ */
+const useInflightTick = (hasInflight: boolean): number => {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!hasInflight) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [hasInflight]);
+  return tick;
+};
+
+const formatElapsed = (startedAt: number | undefined): string => {
+  if (!startedAt) return "";
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+};
+
 export const PageThumbColumn = ({
   pages,
   activeIndex,
@@ -147,6 +171,12 @@ export const PageThumbColumn = ({
   const thumbs = usePageThumbnails(pages);
   const rotatedThumbs = useRotatedThumbnails(pages, thumbs);
   const setPageRotation = useWizardStore((s) => s.setPageRotation);
+
+  // 활성 inflight 가 하나라도 있으면 1 초 tick 활성 — 경과 시간 라이브 업데이트.
+  const hasInflight = pages.some(
+    (p) => Boolean(p.ocrInflightModel) || Boolean(p.upgrading),
+  );
+  useInflightTick(hasInflight);
 
   const rotateClockwise = (page: WizardPage) => {
     const next = ((page.rotation + 90) % 360) as WizardPage["rotation"];
@@ -244,27 +274,40 @@ export const PageThumbColumn = ({
                 p.{idx + 1}
               </span>
 
-              {/* DEV: 진행 중 모델 짧은 배지 — bottom-left */}
-              {import.meta.env.DEV && inflight && (
+              {/* 진행 중 모델 + 경과 시간 — bottom-left (production 포함). 사용자가
+                  어떤 모델이 얼마나 오래 처리 중인지 직관적으로 확인 가능. */}
+              {inflight && (
                 <span
-                  className="absolute bottom-1 left-1 px-1 rounded-sm bg-accent text-white font-mono leading-none py-[1px]"
+                  className="absolute bottom-1 left-1 px-1 rounded-sm bg-accent text-white font-mono leading-none py-[1px] flex items-center gap-1"
                   style={{ fontSize: 8 }}
-                  title={`${inflight} 처리 중`}
+                  title={`${inflight} 처리 중 (${formatElapsed(page.ocrStartedAt)})`}
                 >
-                  {modelShortName(inflight)}
+                  <span>{modelShortName(inflight)}</span>
+                  {page.ocrStartedAt && (
+                    <span className="opacity-80">·{formatElapsed(page.ocrStartedAt)}</span>
+                  )}
                 </span>
               )}
 
               {/* status overlays */}
-              {isPending && (
+              {isPending && inflight && (
                 <span className="absolute top-1 right-1 grid place-items-center text-accent">
                   <Icon name="circle-notch" size={10} weight="bold" className="animate-spin" />
+                </span>
+              )}
+              {/* 대기 중 — 큐 슬롯 차서 시작 못 함. inflight 없는 pending. */}
+              {isPending && !inflight && (
+                <span
+                  className="absolute top-1 right-1 grid place-items-center text-muted"
+                  title="대기 중 (다른 페이지 처리 후 시작)"
+                >
+                  <Icon name="hourglass-medium" size={10} weight="duotone" />
                 </span>
               )}
               {isUpgrading && !isPending && (
                 <span
                   className="absolute top-1 right-1 grid place-items-center text-accent"
-                  title="정밀 분석 중"
+                  title="정밀 분석 중 (도형 페이지)"
                 >
                   <Icon name="sparkle" size={10} weight="fill" className="animate-pulse" />
                 </span>
