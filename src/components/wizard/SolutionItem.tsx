@@ -201,8 +201,10 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
     );
   }
 
+  const hasWarnings = Boolean(item.solutionWarnings && item.solutionWarnings.length > 0);
+
   return (
-    <Card pad={14}>
+    <Card pad={14} className={hasWarnings ? "border-warn ring-1 ring-warn/10" : undefined}>
       <div className="flex items-center gap-2 mb-2.5 flex-wrap">
         <span
           className="grid place-items-center bg-ink text-white rounded-r1 font-mono font-bold"
@@ -210,9 +212,15 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
         >
           {item.number}
         </span>
-        <Chip size="sm" tone="ok" dot>
-          해설 완료
-        </Chip>
+        {hasWarnings ? (
+          <Chip size="sm" tone="warn" dot>
+            정확도 검증 실패 가능성
+          </Chip>
+        ) : (
+          <Chip size="sm" tone="ok" dot>
+            해설 완료
+          </Chip>
+        )}
         {item.solutionModel && <ModelBadge model={item.solutionModel} />}
         <div className="ml-auto flex items-center gap-1">
           {editing ? (
@@ -251,6 +259,32 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
           )}
         </div>
       </div>
+
+      {/* 정확도 검증 warning banner — solutionValidator 가 *명백한 오류 패턴*
+          (예: "서로 다른 N 개" 조건 위반 튜플) 검출 시 노출. 답을 무효화하지
+          않고 사용자에게 *재생성 권장* 신호만. false positive 위험 (풀이 안
+          명시적 무효 처리) 도 있으니 사용자가 본문 확인 후 결정. */}
+      {hasWarnings && (
+        <div className="mb-3 p-3 rounded-r2 bg-warn-soft border border-warn/30">
+          <div className="flex items-start gap-2">
+            <Icon name="warning" size={14} weight="duotone" className="text-warn shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              {item.solutionWarnings!.map((w, wi) => (
+                <details key={wi} className="text-small">
+                  <summary className="cursor-pointer font-semibold text-warn-ink">
+                    {w.summary}
+                  </summary>
+                  <p className="mt-1.5 text-warn-ink/80 leading-relaxed">{w.detail}</p>
+                </details>
+              ))}
+              <p className="mt-2 text-caption text-muted">
+                자동 검증 휴리스틱이므로 false positive 일 수 있습니다. 풀이 본문을
+                확인하고 의심되면 재생성하세요.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Answer — highlighted strip just below the header.
           읽기 모드는 w-fit + max-w-full + flex-wrap 으로 content-fit

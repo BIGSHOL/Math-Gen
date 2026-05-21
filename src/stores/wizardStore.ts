@@ -192,6 +192,17 @@ export interface OCRProblem {
   /** 어떤 모델이 해설을 만들었는지 (디버그·UI 배지). */
   solutionModel?: string;
   /**
+   * 정확도 휴리스틱 검증 결과 — `lib/solutionValidator.ts` 가 검출한 *구조적
+   * 오류 가능성* (예: "서로 다른 N 개" 조건 위반 튜플). UI 의 SolutionItem 이
+   * warning banner 로 노출 + 재생성 권장. 답을 *무효화하지 않음* (false
+   * positive 위험 때문).
+   */
+  solutionWarnings?: Array<{
+    rule: string;
+    summary: string;
+    detail: string;
+  }>;
+  /**
    * 이 문항을 OCR 한 모델 (디버그·UI 배지). 같은 페이지 안의 모든 item 은
    * 기본적으로 동일 (페이지 단위 호출이라). task #41 (item 별 재실행) 도입
    * 시 item 마다 다른 모델 가능 — 그 때 자연스럽게 분기.

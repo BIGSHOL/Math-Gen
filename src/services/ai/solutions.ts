@@ -57,6 +57,7 @@ import { SOLUTION_SCHEMA } from "./solutionsSchema";
 import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize";
 import type { GradeKey } from "./mathDefense";
 import type { OCRProblem } from "@app/stores/wizardStore";
+import { validateSolution, type SolutionWarning } from "@app/lib/solutionValidator";
 
 export interface SolutionGenInput {
   /** The OCR'd problem to explain. Only `text` (and optionally `topic`) is used. */
@@ -88,6 +89,12 @@ export interface SolutionGenResult {
   answer: string;
   /** The model that actually produced this result (for UI badge / debug). */
   modelUsed: OCRModel;
+  /**
+   * 정확도 휴리스틱 검증 결과 — `lib/solutionValidator.ts` 가 풀이의 *구조적
+   * 오류* (예: "서로 다른 N 개" 조건 위반 튜플) 를 자동 검출하면 warning 으로
+   * surfacing. 답을 *무효화하지 않고* 사용자에게 *재생성 권장* 신호만.
+   */
+  warnings?: SolutionWarning[];
 }
 
 interface RawSolutionResponse {
@@ -371,9 +378,25 @@ export const generateSolution = async (
     ? resolveMCAnswer(cleanedAnswer, input.choices)
     : cleanedAnswer;
 
+  // 정확도 휴리스틱 검증 — Pattern J ("서로 다른 N 개" 조건의 중복 튜플) 등
+  // 명백한 오류 패턴 자동 검출. 위반 시 warning 으로 surfacing (답 무효화 X,
+  // 사용자가 재생성 결정). lib/solutionValidator.ts 참고.
+  const cleanedSolution = sanitizeText(parsed.solution ?? "");
+  const warnings: SolutionWarning[] = validateSolution({
+    problemText: input.problem.text ?? "",
+    solutionText: cleanedSolution,
+  });
+  if (warnings.length > 0 && import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ai/solutions] 정확도 검증 위반 ${warnings.length}건 — ${warnings.map((w) => w.summary).join(" / ")}`,
+    );
+  }
+
   return {
-    solution: sanitizeText(parsed.solution ?? ""),
+    solution: cleanedSolution,
     answer: finalAnswer,
     modelUsed: model,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 };

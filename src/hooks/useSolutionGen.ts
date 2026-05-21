@@ -78,6 +78,16 @@ export const useSolutionGen = () => {
               solutionGenerating: false,
               solutionStartedAt: undefined,
               solutionError: undefined,
+              // 정확도 휴리스틱 검증 결과 — UI 에서 warning banner 표시.
+              // 풀이가 통과하면 undefined 로 clear.
+              solutionWarnings:
+                result.warnings && result.warnings.length > 0
+                  ? result.warnings.map((w) => ({
+                      rule: w.rule,
+                      summary: w.summary,
+                      detail: w.detail,
+                    }))
+                  : undefined,
             });
           } catch (err) {
             if (!dispatched.current.has(key)) return;
