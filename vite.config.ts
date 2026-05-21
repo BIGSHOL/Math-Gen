@@ -131,6 +131,10 @@ export default defineConfig(({ mode }) => {
   return {
     server: {
       port: 3000,
+      // 3000 이 이미 사용 중이면 자동으로 3001, 3002... 로 fallback.
+      // strictPort: true 면 충돌 시 그냥 종료되는데, 우리는 두 번째 인스턴스가
+      // 무리 없이 다음 port 로 옮겨가야 한다 (멀티 세션 / 다른 vite 앱과 공존).
+      strictPort: false,
       host: "0.0.0.0",
       // HMR (Hot Module Replacement) 는 컴포넌트 변경을 라이브 reload 하지만,
       // 무거운 async 모듈 (usePageOcr 의 worker, IndexedDB 트랜잭션, AbortController)
