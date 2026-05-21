@@ -46,7 +46,14 @@ export interface GeneratedProblem {
   solution: string;
   topic: string;
   difficulty: string;
+  /** @deprecated Phase E 이후 — `diagramParams` 우선. supabase JSONB 의 기존 데이터 호환용. */
   diagramSVG?: string | null;
+  /**
+   * Vector 도형 spec (Phase E). AI 가 emit → `normalizeDiagram` 보정 →
+   * `renderDiagram` 으로 SVG 생성. 본문의 `[그림1]`, `[그림2]` 마커 순서와 매핑.
+   * 도형 없으면 null/undefined.
+   */
+  diagramParams?: import("@app/lib/diagram").DiagramParams[] | null;
 }
 
 export type GenerationMode = "curriculum" | "image" | "exact" | "diagram";

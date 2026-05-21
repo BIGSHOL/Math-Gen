@@ -59,7 +59,16 @@ export const VARIANT_SCHEMA = {
     diagramSVG: {
       type: ["string", "null"],
       description:
-        "ALWAYS null in this phase. Diagram regeneration is out of scope — caller reuses the original OCRProblem.images. Returning anything other than null violates the contract.",
+        "DEPRECATED — always null. Diagram regeneration moved to `diagramParams` (vector spec). Keep null for backward-compat.",
+    },
+    diagramParams: {
+      type: ["array", "null"],
+      description:
+        "Vector diagram specs (Phase E). Each item is an object with `type` discriminator ('triangle'|'circle'|'quadrilateral'|'polygon'|'coordinatePlane'|'solid'|'composite') plus shape-specific fields. See DIAGRAM_PARAMS_GUIDE in prompt for examples. Order matches `[그림1]`, `[그림2]` markers in `question`. Null if original has no diagrams.",
+      items: {
+        type: "object",
+        additionalProperties: true,
+      },
     },
   },
   required: ["question", "choices", "answer", "solution", "topic", "difficulty", "diagramSVG"],

@@ -55,6 +55,7 @@ import type {
   DifficultyShift,
 } from "@app/stores/wizardStore";
 import type { GeneratedProblem } from "@app/types";
+import type { DiagramParams } from "@app/lib/diagram";
 
 export interface VariantGenInput {
   /** 원본 문제 (Step 2 의 OCRProblem → GeneratedProblem 어댑터 결과). */
@@ -85,7 +86,10 @@ export interface VariantGenResult {
   solution: string;
   topic: string;
   difficulty: string;
+  /** @deprecated 항상 null. diagramParams 우선. */
   diagramSVG: string | null;
+  /** Vector 도형 spec — Phase E. AI emit → renderDiagram. */
+  diagramParams: DiagramParams[] | null;
   modelUsed: OCRModel;
 }
 
@@ -97,6 +101,7 @@ interface RawVariantResponse {
   topic: string;
   difficulty: string;
   diagramSVG: string | null;
+  diagramParams?: unknown;
 }
 
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
@@ -410,6 +415,14 @@ export const generateVariant = async (
       ? resolveMCAnswer(cleanedAnswer, cleanedChoices)
       : cleanedAnswer;
 
+  // 도형 spec: 모델이 array 로 emit 했으면 그대로 통과 (런타임 normalize 가 보정).
+  // 잘못된 형식 (object, string 등) → null. 빈 array 도 null 로 통일.
+  const rawDiagrams = parsed.diagramParams;
+  const diagramParams: DiagramParams[] | null =
+    Array.isArray(rawDiagrams) && rawDiagrams.length > 0
+      ? (rawDiagrams as DiagramParams[])
+      : null;
+
   return {
     question: sanitizeText(parsed.question ?? ""),
     choices: cleanedChoices,
@@ -417,7 +430,8 @@ export const generateVariant = async (
     solution: sanitizeText(parsed.solution ?? ""),
     topic: parsed.topic ?? input.problem.topic ?? "",
     difficulty: parsed.difficulty ?? "중",
-    diagramSVG: null, // 이번 phase 는 항상 null — 도형 재생성 X (caller 가 원본 image 유지)
+    diagramSVG: null, // deprecated — diagramParams 가 우선
+    diagramParams,
     modelUsed: model,
   };
 };

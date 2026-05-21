@@ -12,6 +12,8 @@ import {
 // 향후 다른 placeholder 가 필요해질 때 다시 살리기 쉽도록 정의는 유지하지 않고 제거.
 import { ModalShell } from "@app/components/modal/ModalShell";
 import { deletePageImages, deleteThumbnails } from "@app/lib/imageStore";
+import { deleteIfDraft } from "@app/services/api/tests";
+import { removeTestFolder } from "@app/services/api/storage";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { useWizardStore } from "@app/stores/wizardStore";
@@ -97,14 +99,28 @@ export const WizardScreen = () => {
     }
   };
 
+  // ── Phase B: Supabase draft 상태 row + Storage 파일 cleanup. status="ok"/"warn"
+  // 으로 이미 진행한 시험지는 library 에 *보존* — deleteIfDraft 안에서 status 확인.
+  const cleanupSupabaseDraft = async () => {
+    const id = useWizardStore.getState().testId;
+    if (!id) return;
+    try {
+      const deleted = await deleteIfDraft(id);
+      if (deleted) await removeTestFolder(id);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[WizardScreen] Supabase draft cleanup failed:", err);
+    }
+  };
+
   const handleRestart = async () => {
-    await cleanupIndexedDB();
+    await Promise.all([cleanupIndexedDB(), cleanupSupabaseDraft()]);
     reset();
     setResumeDialog(null);
   };
 
   const handleExit = async () => {
-    await cleanupIndexedDB();
+    await Promise.all([cleanupIndexedDB(), cleanupSupabaseDraft()]);
     reset();
     backToLibrary();
   };

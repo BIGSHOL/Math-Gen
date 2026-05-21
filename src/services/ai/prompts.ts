@@ -557,6 +557,40 @@ const difficultyDirectiveText = (diff: DifficultyShift): string => {
 };
 
 /**
+ * Vector 도형 spec 가이드. Phase E (DiagramParams 시스템) 의 cacheable prefix —
+ * 학년·시험지·문제 무관 static. VARIANT_PROMPT 의 `{diagram_guide}` placeholder
+ * 에 inject. Anthropic cache_control 마킹 대상.
+ */
+export const DIAGRAM_PARAMS_GUIDE = `🔷 **도형 vector spec 가이드 (diagramParams)**
+
+7 가지 \`type\` 지원 — type 필드로 구분. 좌표를 모르면 \`preset\` + \`sides\` 만 지정 → 시스템이 자동 계산.
+
+1. \`triangle\` — preset: \`right\` | \`equilateral\` | \`isosceles\` | \`scalene\` | \`right-isosceles\`. 필드: sides? ({a,b,c}), angles? ({A,B,C}), vertexLabels?, rightAngle? (0|1|2), showLengths?, specialPoints? (incenter/circumcenter/centroid/orthocenter), inscribedCircle?, circumscribedCircle?, exteriorAngles?, fill?.
+   예: \`{"type":"triangle","preset":"right","sides":{"a":3,"b":4,"c":5},"rightAngle":0}\`
+
+2. \`circle\` — center?, radius?, showRadius?, showDiameter?, chords?, arcs?, radiusLines?, centralAngles?, inscribedAngles?, tangentLines?.
+   예: \`{"type":"circle","center":[150,150],"radius":80,"showRadius":true}\`
+
+3. \`quadrilateral\` — preset: \`square\` | \`rectangle\` | \`parallelogram\` | \`rhombus\` | \`trapezoid\` | \`general\`. 필드: sides? ({width,height,top}), vertexLabels?, diagonals?, rightAngleMarks?, congruenceMarks?, parallelMarks?, splitDiagonal?.
+   예: \`{"type":"quadrilateral","preset":"trapezoid","sides":{"width":6,"height":4,"top":3}}\`
+
+4. \`polygon\` — N각형. vertices: [[x,y],...] 필수 (3+개). 옵션: regions? (영역 분할 색칠), splitLines?, rightAngleMarks?, showLengths?, vertexLabels?.
+   예: \`{"type":"polygon","vertices":[[0,100],[100,100],[100,40],[50,0],[0,40]],"vertexLabels":["A","B","C","D","E"]}\`
+
+5. \`coordinatePlane\` — xRange?, yRange?, showGrid?, functions?: [{expr,domain?,label?,color?}], points?, lines?, regions?. expr 안전 식 — operators: \`+-*/^\` (^는 거듭제곱), functions: \`sin/cos/tan/sqrt/abs/log/log2/log10/ln/exp/floor/ceil/round\`, constants: \`pi/e\`, 변수: \`x\` 만.
+   예: \`{"type":"coordinatePlane","xRange":[-3,3],"showGrid":true,"functions":[{"expr":"x^2-1","label":"y=x²-1"}]}\`
+
+6. \`solid\` — shape: \`cube\` | \`cylinder\` | \`cone\` | \`sphere\` | \`prism\` | \`pyramid\`. dimensions? (size/width/height/radius/depth/base), showDimensions?.
+   예: \`{"type":"solid","shape":"cylinder","dimensions":{"radius":60,"height":120},"showDimensions":true}\`
+
+7. \`composite\` — elements: 위 6 type 의 array. 두 도형 같이 표시 시 사용.
+   예: \`{"type":"composite","elements":[{"type":"triangle",...},{"type":"circle",...}]}\`
+
+🔑 **본문 마커 규칙**: \`question\` / \`solution\` 본문에 \`[그림1]\`, \`[그림2]\` 마커를 *순서대로* 박으세요. \`diagramParams\` 배열의 index 0, 1 과 매칭. 마커 없으면 도형은 *표시 안 됨*.
+
+🔑 **변형 도형 규칙**: 원본 도형의 \`type\` / \`preset\` 은 *유지*. 수치 (sides, angles, radius 등) 만 변형. 예: 원본 \`(3,4,5)\` 직각삼각형 → 변형 \`(5,12,13)\` 직각삼각형. 도형 *유형 변경 금지*.`;
+
+/**
  * `VARIANT_PROMPT` — Wizard Step 4 의 변형 문제 생성 prompt.
  *
  * 구조:
@@ -576,24 +610,28 @@ Task: 아래 한국 수학 문제의 **변형 문제** 한 개를 생성하세�
 ──────────────────────────────────────────────────────────────────
 출력 (JSON, schema 강제):
   {
-    "question":   "...",          // 변형된 문제 본문 (Markdown + LaTeX, 보기 *제외*)
-    "choices":    ["...", "..."], // 객관식이면 정확히 5개, 주관식이면 빈 []
-    "answer":     "...",          // 객관식 "③ 5" / 주관식 "5" / "$\\\\frac{4\\\\pi}{3}$"
-    "solution":   "...",          // 변형 문제의 단계별 풀이
-    "topic":      "...",          // 단원 (원본과 동일하게 유지)
-    "difficulty": "하|중|상|최상",
-    "diagramSVG": null            // 이번 phase 는 항상 null (도형 재생성 X)
+    "question":     "...",          // 변형된 문제 본문 (Markdown + LaTeX, 보기 *제외*). 도형 자리에 [그림1], [그림2] 마커.
+    "choices":      ["...", "..."], // 객관식이면 정확히 5개, 주관식이면 빈 []
+    "answer":       "...",          // 객관식 "③ 5" / 주관식 "5" / "$\\\\frac{4\\\\pi}{3}$"
+    "solution":     "...",          // 변형 문제의 단계별 풀이
+    "topic":        "...",          // 단원 (원본과 동일하게 유지)
+    "difficulty":   "하|중|상|최상",
+    "diagramSVG":   null,           // DEPRECATED — 항상 null. diagramParams 우선.
+    "diagramParams": null           // 도형 없으면 null. 있으면 spec 배열 ({diagram_guide} 참조).
   }
 
 ──────────────────────────────────────────────────────────────────
 {mathDefense}
 
 ──────────────────────────────────────────────────────────────────
+{diagram_guide}
+
+──────────────────────────────────────────────────────────────────
 🚨 **변형 STRICT 규칙 (CRITICAL — 위반 시 출력 무효)**
 
   R1. **답 구조 보존 (절대)**: 원본이 객관식 5지선다면 변형도 *정확히 5* 보기. 원본이 주관식이면 변형도 주관식 (\`choices: []\`). 객관식 ↔ 주관식 변환 절대 금지.
   R2. **같은 단원 내에서만**: 원본 \`topic\` 과 동일 단원. 예: '이차방정식' → '이차함수' 전환 금지, '최대공약수' → '소인수분해' 전환 금지.
-  R3. **도형 변형 금지 (이번 phase)**: \`diagramSVG\` 필드는 *항상 null* 반환. 원본이 도형 포함이면 그 도형을 가정한 문제 *본문* 만 변형 (도형 자체는 원본 그대로 caller 가 재사용).
+  R3. **도형 변형 (raw SVG main)**: 원본의 \`question\` 본문 안 inline \`<svg>...</svg>\` 가 있으면 *같은 위치에 새 inline SVG* embed. 원본의 도형 *모양·구조 (직사각형, 삼각형, 좌표축 등)* 는 유지하고 *수치 라벨* (예: "5y" → "7y", "3x" → "4x") 만 변형 문제의 새 값으로 갱신. SVG 의 viewBox·coordinate·stroke 등은 원본 비례 보존. \`diagramParams\` 는 *optional* — 원본에 있으면 수치만 보존, 없으면 null. \`diagramSVG\` 필드는 deprecated (항상 null) — 도형은 question 본문 안 inline 으로 처리.
   R4. **답 검증 일관성**: 변형 문제의 \`answer\` 가 변형된 \`question\` + (객관식이면) \`choices\` 와 정확히 맞아야 함. 객관식 마커 (①②③④⑤) 는 \`choices\` 배열 내 *순서* 와 일치.
   R5. **배점·시간 유지**: 같은 시험에서 같은 점수·풀이 시간이 나와야 함.
   R6. **한국 교과서 표기**: \`gcd / lcm / max / min\` 함수형 표기 금지 ("최대공약수", "큰 값" 등 자연어). \`\\\\approx\` / \`≈\` 금지 ("약 X"). \`\\\\dfrac\` 금지 (\`\\\\frac\` 만). 가분수는 대분수로.
@@ -618,7 +656,7 @@ Task: 아래 한국 수학 문제의 **변형 문제** 한 개를 생성하세�
   V1. \`choices\` 가 객관식이면 *정확히 5 개*, 주관식이면 \`[]\` 인가?
   V2. \`answer\` 가 \`choices\` 와 일치 (객관식: 마커 + 값) / \`question\` 과 정확히 풀이됨인가?
   V3. \`topic\` 이 원본과 *같은 단원* 인가?
-  V4. \`diagramSVG\` 가 \`null\` 인가? (이번 phase 는 항상 null)
+  V4. 원본 본문에 inline \`<svg>\` 가 있었으면, 변형 본문 (\`question\`) 에도 *같은 위치에 inline \`<svg>\`* 가 emit 됐는가? SVG 안 수치 라벨이 변형 새 값으로 갱신됐는가? (\`diagramParams\` 는 optional — 원본에 있었으면 보존하되 수치만 변경, 없으면 null. \`diagramSVG\` 항상 null.)
   V5. \`solution\` 본문에 "잠깐", "다시 확인" 같은 self-correction 흔적이 없는가?
 
 (위 V1-V5 점검은 모델 내부에서만 — solution 본문에 노출 X.)
@@ -656,6 +694,7 @@ export const buildVariantPrompt = (
   const originalProblem = formatOriginalProblemForVariant(problem);
   return VARIANT_PROMPT.replace("{persona}", persona)
     .replace("{mathDefense}", defense)
+    .replace("{diagram_guide}", DIAGRAM_PARAMS_GUIDE)
     .replace("{goalDirective}", goalDirective)
     .replace("{difficultyDirective}", difficultyDirective)
     .replace("{originalProblem}", originalProblem);
@@ -699,6 +738,7 @@ export const buildVariantPromptBlocksAnthropic = (
   // 정적 + 학년·옵션 dynamic 부분 모두 먼저 치환 → {originalProblem} 만 잔존.
   const fullTemplate = VARIANT_PROMPT.replace("{persona}", persona)
     .replace("{mathDefense}", defense)
+    .replace("{diagram_guide}", DIAGRAM_PARAMS_GUIDE)
     .replace("{goalDirective}", goalDirective)
     .replace("{difficultyDirective}", difficultyDirective);
   const idx = fullTemplate.indexOf(SPLIT_MARKER);
@@ -786,6 +826,14 @@ RULES FOR EACH "items" ENTRY
 
 4. text: the full problem statement.
 
+   🚨 **자체 노트·추론 흔적 절대 금지** — 사용자 보고 (10번 다항식): 본문에 다음과 같은 영어 메타 코멘트가 emit 됨:
+     - "(Note: The original image has a division sign here, but the handwritten solution uses multiplication. I will follow the printed text.)"
+     - "I will follow ..." / "The original image has ..." / "the handwritten solution uses ..."
+
+   본문은 *학생이 그대로 볼 수 있는 한국어 문제 텍스트만*. 모델 *자체 추론·판단 흔적* (영어 영어 코멘트, 1인칭 narrative, 원본 vs 손글씨 비교 메모 등) 본문에 절대 emit X. \`\\text{}\` 안에도 동일 — \`\\text{ (Note: ...) }\` 같은 *LaTeX wrapping 으로 위장한 영어 노트* 도 금지.
+
+   판단 결과는 *내부에서만* 사용하고, output 의 \`text\` 필드에는 *해석된 최종 한국어 본문* 만. 원본 vs 손글씨 풀이 불일치 같은 *전사 모호성* 은 \`confidence: "medium"\` 으로만 표시하고 본문에는 한 가지 *결정한 형태* 만.
+
    **MANDATORY — DO NOT VIOLATE**:
    - The "text" field MUST contain the FULL question body (the prose statement before any options). Examples of valid body openers:
      · "곡선 $y = x^2 + 2x + 2$와 $x$축 및 두 직선 $x = -2$, $x = 2$로 둘러싸인 도형의 넓이는?"
@@ -838,9 +886,49 @@ RULES FOR EACH "items" ENTRY
        ① \$1\$ ② \$2\$ ③ \$3k\$ ④ \$4k\$ ⑤ \$5k\$
        The renderer auto-formats this into a 2-column adaptive grid. Do NOT split options across multiple markdown lines. Do NOT wrap ①②③④⑤ themselves in \$.
 
-   4c. **보기 / 조건 / 박스 (any bordered region in the original)**: wrap the entire bordered region in a Markdown blockquote (> ). Inside a 보기 box, list items each on their own line:
-       > ㄱ. \$x\$의 제곱근은 \$\\pm\\sqrt{x}\$이다.
-       > ㄴ. …
+   4c. **박스·테두리 영역의 4-way 분류 — CRITICAL** (사용자 보고 반복 발생 — 박스 무차별 wrap 으로 *본문이 사라지고 조건만 남는* 케이스):
+
+       원본에 *테두리/배경색* 으로 둘러싸인 박스가 보이면 *내용을 먼저 읽고* 다음 4 종류로 분류:
+
+       **(i) 보기 박스 (객관식 후보 ①②③④⑤ 또는 ㄱㄴㄷ)** — wrap in Markdown blockquote (> ). 각 항목 한 줄씩.
+           > ㄱ. \$x\$의 제곱근은 \$\\pm\\sqrt{x}\$이다.
+           > ㄴ. …
+
+       **(ii) 수학적 제약 박스 ("단, …", "여기서 …", "다만 …")** — 본문 *끝에 한 줄로* 통합. blockquote X. 예:
+           원본:  본문 "직사각형의 넓이는?" + 박스 "단, \$3x > 6\$, \$5y > 8\$"
+           출력:  "직사각형의 넓이는? (단, \$3x > 6\$, \$5y > 8\$)"
+
+       **(iii) 풀이 절차 지침 박스 ("~할 것", "~로 풀이", "단계별로", "다음 순서대로")** — **전체 무시 (output 0 글자)**. 학생 교육 메타데이터로 *문제 본문 아님*. 박스 안 모든 문장 emit 금지.
+
+       **(iv) 학생 풀이 공간 (빈 표, 빈 줄, 답 작성란)** — **전체 무시**. 셀이 비어 있는 표, 점선·실선 칸막이, "(풀이 과정을 쓰시오)" 직후의 빈 영역은 학생이 채울 공간이지 *문제* 아님.
+
+       ── 사용자 보고 사례 (반드시 따르도록 학습) ──
+
+       사례 A (서술형 1번):
+         원본 본문:  "\$x\$의 값이 \$-1, 0, 1, 2\$일 때, 부등식 \$x+4 > 3x+1\$을 풀고 그 과정을 쓰시오."
+         원본 박스 1 (절차):  "부등식에 \$x\$의 값을 각각 대입하여 참, 거짓을 판별할 것 / 부등식의 해를 모두 구하여 마지막에 적을 것"  ← (iii) 무시
+         원본 박스 2 (학생 공간):  빈 표 "\$x\$ | 좌변 | 부등호 | 우변 | 참/거짓" 행은 \$-1, 0, 1, 2\$ 만 채워짐  ← (iv) 무시
+         올바른 출력:  "\$x\$의 값이 \$-1, 0, 1, 2\$일 때, 부등식 \$x+4 > 3x+1\$을 풀고 그 과정을 쓰시오."
+         잘못된 출력 (관찰됨):  본문 누락 + 조건 박스만 "부등식에 \$x\$의 값을 각각 대입하여…" 가 본문으로 들어감 → 완전히 다른 문제로 변형됨
+
+       사례 B (서술형 4번):
+         원본 본문:  "표에서 가로, 세로, 대각선에 있는 세 식의 곱이 모두 같게 하려고 한다. \$A, B\$에 알맞은 식을 각각 구하고 그 풀이과정을 쓰시오. (단, \$A, B\$는 식)"
+         원본 표 (채워진):  \$2ab^3\$, \$2a^2b^2\$, \$4a^2b^2\$, A, B, \$2a^3b\$ 셀  ← 채워진 셀은 본문 표로 emit (Tier 1)
+         원본 박스 (절차):  "대각선에 있는 세 식의 곱을 구할 것 / \$A, B\$를 구할 수 있는 식을 각각 적을 것"  ← (iii) 무시
+         올바른 출력: 본문 한 줄 + 3×3 Markdown 표.
+         잘못된 출력 (관찰됨): 표 누락 + 조건 박스만 본문화.
+
+       사례 C (서술형 5번):
+         원본 본문:  "어떤 식 \$A\$에 \$3x+6y-1\$을 더해야 할 것을 잘못하여 빼었더니 \$2x-9y+3\$이 되었다. 어떤 식 \$A\$와 바르게 계산한 식을 구하고 그 풀이과정을 쓰시오."
+         원본 박스 (절차):  "\$A\$를 구하는 식을 적고 \$A\$를 구할 것 / 바르게 계산한 식을 적을 것"  ← (iii) 무시
+         올바른 출력: 본문 한 줄.
+         잘못된 출력 (관찰됨): 본문 누락 + 조건 박스만 본문화.
+
+       ── 분류 휴리스틱 ──
+
+       박스 안 *모든* 문장이 "~할 것" / "~로 풀이" / "단계별로" / "각각 적을 것" 류 *명령형 동사* 로 끝나면 거의 항상 (iii). 박스 안에 *값·수식·미지수 조건* 이 들어 있으면 (ii). 박스 안에 ①②③④⑤ 또는 ㄱㄴㄷ 가 있으면 (i). 박스 안이 *비어 있거나 학생 입력 점선* 이면 (iv).
+
+       *분류 결과를 모델 내부 추론에 사용하고, output 의 text 필드에는 분류 라벨 자체 (예: "(조건 박스 - 절차)") 를 emit 하지 말 것.* 분류 후 (i)·(ii) 만 본문에 포함, (iii)·(iv) 는 *output 에서 흔적 없이 제거*.
 
    4d. **Blanks** (□, ( ), 빈칸 underscores): the original is asking the student to fill in something — write \\boxed{\\phantom{0}} in LaTeX. NEVER guess or fill in the answer:
        Original  $\\frac{5}{9} \\div 3 = \\frac{□}{27}$
@@ -871,8 +959,24 @@ RULES FOR EACH "items" ENTRY
        - **CRITICAL**: a "달력" / "calendar" picture is ALWAYS a table — never crop a calendar as an image. The same goes for any timetable or scoring grid.
        - Cells may contain inline <svg> (rule 5b) for small icons like dice faces inside a comparison table.
 
-   5b. **Tier 2 — INLINE <svg> (vector reconstruction)** for any clean line-art figure:
-       coordinate planes, parabolas / linear / exp / log graphs, polygons, circles, triangles, geometric figures, number lines, dice faces, Venn diagrams, fraction circles / bars, angle figures, histograms drawn as bars, function graphs.
+   5b. **Tier 2 — INLINE <svg> (vector reconstruction, MAIN)** for any clean line-art figure:
+       coordinate planes, parabolas / linear / exp / log graphs, polygons, circles, triangles, geometric figures, number lines, dice faces, Venn diagrams, fraction circles / bars, angle figures, histograms drawn as bars, function graphs, *and composite figures like rectangles with shaded triangles*.
+
+       🎯 **이것이 기본**. 도형은 *본문 \`text\` 안에 inline \`<svg>...</svg>\`* 로 직접 embed 하라. 우리 renderer 의 Stage 0 이 SVG 추출 + dangerouslySetInnerHTML 로 자동 처리 → namespace 함정 회피 + 정확한 표시.
+
+       **(옵션) \`diagramParams\`** — 표준 7 shape (triangle / circle / quadrilateral / polygon / coordinatePlane / solid / composite) 인 경우 *추가로* emit 가능. 단 \`type\` 필드 (7 enum 중 하나) 필수. 모르겠으면 *element 생략* (raw SVG 가 항상 우선). \`diagramParams\` 만 emit 하지 말 것 — 항상 inline SVG 와 함께.
+
+       **치수 표시 (Dimension labels) — 한국 교과서 관행 (사용자 보고 13번)**:
+       - 변의 *일부* 길이 (예: 직사각형 위쪽 변 5y 중 오른쪽 8 부분, 오른쪽 변 3x 중 위에서 6 부분) 표시 시:
+         - 변에서 살짝 떨어진 곳 (5-8 px) 에 *짧은 점선 호* (또는 양 끝에 짧은 수직 tick 가 있는 직선) — \`stroke-dasharray="3 2"\`.
+         - 숫자 라벨은 *호 바깥쪽* (변과 반대 방향) 에 배치 — 호·변과 *겹치지 X*.
+         - 예: 직사각형의 위쪽 변 오른쪽 끝 8 길이 표시 (변이 y=40 위치, 5y 전체 라벨은 변 위쪽):
+           <line x1="270" y1="48" x2="350" y2="48" stroke="black" stroke-dasharray="3 2" stroke-width="1"/>
+           <line x1="270" y1="44" x2="270" y2="52" stroke="black" stroke-width="1"/>
+           <line x1="350" y1="44" x2="350" y2="52" stroke="black" stroke-width="1"/>
+           <text x="310" y="64" text-anchor="middle" font-size="14">8</text>
+       - 변 *전체* 길이 라벨 (예: 5y, 3x) 은 호 없이 변 *바깥쪽* 에 직접 배치.
+       - **삼각형·다각형 vertex 좌표는 원본 비율 정확히 보존**. 원본에서 vertex 가 변 *위에서 8 만큼* 떨어진 점에 있다면, 우리 SVG 의 vertex 도 같은 비율 위치 (대략 변 길이의 8/5y 비율 지점) 에 배치. 비율 추정 어려우면 *문제 본문의 수치 정보로 역산*.
 
        **Function graph protocol — read these constraints OFF the original image BEFORE drawing anything**:
 

@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
-import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
+import MarkdownRenderer, {
+  type DiagramSvgItem,
+} from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
+import {
+  logDiagramIssues,
+  renderDiagram,
+  validateDiagramParams,
+} from "@app/lib/diagram";
 import { useWizardStore, type ProblemReview } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
 
@@ -119,6 +126,30 @@ export const VariantItem = ({
   const answerChanged =
     problem.variant.answer && problem.variant.answer !== problem.original.answer;
 
+  // Phase E: variant 의 diagramParams → renderDiagram → MarkdownRenderer 의 [그림N] 치환
+  const variantDiagramSvgs = useMemo<DiagramSvgItem[] | undefined>(() => {
+    const params = problem.variant.diagramParams;
+    if (!params?.length) return undefined;
+    const issues = validateDiagramParams(params);
+    logDiagramIssues(`VariantItem #${index}`, issues);
+    const errorIndices = new Set(
+      issues
+        .filter((iss) => iss.severity === "error")
+        .map((iss) => iss.index.split(".")[0]),
+    );
+    const items: DiagramSvgItem[] = [];
+    for (let i = 0; i < params.length; i++) {
+      if (errorIndices.has(String(i))) continue;
+      try {
+        items.push({ svg: renderDiagram(params[i]), label: `도형${i + 1}` });
+      } catch (err) {
+        console.warn(`[VariantItem] renderDiagram ${i} failed:`, (err as Error).message);
+      }
+    }
+    return items.length > 0 ? items : undefined;
+  }, [problem.variant.diagramParams, index]);
+  const hasVariantDiagrams = (variantDiagramSvgs?.length ?? 0) > 0;
+
   // ── State 1: 생성 실패 ────────────────────────────────────────────
   if (problem.genError) {
     return (
@@ -231,13 +262,19 @@ export const VariantItem = ({
             답 변경
           </Chip>
         )}
-        {hasDiagram && (
+        {hasVariantDiagrams ? (
+          <span title="vector 도형 spec 으로 재생성됨">
+            <Chip size="sm" tone="accent">
+              도형 변형됨
+            </Chip>
+          </span>
+        ) : hasDiagram ? (
           <span title="원본 도형 그대로 사용 (변형 X)">
             <Chip size="sm" tone="soft">
               도형 미변형
             </Chip>
           </span>
-        )}
+        ) : null}
         {problem.genModel && <ModelBadge model={problem.genModel} />}
         <div className="ml-auto flex items-center gap-1">
           {editing ? (
@@ -313,7 +350,10 @@ export const VariantItem = ({
         />
       ) : (
         <div className="prose max-w-none">
-          <MarkdownRenderer content={problem.variant.question} />
+          <MarkdownRenderer
+            content={problem.variant.question}
+            diagramSvgs={variantDiagramSvgs}
+          />
           {problem.variant.choices && problem.variant.choices.length > 0 && (
             <ul className="mt-2 space-y-1 list-none pl-0">
               {problem.variant.choices.map((c, i) => (
@@ -338,7 +378,10 @@ export const VariantItem = ({
             풀이 보기
           </summary>
           <div className="mt-2 prose max-w-none border-l-2 border-line pl-3">
-            <MarkdownRenderer content={problem.variant.solution} />
+            <MarkdownRenderer
+              content={problem.variant.solution}
+              diagramSvgs={variantDiagramSvgs}
+            />
           </div>
         </details>
       )}

@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
-import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
+import MarkdownRenderer, {
+  type DiagramSvgItem,
+} from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
 import { cropPageImageData } from "@app/lib/pdfProcessor";
+import {
+  logDiagramIssues,
+  renderDiagram,
+  validateDiagramParams,
+} from "@app/lib/diagram";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
 
@@ -117,6 +124,32 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemPro
   const [draftTopic, setDraftTopic] = useState(item.topic ?? "");
 
   const crops = useCroppedImages(item.images, pageImageDataUrl);
+
+  // Phase F: vector 도형 spec 이 있으면 renderDiagram → MarkdownRenderer 의
+  // [그림N] 치환에 사용. bbox crop fallback (crops) 보다 우선.
+  const vectorDiagrams = useMemo<DiagramSvgItem[] | undefined>(() => {
+    const params = item.diagramParams;
+    if (!params?.length) return undefined;
+    const issues = validateDiagramParams(params);
+    logDiagramIssues(`OCRItem ${pageId}/Q${item.number}`, issues);
+    // *Error severity* 가 있는 top-level element 는 skip — 빈 SVG push 방지.
+    // 모든 element 가 invalid 면 items.length=0 → undefined → bbox crop fallback.
+    const errorIndices = new Set(
+      issues
+        .filter((iss) => iss.severity === "error")
+        .map((iss) => iss.index.split(".")[0]),
+    );
+    const items: DiagramSvgItem[] = [];
+    for (let i = 0; i < params.length; i++) {
+      if (errorIndices.has(String(i))) continue;
+      try {
+        items.push({ svg: renderDiagram(params[i]), label: `도형${i + 1}` });
+      } catch (err) {
+        console.warn(`[OCRItem] renderDiagram ${i} failed:`, (err as Error).message);
+      }
+    }
+    return items.length > 0 ? items : undefined;
+  }, [item.diagramParams, item.number, pageId]);
 
   const startEdit = () => {
     setDraftText(item.text);
@@ -253,11 +286,12 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemPro
               </div>
             </div>
           )}
-          <MarkdownRenderer content={item.text} />
+          <MarkdownRenderer content={item.text} diagramSvgs={vectorDiagrams} />
         </div>
       )}
 
-      {crops.length > 0 && !editing && (
+      {/* bbox crop fallback — vectorDiagrams 가 있으면 표시 X (이미 본문 [그림N] 치환됨). */}
+      {!vectorDiagrams && crops.length > 0 && !editing && (
         <div className="mt-3 flex flex-wrap gap-3">
           {crops.map((c, i) => (
             <figure key={i} className="border border-line rounded-r2 bg-white p-2 max-w-[280px]">

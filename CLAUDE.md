@@ -1927,12 +1927,24 @@ return wrapped
 
 ## 19. 후속 phase 후보
 
-- **DOCX 내보내기** (`docx` 라이브러리 또는 html-docx-js)
+### 19-1. Production 진입 필수
+- **Phase G — Supabase Auth** — 이메일 / OAuth 로그인. `DEV_USER_ID` → `auth.uid()` 자연 전환 (RLS 정책 이미 대응 — schema.sql L138). Auth UI + onboarding 흐름 추가. ~600줄.
+
+### 19-2. 비용 / 정확도 보강
+- **cropped Pass 2 — 호출 자체 절감** — 현재 페이지 단위 Pass 2 (GPT-5.5) 호출. Pass 1 결과의 도형 bbox union 으로 cropped image 만 Pass 2 입력 → vision token 30-50% 절감. ~400줄 + bbox 좌표계 역변환 주의.
+- **도형 vector 정확도 검증 데이터 수집** — Phase F (OCR Tier 2) + Phase I (raw SVG 메인) 적용 후 *실제 PDF* 테스트로 [diagram] 검증 로그 확인. issue 패턴 발견 시 prompt 의 *부정 예시* 보강.
+- **DiagramParams 재활성화 검토** — 현재 OCR_PAGE_SCHEMA 에서 *완전 제거* (OpenAI strict 호환 위해). raw SVG 가 충분히 정확함을 검증 후, *교사 편집 기능* 필요 시 strict: false 모드 + schema 재추가 또는 *완전 specified 필드* 로 재활성.
+- **runtime validator 확장** — sign-parity (Pattern I), ascending-order, set-distinct (이미 J 부분 적용)
+
+### 19-3. UX / 출력
+- **DOCX 내보내기** (`docx` 라이브러리 또는 html-docx-js) — 교사 요청 잦음. SVG/KaTeX → PNG 변환 후 이미지 삽입 (Tier 2 패턴).
 - **HWP 내보내기** (한국 학교 표준, 라이브러리 부족 — 후순위)
-- **자동 재생성 1 회 시도** — validator warning 발생 시 자동으로 1 회 재생성
-- **runtime validator 확장** — sign-parity (Pattern I), ascending-order
 - **Step 5 mathlab 9 templates 풀 import** (large / csat / notebook / formal / bubble)
 - **인쇄 프리셋 localStorage** (mathlab `mathlab_print_preset` 패턴)
 - **워터마크 / 학원 로고** (인쇄 시 옅게)
-- **task #41 — OCRItem 카드별 모델 선택 + 재실행 메뉴**
+
+### 19-4. 작은 개선
+- **task #41 — OCRItem 카드별 모델 선택 + 재실행 메뉴** — item 별 Pass 2 trigger 또는 Sonnet 으로 강제 OCR
 - **task #31 — 브라우저 verify (SVG 크기 + 표 줄바꿈)**
+- **Windows 콜론 파일명 처리** — `migrated_prompt_history/prompt_*T*Z.json` 같은 ISO timestamp 파일이 Windows 체크아웃 실패. `.gitattributes` 또는 *cross-platform safe naming* 으로 마이그레이션.
+- **Step 5 PDF 출력의 KaTeX 깨짐** — html2canvas → jsPDF 경로의 폰트 / SVG 누락. Puppeteer headless print 또는 react-pdf 검토.

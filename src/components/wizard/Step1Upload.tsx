@@ -13,6 +13,7 @@ import {
   deletePageImages,
   deleteThumbnails,
   putPageImage,
+  putPdfBlob,
   putThumbnail,
 } from "@app/lib/imageStore";
 import { cn } from "@app/lib/tailwind";
@@ -28,6 +29,9 @@ import {
   type ExamCategory,
   type WizardPage,
 } from "@app/stores/wizardStore";
+import { deleteIfDraft, insertTest, updateTest } from "@app/services/api/tests";
+import { insertPage } from "@app/services/api/pages";
+import { removeTestFolder, uploadPdf } from "@app/services/api/storage";
 import {
   GRADE_GROUPS,
   GRADE_LABELS,
@@ -115,16 +119,39 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
       setProgress({ done: 0, total: pdf.numPages });
       setUploadedFile(file.name);
 
+      // ── Phase B: testId 발급 + tests row 즉시 insert (status="draft").
+      // client-side 발급 UUID 를 DB 의 tests.id 로 사용 → pages / ocr_problems
+      // 의 FK 는 모두 이 testId. SUPABASE_ENABLED=false 면 insertTest 가 null
+      // 반환 — wizard 는 IndexedDB only 로 그대로 진행.
+      const testId = crypto.randomUUID();
+      useWizardStore.setState({ testId });
+      const title = file.name.replace(/\.pdf$/i, "");
+      void insertTest({
+        id: testId,
+        title,
+        grade: selectedGrade,
+        exam_category: examCategory,
+        problem_count: 0,
+        status: "draft",
+        status_text: "업로드 중",
+        tags: [],
+        uploaded_file_name: file.name,
+      }).catch((err) => console.warn("[Step1Upload] insertTest failed:", err));
+
+      // PDF 원본 — IndexedDB + Supabase Storage dual-write (둘 다 background).
+      void putPdfBlob(testId, file).catch((err) =>
+        console.warn("[Step1Upload] putPdfBlob failed:", err),
+      );
+      void uploadPdf(testId, file).catch((err) =>
+        console.warn("[Step1Upload] uploadPdf failed:", err),
+      );
+
       const pages: WizardPage[] = [];
       const previewBatch: PreviewPage[] = [];
       for (let p = 1; p <= pdf.numPages; p++) {
         // Hi-res image + text layer + low-res thumbnail rendered in parallel,
         // but we MUST await all IndexedDB writes before pushing to `pages` —
         // usePageOcr will reach for these refs as soon as setPages fires.
-        // 회전 감지는 PDF.js 메타·textLayer 휴리스틱 둘 다 사용. 모두 로컬
-        // (API 비용 없음). 결과는 WizardPage.rotation 에 저장하고, 실제
-        // 이미지 변환은 OCR 호출 시점에 usePageOcr 가 applyRotation 으로
-        // 적용 — IndexedDB 의 원본은 그대로 둔다.
         const [{ imageBase64, textLayer }, thumb, rotation] = await Promise.all([
           renderPageForAI(pdf, p, 2.0),
           renderPageThumbnail(pdf, p),
@@ -134,8 +161,8 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
           putPageImage({ pageNum: p, dataUrl: imageBase64 }),
           putThumbnail({ pageNum: p, dataUrl: thumb }),
         ]);
-        pages.push({
-          id: `pg-${p}`,
+        const wizPage: WizardPage = {
+          id: crypto.randomUUID(),
           imageRef,
           thumbRef,
           textLayer,
@@ -143,7 +170,13 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
           ocrResult: [],
           ocrComplete: false,
           rotation,
-        });
+        };
+        pages.push(wizPage);
+        // ── Phase B: pages row + Storage upload (둘 다 background — 실패해도
+        // IndexedDB 가 backup. UI 진행은 IndexedDB put 완료 기준이라 await X).
+        void insertPage(testId, p, wizPage, imageBase64, thumb).catch((err) =>
+          console.warn(`[Step1Upload] insertPage p=${p} failed:`, err),
+        );
         previewBatch.push({ pageNum: p, thumbnail: thumb });
         setPreviews([...previewBatch]);
         setProgress({ done: p, total: pdf.numPages });
@@ -151,6 +184,12 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
       // Single setPages call only AFTER every put*-await above has resolved —
       // this is what prevents usePageOcr from racing the IndexedDB writes.
       setPages(pages);
+      // problem_count 추정치 (페이지당 ~5문항) + status 텍스트 업데이트.
+      const estCount = pages.filter((p) => p.isProblemPage).length * 5;
+      void updateTest(testId, {
+        problem_count: estCount,
+        status_text: "OCR 대기",
+      }).catch((err) => console.warn("[Step1Upload] updateTest failed:", err));
       setPhase("done");
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -188,8 +227,20 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
         console.warn("[Step1Upload] reset: IndexedDB cleanup partial failure", err);
       }
     }
+    // ── Phase B: draft 상태의 Supabase row + Storage 파일 cleanup. status 가
+    // "ok" / "warn" 으로 이미 commit 된 시험지는 *건드리지 않음* — library 에
+    // 보존. deleteIfDraft 안에서 status 확인.
+    const prevTestId = useWizardStore.getState().testId;
+    if (prevTestId) {
+      void deleteIfDraft(prevTestId).then((deleted) => {
+        if (deleted) void removeTestFolder(prevTestId);
+      }).catch((err) =>
+        console.warn("[Step1Upload] reset: draft cleanup failed:", err),
+      );
+    }
     // Zustand 의 setState 로 한 번에 여러 필드 reset — 별도 setter 추가 안 함.
     useWizardStore.setState({
+      testId: null,
       uploadedFileName: null,
       pages: [],
       activePageIndex: 0,

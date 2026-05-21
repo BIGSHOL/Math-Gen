@@ -51,15 +51,21 @@ export interface SolutionItemProps {
    * Caller (Step3SolutionReview) clears the dispatched marker for this item
    * before flipping `solution`/`solutionError` to undefined — that lets
    * `useSolutionGen` pick the item back up on its next effect cycle.
+   * Detail view 에선 readonly=true 라 사용 안 됨 — noop 으로 전달.
    */
   onRegenerate: () => void;
+  /**
+   * Phase C detail view 용. 편집 / 재생성 버튼 숨김 + 편집 모드 진입 차단.
+   * in-flight / error 상태는 그대로 표시.
+   */
+  readonly?: boolean;
 }
 
 const ModelBadge = ({ model }: { model: string }) => (
   <span className="text-caption text-muted font-mono">{model}</span>
 );
 
-export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) => {
+export const SolutionItem = ({ pageId, item, onRegenerate, readonly }: SolutionItemProps) => {
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
 
   const [editing, setEditing] = useState(false);
@@ -222,42 +228,44 @@ export const SolutionItem = ({ pageId, item, onRegenerate }: SolutionItemProps) 
           </Chip>
         )}
         {item.solutionModel && <ModelBadge model={item.solutionModel} />}
-        <div className="ml-auto flex items-center gap-1">
-          {editing ? (
-            <>
-              <Btn kind="ghost" size="sm" icon="x" onClick={cancelEdit}>
-                취소
-              </Btn>
-              <Btn kind="accent" size="sm" icon="check" onClick={saveEdit}>
-                저장
-              </Btn>
-            </>
-          ) : (
-            <>
-              <Btn
-                kind="ghost"
-                size="sm"
-                icon="arrow-clockwise"
-                onClick={() => {
-                  onRegenerate();
-                  updateOCRItem(pageId, item.id, {
-                    solution: undefined,
-                    answer: undefined,
-                    solutionError: undefined,
-                  });
-                }}
-                aria-label="해설 재생성"
-              />
-              <Btn
-                kind="ghost"
-                size="sm"
-                icon="pencil-simple"
-                onClick={startEdit}
-                aria-label="해설 편집"
-              />
-            </>
-          )}
-        </div>
+        {!readonly && (
+          <div className="ml-auto flex items-center gap-1">
+            {editing ? (
+              <>
+                <Btn kind="ghost" size="sm" icon="x" onClick={cancelEdit}>
+                  취소
+                </Btn>
+                <Btn kind="accent" size="sm" icon="check" onClick={saveEdit}>
+                  저장
+                </Btn>
+              </>
+            ) : (
+              <>
+                <Btn
+                  kind="ghost"
+                  size="sm"
+                  icon="arrow-clockwise"
+                  onClick={() => {
+                    onRegenerate();
+                    updateOCRItem(pageId, item.id, {
+                      solution: undefined,
+                      answer: undefined,
+                      solutionError: undefined,
+                    });
+                  }}
+                  aria-label="해설 재생성"
+                />
+                <Btn
+                  kind="ghost"
+                  size="sm"
+                  icon="pencil-simple"
+                  onClick={startEdit}
+                  aria-label="해설 편집"
+                />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 정확도 검증 warning banner — solutionValidator 가 *명백한 오류 패턴*

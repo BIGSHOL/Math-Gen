@@ -1,14 +1,25 @@
 import { useState } from "react";
 import {
   Btn,
+  Card,
   Chip,
   Divider,
   Icon,
   TopBar,
   type ChipTone,
 } from "@app/components/ui";
+import MarkdownRenderer, {
+  type DiagramSvgItem,
+} from "@app/components/math/MarkdownRenderer";
+import { OCRItem } from "@app/components/wizard/OCRItem";
+import { SolutionItem } from "@app/components/wizard/SolutionItem";
+import { renderDiagram, type DiagramParams } from "@app/lib/diagram";
+import { useDetailData, type PageWithUrls } from "@app/hooks/useDetailData";
+import { useImageAsDataUrl } from "@app/hooks/useImageAsDataUrl";
+import { formatRelativeKo, historyRowToVariant } from "@app/services/api/mappers";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
+import type { OCRProblem, ProblemReview } from "@app/stores/wizardStore";
 import type { TestStatus } from "@app/types";
 import { PageThumbnails } from "./PageThumbnails";
 import { HeroCard } from "./HeroCard";
@@ -26,9 +37,9 @@ const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
  * Detail screen — TopBar (with back nav) + page thumbnails sidebar + main
  * content + metadata sidebar.
  *
- * If the selected test id can't be resolved we render an empty fallback
- * with a "보관함으로" button rather than crashing. That can happen e.g. if
- * the user deep-linked into a stale id.
+ * Phase C: useDetailData 가 testId 의 pages / problems / reviews / variantHistory
+ * 를 Supabase 에서 4-병렬 fetch + Storage signed URL 발급. SUPABASE_ENABLED=false
+ * 면 모든 list 빈 배열 → placeholder.
  */
 export const DetailScreen = () => {
   const selectedTestId = useAppStore((s) => s.selectedTestId);
@@ -37,6 +48,7 @@ export const DetailScreen = () => {
   const getTest = useLibraryStore((s) => s.getTest);
 
   const test = selectedTestId ? getTest(selectedTestId) : undefined;
+  const detail = useDetailData(selectedTestId);
 
   const [activeTab, setActiveTab] = useState<DetailTab>("problems");
   const [activePage, setActivePage] = useState(1);
@@ -58,8 +70,26 @@ export const DetailScreen = () => {
     );
   }
 
-  // Stub page count until real page data lands in Phase 4.
-  const pageCount = 8;
+  const pageCount = detail.pages.length || 1;
+  const thumbs = detail.pages.map((p) => ({ pageNum: p.page_num, url: p.thumbUrl }));
+  const activePageObj: PageWithUrls | undefined = detail.pages.find(
+    (p) => p.page_num === activePage,
+  );
+  const activeProblems: OCRProblem[] = activePageObj
+    ? detail.problemsByPage.get(activePageObj.id) ?? []
+    : [];
+  const solutionCount = detail.problems.filter((p) => p.solution).length;
+  const historyCount = detail.history.length;
+
+  // Phase D — 활성 페이지의 hi-res URL → base64 dataURL (OCRItem 의 도형 crop 용)
+  const activePageDataUrl = useImageAsDataUrl(activePageObj?.imageUrl);
+
+  // Phase D — variants 를 detail.history 로 enrich. HeroCard / DetailMetaSidebar 가
+  // 그대로 받아 표시.
+  const enrichedTest =
+    detail.history.length > 0
+      ? { ...test, variants: detail.history.map(historyRowToVariant) }
+      : test;
 
   return (
     <div className="w-full h-full flex flex-col bg-bg">
@@ -110,55 +140,231 @@ export const DetailScreen = () => {
           pageCount={pageCount}
           activePage={activePage}
           onSelect={setActivePage}
+          thumbs={thumbs}
         />
 
         <main className="flex-1 overflow-auto">
-          {/* 2400px 캡 — 2K 모니터까지 자연 활용, 4K 에선 가독성 위해
-              여백 확보. 이전엔 cap 이 없어 표·도형이 끝까지 늘어났음. */}
           <div className="max-w-[2400px] mx-auto px-8 py-6">
-          <HeroCard test={test} />
+            <HeroCard test={enrichedTest} />
 
-          <div className="mt-[22px] mb-5">
-            <ProblemTabs
-              active={activeTab}
-              onChange={setActiveTab}
-              counts={{
-                problems: test.problemCount,
-                solutions: test.problemCount,
-                history: test.variants.length,
-              }}
-            />
-          </div>
+            <div className="mt-[22px] mb-5">
+              <ProblemTabs
+                active={activeTab}
+                onChange={setActiveTab}
+                counts={{
+                  problems: detail.problems.length || test.problemCount,
+                  solutions: solutionCount,
+                  history: historyCount || test.variants.length,
+                }}
+              />
+            </div>
 
-          {activeTab === "problems" && (
-            <TabPlaceholder
-              icon="list-numbers"
-              message="문항 미리보기는 Phase 4 wizard에서 디지털화한 뒤 표시됩니다."
-            />
-          )}
-          {activeTab === "solutions" && (
-            <TabPlaceholder icon="book-open" message="해설지 탭 (Phase 4에서 연결)" />
-          )}
-          {activeTab === "stats" && (
-            <TabPlaceholder icon="chart-bar" message="통계 탭 (mock)" />
-          )}
-          {activeTab === "history" && (
-            <TabPlaceholder
-              icon="git-branch"
-              message={
-                test.variants.length
-                  ? `변형 이력 ${test.variants.length}건 — 우측 사이드바를 확인하세요.`
-                  : "아직 생성된 변형이 없습니다."
-              }
-            />
-          )}
+            {detail.loading ? (
+              <TabPlaceholder icon="circle-notch" message="데이터 로드 중…" />
+            ) : detail.error ? (
+              <TabPlaceholder icon="warning" message={`오류: ${detail.error}`} />
+            ) : (
+              <>
+                {activeTab === "problems" && (
+                  <ProblemsTab
+                    activePageObj={activePageObj}
+                    activePage={activePage}
+                    problems={activeProblems}
+                    pageImageDataUrl={activePageDataUrl}
+                  />
+                )}
+                {activeTab === "solutions" && (
+                  <SolutionsTab
+                    activePageObj={activePageObj}
+                    activePage={activePage}
+                    problems={activeProblems}
+                  />
+                )}
+                {activeTab === "history" && (
+                  <HistoryTab history={detail.history} reviews={detail.reviews} />
+                )}
+                {activeTab === "stats" && (
+                  <TabPlaceholder icon="chart-bar" message="통계 탭 (mock)" />
+                )}
+              </>
+            )}
 
-          <CtaBanner onLaunch={() => openModal("new-variant")} />
+            <CtaBanner onLaunch={() => openModal("new-variant")} />
           </div>
         </main>
 
-        <DetailMetaSidebar test={test} />
+        <DetailMetaSidebar test={enrichedTest} />
       </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Tabs (Phase C — Detail 전용)
+// ============================================================================
+
+const ProblemsTab = ({
+  activePageObj,
+  activePage,
+  problems,
+  pageImageDataUrl,
+}: {
+  activePageObj: PageWithUrls | undefined;
+  activePage: number;
+  problems: OCRProblem[];
+  /** Phase D: 활성 페이지의 hi-res base64 dataURL — OCRItem 이 도형 crop 에 사용. */
+  pageImageDataUrl: string | null;
+}) => {
+  if (!activePageObj) {
+    return (
+      <TabPlaceholder icon="list-numbers" message={`${activePage}페이지를 찾을 수 없습니다.`} />
+    );
+  }
+  if (problems.length === 0) {
+    return (
+      <TabPlaceholder
+        icon="list-numbers"
+        message={`${activePage}페이지에 추출된 문항이 없습니다.`}
+      />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {problems.map((item) => (
+        <OCRItem
+          key={item.id}
+          pageId={activePageObj.id}
+          item={item}
+          readonly
+          pageImageDataUrl={pageImageDataUrl}
+        />
+      ))}
+    </div>
+  );
+};
+
+const SolutionsTab = ({
+  activePageObj,
+  activePage,
+  problems,
+}: {
+  activePageObj: PageWithUrls | undefined;
+  activePage: number;
+  problems: OCRProblem[];
+}) => {
+  if (!activePageObj) {
+    return (
+      <TabPlaceholder icon="book-open" message={`${activePage}페이지를 찾을 수 없습니다.`} />
+    );
+  }
+  const withSolution = problems.filter((p) => p.solution || p.answer);
+  if (withSolution.length === 0) {
+    return (
+      <TabPlaceholder
+        icon="book-open"
+        message={`${activePage}페이지에 해설이 아직 없습니다.`}
+      />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {withSolution.map((item) => (
+        <SolutionItem
+          key={item.id}
+          pageId={activePageObj.id}
+          item={item}
+          readonly
+          onRegenerate={() => {
+            /* readonly — noop */
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+const INTENSITY_LABEL: Record<number, string> = {
+  0: "디지털화",
+  1: "유사 변형",
+  2: "변형 (다른 유형)",
+};
+
+/** Phase E: GeneratedProblem.diagramParams → MarkdownRenderer 의 diagramSvgs. */
+const toDiagramSvgs = (
+  params: DiagramParams[] | null | undefined,
+): DiagramSvgItem[] | undefined => {
+  if (!params?.length) return undefined;
+  const items: DiagramSvgItem[] = [];
+  for (let i = 0; i < params.length; i++) {
+    try {
+      items.push({ svg: renderDiagram(params[i]), label: `도형${i + 1}` });
+    } catch (err) {
+      console.warn(`[DetailScreen] renderDiagram ${i}:`, (err as Error).message);
+    }
+  }
+  return items.length > 0 ? items : undefined;
+};
+
+const HistoryTab = ({
+  history,
+  reviews,
+}: {
+  history: Array<{ id: string; intensity: number; count: number; label: string | null; created_at: string }>;
+  reviews: ProblemReview[];
+}) => {
+  if (history.length === 0 && reviews.length === 0) {
+    return (
+      <TabPlaceholder icon="git-branch" message="아직 생성된 변형이 없습니다." />
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {history.map((h) => (
+        <Card key={h.id} pad={14}>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Chip size="sm" tone="accent" dot>
+              {INTENSITY_LABEL[h.intensity] ?? `intensity=${h.intensity}`}
+            </Chip>
+            <span className="text-small text-muted">
+              {h.count}문항 · {formatRelativeKo(h.created_at)}
+            </span>
+            {h.label && <span className="text-caption text-muted">· {h.label}</span>}
+          </div>
+        </Card>
+      ))}
+      {reviews.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-h3 text-text">변형 결과 ({reviews.length})</h3>
+          {reviews.map((r) => (
+            <Card key={r.id} pad={14}>
+              <div className="flex items-center gap-2 mb-2">
+                <Chip size="sm" tone={r.status === "confirmed" ? "ok" : "neutral"} dot>
+                  {r.status === "confirmed" ? "확정" : r.status === "review" ? "검토" : "대기"}
+                </Chip>
+                {r.genModel && (
+                  <span className="text-caption text-muted font-mono">{r.genModel}</span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="border border-line rounded-r2 p-3 bg-surface2">
+                  <div className="text-caption text-muted mb-1.5 font-semibold">원본</div>
+                  <MarkdownRenderer
+                    content={r.original.question}
+                    diagramSvgs={toDiagramSvgs(r.original.diagramParams)}
+                  />
+                </div>
+                <div className="border border-accent/30 rounded-r2 p-3 bg-accent-soft/30">
+                  <div className="text-caption text-muted mb-1.5 font-semibold">변형</div>
+                  <MarkdownRenderer
+                    content={r.variant.question}
+                    diagramSvgs={toDiagramSvgs(r.variant.diagramParams)}
+                  />
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

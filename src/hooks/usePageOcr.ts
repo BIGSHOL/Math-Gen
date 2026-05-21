@@ -74,7 +74,10 @@ const isPass1Model = (m?: string): boolean =>
  */
 const pageHasFigures = (items: OCRProblem[]): boolean =>
   items.some(
-    (it) => (it.images && it.images.length > 0) || /<svg[\s>]/i.test(it.text),
+    (it) =>
+      (it.images && it.images.length > 0) ||
+      (it.diagramParams && it.diagramParams.length > 0) ||
+      /<svg[\s>]/i.test(it.text),
   );
 
 /**
@@ -323,13 +326,41 @@ export const usePageOcr = () => {
         try {
           const result = await runOcrChain(page, pass2Chain, "2차", "pass2");
           if (!result) return;
-          // Pass 2 도 각 item 에 모델 복사 (task #99).
-          const itemsWithModel = result.items.map((it) => ({
-            ...it,
-            ocrModel: result.modelUsed,
-          }));
+          // ── Item-level merge (사용자 보고 — task #99 보강) ──
+          // 기존: Pass 2 결과를 *통째로* replace → 도형 없는 item (11/12 같은
+          // 단순 텍스트 문제) 도 GPT-5.5 chip 으로 표시 → 사용자가 *비싼 모델
+          // 낭비* 로 오인. 진짜 원인: 페이지 단위 Pass 2 라 *호출 결과의 모든
+          // item* 이 GPT-5.5 출력.
+          //
+          // 새로: *도형 있는 item* (images.length > 0) 만 Pass 2 결과 + GPT-5.5
+          // chip. 도형 없는 item 은 Pass 1 결과 + Pass 1 모델 chip 유지. 사용자
+          // 인식 일치 + Pass 2 의 *도형 정밀화 가치* 만 살림.
+          const currentPage = useWizardStore
+            .getState()
+            .pages.find((p) => p.id === page.id);
+          const pass1Items = currentPage?.ocrResult ?? [];
+          const pass2ByNumber = new Map<number, OCRProblem>(
+            result.items.map((it) => [it.number, it]),
+          );
+          const merged: OCRProblem[] = [];
+          for (const p1 of pass1Items) {
+            const p2 = pass2ByNumber.get(p1.number);
+            if (p2 && (p2.images?.length ?? 0) > 0) {
+              // 도형 있음 → Pass 2 결과 사용
+              merged.push({ ...p2, ocrModel: result.modelUsed });
+            } else {
+              // 도형 없음 → Pass 1 결과 + Pass 1 모델 chip 유지
+              merged.push(p1);
+            }
+          }
+          // Pass 2 만 검출한 item (Pass 1 누락) — append
+          for (const p2 of result.items) {
+            if (!pass1Items.some((p1) => p1.number === p2.number)) {
+              merged.push({ ...p2, ocrModel: result.modelUsed });
+            }
+          }
           setPageOCR(page.id, {
-            ocrResult: itemsWithModel,
+            ocrResult: merged,
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             upgrading: false,
           });

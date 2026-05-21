@@ -489,12 +489,55 @@ export const normalizeCircledMarkers = (text: string): string => {
   );
 };
 
+/**
+ * 모델 self-note / chain-of-thought 흔적 제거.
+ *
+ * 사용자 보고 (10번 다항식): 본문에 영어 메타 코멘트가 그대로 emit 됨 —
+ * "(Note: The original image has a division sign here, but the handwritten
+ * solution uses multiplication. I will follow the printed text.)"
+ *
+ * 이는 모델이 *추론 결정 과정* 을 *출력 본문* 에 그대로 노출한 케이스. prompt
+ * 로도 가드하지만, sanitize 단에서 *후보정* 으로 한 번 더 제거.
+ *
+ * 두 채널:
+ *   - plain text: `(Note: ...)`, `I will follow ...`, `The original image has ...`
+ *   - LaTeX inside `\text{}`: `\text{ (Note: ...) }`, `\text{ I will ... }`
+ *
+ * 두 채널 모두 처리. 한국어 본문에는 *해당 패턴 없음* 보장 — 영어로 시작하는
+ * 메타 코멘트만 매치.
+ */
+const stripModelSelfNotes = (text: string): string => {
+  return text
+    // LaTeX \text{} 안 영어 메타 (먼저 — 더 narrow)
+    .replace(/\\text\{\s*\(?\s*(Note|note)\s*:\s*[^}]*\}/g, "")
+    .replace(
+      /\\text\{\s*I (will|am going to|need to|should) (follow|use|treat|interpret|assume|note)[^}]*\}/gi,
+      "",
+    )
+    .replace(
+      /\\text\{\s*[Tt]he (original|printed|handwritten|image|note)[^}]*\}/g,
+      "",
+    )
+    // Plain text 영어 메타
+    .replace(/\(\s*(Note|note)\s*:\s*[^)]*\)/g, "")
+    .replace(
+      /^\s*I (will|am going to|need to|should) (follow|use|treat|interpret|assume|note)[^.!\n]*[.!]?\s*$/gim,
+      "",
+    )
+    .replace(
+      /^\s*[Tt]he (original|printed|handwritten) (image|drawing|figure|solution|version|text|note)[^.!\n]*[.!]?\s*$/gim,
+      "",
+    );
+};
+
 export const sanitizeText = (text: string | undefined): string => {
   if (!text) return text ?? "";
-  // 순서: (1) HTML 노이즈 제거 → (2) `\textcircled{N}` 유니코드 변환 →
-  //       (3) JSON.parse 백슬래시 복원 →
-  //       (4) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.
+  // 순서: (0) 모델 self-note 흔적 제거 (영어 메타 코멘트) → (1) HTML 노이즈
+  //       제거 → (2) `\textcircled{N}` 유니코드 변환 → (3) JSON.parse 백슬래시
+  //       복원 → (4) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.
   //       (5) literal `\n` / `\t` → 실제 newline / tab (모델 escape 사고).
+  // (0) 가 가장 앞이어야 — 영어 메타가 protectLooseLatex 의 wrap 대상에서
+  // 빠진 채로 정리 chain 진입.
   // (2) 는 protectLooseLatex 보다 *앞* 이어야 한다 — `\textcircled` 가 `$`
   // 안으로 wrap 되면 KaTeX 가 unknown command 에러를 낸다.
   // (4) 는 (3) 다음 — (3) 이 `frac` → `\frac` 같이 복원해서 (4) 가 wrap
@@ -502,7 +545,7 @@ export const sanitizeText = (text: string | undefined): string => {
   const wrapped = protectLooseLatex(
     fixLatexEscaping(
       normalizeCircledMarkers(
-        text
+        stripModelSelfNotes(text)
           .replace(IMG_TAG_RE, "")
           .replace(MD_IMG_RE, "")
           .replace(EMPTY_CENTER_RE, "")

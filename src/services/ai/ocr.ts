@@ -287,6 +287,8 @@ interface RawOcrItem {
   topic: string;
   images: RawOcrImage[];
   confidence: "high" | "medium" | "low";
+  /** Phase F: vector 도형 spec — optional (느슨한 array, 런타임 normalizeDiagram 보정). */
+  diagramParams?: unknown;
 }
 
 interface RawOcrResponse {
@@ -402,6 +404,12 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
                 ],
                 label: typeof im.label === "string" ? im.label : "",
               }))
+          : undefined,
+      // Phase F: vector 도형 spec 보존. array 가 아니거나 빈 배열이면 undefined →
+      // OCRItem 이 bbox crop fallback 사용 (images 필드).
+      diagramParams:
+        Array.isArray(raw.diagramParams) && raw.diagramParams.length > 0
+          ? (raw.diagramParams as OCRProblem["diagramParams"])
           : undefined,
       // 본문 또는 보기 누락은 confidence 와 무관하게 강제 warn — 사용자 검토 필수.
       status:

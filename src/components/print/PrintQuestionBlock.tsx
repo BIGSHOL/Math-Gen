@@ -1,4 +1,6 @@
-import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
+import MarkdownRenderer, {
+  type DiagramSvgItem,
+} from "@app/components/math/MarkdownRenderer";
 import type {
   ExportSource,
   PrintOptions,
@@ -7,6 +9,7 @@ import type {
 } from "@app/stores/wizardStore";
 import type { GeneratedProblem } from "@app/types";
 import { resolveChoiceCols } from "@app/lib/printLayout";
+import { renderDiagram } from "@app/lib/diagram";
 
 /**
  * Step 5 인쇄 시 한 문항을 표시하는 카드. mathlab `print/page.tsx` L516-573
@@ -115,10 +118,26 @@ interface BodyBlockProps {
 }
 
 const BodyBlock = ({ body, tag, accentColor, diagrams }: BodyBlockProps) => {
-  // GeneratedProblem.diagramSVG 가 있으면 MarkdownRenderer 가 [그림N] 치환.
-  const svgList = body.diagramSVG
-    ? [{ svg: body.diagramSVG, label: "도형" }]
-    : undefined;
+  // 우선순위: (1) diagramParams (vector, Phase E) > (2) diagramSVG (legacy) >
+  // (3) diagrams (OCR bbox crop fallback — svgList 가 없을 때만 표시).
+  let svgList: DiagramSvgItem[] | undefined;
+  if (body.diagramParams && body.diagramParams.length > 0) {
+    const items: DiagramSvgItem[] = [];
+    for (let i = 0; i < body.diagramParams.length; i++) {
+      try {
+        items.push({
+          svg: renderDiagram(body.diagramParams[i]),
+          label: `도형${i + 1}`,
+        });
+      } catch (err) {
+        console.warn(`[PrintQuestionBlock] renderDiagram ${i}:`, (err as Error).message);
+      }
+    }
+    if (items.length > 0) svgList = items;
+  } else if (body.diagramSVG) {
+    svgList = [{ svg: body.diagramSVG, label: "도형" }];
+  }
+  const showBboxFallback = !svgList && diagrams && diagrams.length > 0;
 
   return (
     <div>
@@ -136,10 +155,10 @@ const BodyBlock = ({ body, tag, accentColor, diagrams }: BodyBlockProps) => {
         <MarkdownRenderer content={body.question} diagramSvgs={svgList} />
       </div>
 
-      {/* 원본 OCR bbox crop 도형 */}
-      {diagrams && diagrams.length > 0 && (
+      {/* 원본 OCR bbox crop 도형 (vector spec 이 없을 때만 fallback) */}
+      {showBboxFallback && (
         <div className="mt-1.5 flex flex-wrap gap-2">
-          {diagrams.map((d, di) => (
+          {diagrams!.map((d, di) => (
             <img
               key={di}
               src={d.dataUrl}

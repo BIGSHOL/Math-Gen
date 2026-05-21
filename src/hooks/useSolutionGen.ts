@@ -71,6 +71,34 @@ export const useSolutionGen = () => {
               }),
             );
             if (!dispatched.current.has(key)) return;
+
+            // Phase G: Pattern J 등 validator warning 검출 시 *1회 자동 재생성*.
+            // 결과 저장 안 하고 dispatched 마커만 해제 + autoRetried=true 표시 →
+            // 다음 effect cycle 에서 *재dispatch* 되어 새 해설 생성. 두 번째도
+            // warnings 가 있어도 그대로 노출 (사용자가 수동 결정).
+            const hasWarnings = (result.warnings?.length ?? 0) > 0;
+            const shouldAutoRetry = hasWarnings && !item.solutionAutoRetried;
+            if (shouldAutoRetry) {
+              dispatched.current.delete(key);
+              updateOCRItem(page.id, item.id, {
+                solution: undefined,
+                answer: undefined,
+                solutionWarnings: undefined,
+                solutionModel: undefined,
+                solutionGenerating: false,
+                solutionStartedAt: undefined,
+                solutionError: undefined,
+                solutionAutoRetried: true,
+              });
+              // eslint-disable-next-line no-console
+              if (import.meta.env.DEV) {
+                console.debug(
+                  `[useSolutionGen] auto-retry page=${page.id} item=${item.number} (${result.warnings?.length ?? 0} warnings)`,
+                );
+              }
+              return;
+            }
+
             updateOCRItem(page.id, item.id, {
               solution: result.solution,
               answer: result.answer,

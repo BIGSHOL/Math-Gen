@@ -203,6 +203,12 @@ export interface OCRProblem {
     detail: string;
   }>;
   /**
+   * Phase G: validator warning 검출 시 자동 재생성 1회 시행 여부. true 면 더
+   * 이상 자동 retry 안 함 (수동 재시도는 별개 — `solution=undefined` 로 reset
+   * 하면 동일 cycle 에서 한 번 더 시도하되 *자동 retry 는 발동 X*).
+   */
+  solutionAutoRetried?: boolean;
+  /**
    * 이 문항을 OCR 한 모델 (디버그·UI 배지). 같은 페이지 안의 모든 item 은
    * 기본적으로 동일 (페이지 단위 호출이라). task #41 (item 별 재실행) 도입
    * 시 item 마다 다른 모델 가능 — 그 때 자연스럽게 분기.
@@ -210,6 +216,12 @@ export interface OCRProblem {
    * `usePageOcr` 가 페이지 OCR 성공 시 각 item 에 페이지 모델을 복사.
    */
   ocrModel?: string;
+  /**
+   * Phase F (OCR Tier 2): vision 모델이 추출한 vector 도형 spec. 있으면
+   * `renderDiagram` 으로 SVG 생성 → MarkdownRenderer 의 `[그림N]` 치환.
+   * 없으면 `images` (bbox crop) fallback. 본문의 `[그림N]` 마커 순서와 매핑.
+   */
+  diagramParams?: import("@app/lib/diagram").DiagramParams[] | null;
 }
 
 export interface ProblemReview {
@@ -414,7 +426,10 @@ export const useWizardStore = create<WizardState>()(
       reset: () => set(initialState),
     }),
     {
-      name: "mathgen-wizard-v1",
+      // v1 → v2 bump (Phase B): WizardPage.id 가 `pg-${p}` 에서 crypto.randomUUID()
+      // 로 바뀌어 기존 session 의 `pg-1` 같은 id 는 Supabase 의 pages.id (UUID)
+      // FK 와 호환 안 됨. v2 로 bump 해서 stale session 자동 폐기.
+      name: "mathgen-wizard-v2",
       storage: createJSONStorage(() => sessionStorage),
       // Skip large fields and transient UI state.
       partialize: (s) => ({
@@ -442,7 +457,14 @@ export const useWizardStore = create<WizardState>()(
         goal: s.goal,
         difficulty: s.difficulty,
         extras: s.extras,
-        problems: s.problems,
+        // problems 의 in-flight 마커도 stripping — 새로고침 후 spinner 가 stuck
+        // 으로 남는 버그 방지. genError 는 *지속성 있는* 정보 (재시도 버튼 표시
+        // 위해 필요) 라 그대로 persist.
+        problems: s.problems.map((r) => ({
+          ...r,
+          generating: false,
+          generatingStartedAt: undefined,
+        })),
         selectedProblemIdx: s.selectedProblemIdx,
         format: s.format,
         bundle: s.bundle,
