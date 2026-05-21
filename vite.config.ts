@@ -163,6 +163,13 @@ export default defineConfig(async ({ mode }) => {
   const ANTHROPIC_API_KEY = fileEnv.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || "";
   const GEMINI_API_KEY = fileEnv.GEMINI_API_KEY || env.GEMINI_API_KEY || "";
   const OPENAI_API_KEY = fileEnv.OPENAI_API_KEY || env.OPENAI_API_KEY || "";
+  // Supabase — VITE_ prefix 사용 (vite 컨벤션). dev 단계엔 ENABLED=false 가능
+  // (기존 IndexedDB / sessionStorage 만). Phase A 이후 ENABLED=true 로 Cloud
+  // sync 활성. readEnvLocal 의 우선순위 (`.env.local` > `.env` > `.env.example`)
+  // 그대로 적용.
+  const SUPABASE_URL = fileEnv.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL || "";
+  const SUPABASE_ANON_KEY = fileEnv.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || "";
+  const SUPABASE_ENABLED = fileEnv.VITE_SUPABASE_ENABLED || env.VITE_SUPABASE_ENABLED || "false";
   const stubs = {
     "fs-util.mjs": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
     "fs-util.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
@@ -206,6 +213,11 @@ export default defineConfig(async ({ mode }) => {
       // OpenAI key — optional, enables GPT-5 / 4.1 / 4o / o3 family in the
       // OCR layer and bench. Leave blank to hide GPT options.
       "process.env.OPENAI_API_KEY": JSON.stringify(OPENAI_API_KEY),
+      // Supabase — Phase A 인프라 마이그레이션. VITE_ prefix 로 client 에서
+      // `import.meta.env` 로 접근. ENABLED 가 "true" 일 때만 client 가 활성.
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(SUPABASE_URL),
+      "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(SUPABASE_ANON_KEY),
+      "import.meta.env.VITE_SUPABASE_ENABLED": JSON.stringify(SUPABASE_ENABLED),
     },
     resolve: {
       alias: {
