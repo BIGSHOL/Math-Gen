@@ -7,28 +7,35 @@ import react from "@vitejs/plugin-react";
 /**
  * 빈 TCP port 찾기 — `start` 부터 `max` 까지 순차 검사, 첫 빈 port 반환.
  *
- * **왜 vite 의 자체 fallback 으로 부족한가**: Windows + IPv6 dual-stack 에서
- * 다른 프로젝트가 `0.0.0.0` (`::`) 로 3000 점유 중일 때, mathg-gen 의 `localhost`
- * (`::1`) binding 은 OS 입장에서 *다른 socket*. EADDRINUSE 가 안 떠서 strictPort
- * fallback 이 동작 안 한다.
+ * **왜 vite 의 자체 fallback 으로 부족한가** (사용자 보고로 확인된 함정 카탈로그):
  *
- * 해결: vite listen 직전에 *0.0.0.0 binding 으로 점유 검사* — 어떤 binding 이든
- * 충돌하면 EADDRINUSE 발생 → 다음 port 시도. mathg-gen 사용자 보고로 확인됨
- * (Windows 11, Vite 6.4, Node 22).
+ *   1. **same-host 충돌 silent** — Windows 의 SO_REUSEADDR 동작상 host:"0.0.0.0"
+ *      두 vite 가 같은 port 에 동시 listen 성공해버림. EADDRINUSE 가 안 떠서
+ *      vite 의 strictPort 가 fallback 안 함.
+ *   2. **IPv4 ↔ IPv6 별개 socket** — 다른 프로젝트가 Next.js `::` (IPv6
+ *      dual-stack) 로 3000 점유 중일 때, IPv4 (`0.0.0.0`) 로만 검사하면 충돌
+ *      안 잡힘. 반대도 동일.
+ *
+ * 해결: **IPv4 + IPv6 둘 다 listen 시도** — 둘 중 하나라도 EADDRINUSE 면 port
+ * 사용 중으로 간주. attendance-project (Next.js Turbopack) 와 mathg-gen (Vite)
+ * 같은 *다른 dev 도구 조합* 에도 안전.
  */
+const tryListen = (port: number, host: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => tester.close(() => resolve(true)));
+    tester.listen(port, host);
+  });
+
 const findFreePort = async (start: number, max = 30): Promise<number> => {
   for (let p = start; p < start + max; p++) {
-    const free = await new Promise<boolean>((resolve) => {
-      const tester = net.createServer();
-      tester.once("error", () => resolve(false));
-      tester.once("listening", () => {
-        tester.close(() => resolve(true));
-      });
-      // 0.0.0.0 binding — IPv4/IPv6 dual-stack 모두 검사. localhost binding 만
-      // 시도하면 다른 0.0.0.0 listener 와 충돌 못 잡음 (위 주석 참고).
-      tester.listen(p, "0.0.0.0");
-    });
-    if (free) return p;
+    // IPv4 검사. 다른 process 가 0.0.0.0 / 127.0.0.1 으로 listen 중이면 fail.
+    if (!(await tryListen(p, "0.0.0.0"))) continue;
+    // IPv6 검사. 다른 process 가 :: / ::1 으로 listen 중이면 fail. Next.js
+    // Turbopack 가 :: 로 binding 하는 게 대표 케이스.
+    if (!(await tryListen(p, "::"))) continue;
+    return p;
   }
   // 끝까지 빈 port 못 찾으면 start 반환 — vite 가 자체 fallback 시도하도록.
   return start;
