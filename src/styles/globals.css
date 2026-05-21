@@ -338,14 +338,44 @@ svg text {
 }
 
 /* =========================================================
-   Print optimization
+   Print optimization (Step 5)
+
+   mathlab globals.css L282-294 패턴 차용 + mathg-gen 의 wizard chrome
+   (topbar / stepper / footer / options panel / preview gallery) 숨김 추가.
+   data-print-page 마커가 jsPDF + html2canvas 의 페이지 분할 단위이기도 하다
+   (`src/lib/pdfExporter.ts` 참고).
    ========================================================= */
 @media print {
+  html,
   body,
   #root {
     height: auto !important;
     overflow: visible !important;
     background-color: white !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* wizard 인터페이스 chrome 일괄 숨김. Step5Export 의 좌측 option panel /
+     우측 action panel 도 같은 클래스. */
+  .wizard-chrome,
+  .wizard-chrome-preview {
+    display: none !important;
+  }
+  /* 인쇄 / PDF 전용 hidden DOM 을 print 미디어에서만 노출. screen 에선
+     `hidden` Tailwind 가 가린 채로 유지. */
+  .printable-root {
+    display: block !important;
+    visibility: visible !important;
+  }
+  /* A4Page / A4PrintPage 의 outermost div = 페이지 경계. */
+  [data-print-page] {
+    page-break-after: always;
+    break-inside: avoid;
+  }
+  [data-print-page]:last-child {
+    page-break-after: auto;
   }
   .print-break-inside-avoid {
     break-inside: avoid;

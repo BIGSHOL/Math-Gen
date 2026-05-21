@@ -29,6 +29,59 @@ export type ExportFormat = "pdf" | "hwp" | "docx" | "online";
  */
 export type ExamCategory = "MIDTERM" | "FINAL" | "MOCK" | "OTHER";
 
+/**
+ * Step 5 (PDF 내보내기 + 인쇄) 의 layout 템플릿.
+ *
+ * mathlab 의 9 templates 중 *4 개* 만 채택 — wizard 사용자 인지 부담 ↓.
+ * large/csat/notebook/formal/bubble 은 후속 phase 에서 단계적 도입.
+ */
+export type PrintTemplate = "default" | "exam" | "minimal" | "classic";
+
+/**
+ * Step 5 의 출력 대상. 라디오 선택:
+ *   - variant: 변형 문제만 (기본)
+ *   - original: 원본 문제만
+ *   - both: 한 카드에 원본 + 변형 둘 다 (검토 자료용)
+ */
+export type ExportSource = "variant" | "original" | "both";
+
+/**
+ * Step 5 의 인쇄 layout 옵션. mathlab `PrintOptions` 패턴 차용 (`showDivider`
+ * 만 제거 — mathg-gen 카드 디자인 충돌).
+ */
+export interface PrintOptions {
+  template: PrintTemplate;
+  /** 강조 색상 (hex). default: mathg-gen accent (#0EA5E9). */
+  color: string;
+  columns: 1 | 2;
+  /** 문항 간 세로 여백 (px). 0~150. */
+  spacing: number;
+  /** 정답 + 해설 페이지 포함 여부. */
+  showAnswers: boolean;
+  /** showAnswers true 일 때 — 해설 생략하고 빠른 정답만. */
+  quickAnswerOnly: boolean;
+  showDate: boolean;
+  showChapter: boolean;
+  showDifficulty: boolean;
+}
+
+/**
+ * 기본 PrintOptions — Step5 첫 진입 시 사용. mathlab 의 default 값에서
+ * mathg-gen accent 색 + showChapter false (chapter 메타는 우리 데이터에서
+ * 거의 비어 있어 노이즈).
+ */
+export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
+  template: "exam",
+  color: "#0EA5E9",
+  columns: 2,
+  spacing: 40,
+  showAnswers: false,
+  quickAnswerOnly: false,
+  showDate: true,
+  showChapter: false,
+  showDifficulty: true,
+};
+
 export interface WizardPage {
   id: string;
   /** IndexedDB ref id for the hi-res image (pageImages store). */
@@ -194,6 +247,14 @@ export interface WizardState {
   format: ExportFormat;
   bundle: { problems: boolean; answers: boolean; solutions: boolean; stats: boolean };
   filename: string;
+  /**
+   * Step 5 의 인쇄 layout 옵션. 미리보기 / 인쇄 / PDF 가 모두 이 옵션을 공유.
+   * Step3 옵션 (`bundle.answers`) 가 켜져 있으면 Step5 mount 시 1회 자동으로
+   * `showAnswers: true` 로 seed.
+   */
+  printOptions: PrintOptions;
+  /** Step 5 출력 대상: 변형 / 원본 / 둘 다. */
+  exportSource: ExportSource;
 
   // Actions
   setStep: (step: WizardStepIndex) => void;
@@ -223,7 +284,11 @@ export interface WizardState {
   setOptions: (patch: Partial<Pick<WizardState, "goal" | "difficulty" | "extras">>) => void;
   setProblems: (problems: ProblemReview[]) => void;
   updateProblem: (id: string, patch: Partial<ProblemReview>) => void;
-  setExport: (patch: Partial<Pick<WizardState, "format" | "bundle" | "filename">>) => void;
+  setExport: (
+    patch: Partial<
+      Pick<WizardState, "format" | "bundle" | "filename" | "printOptions" | "exportSource">
+    >,
+  ) => void;
   startWizard: (testId: string) => void;
   reset: () => void;
 }
@@ -246,6 +311,8 @@ const initialState = {
   format: "pdf" as ExportFormat,
   bundle: { problems: true, answers: true, solutions: false, stats: false },
   filename: "변형시험지",
+  printOptions: DEFAULT_PRINT_OPTIONS,
+  exportSource: "variant" as ExportSource,
 };
 
 export const useWizardStore = create<WizardState>()(
@@ -341,7 +408,23 @@ export const useWizardStore = create<WizardState>()(
         format: s.format,
         bundle: s.bundle,
         filename: s.filename,
+        printOptions: s.printOptions,
+        exportSource: s.exportSource,
       }),
+      // 신규 필드 (printOptions / exportSource) 가 이전 session 에 없으면
+      // hydration 후 undefined → crash. version bump 대신 fallback 으로 안전
+      // 처리 — Resume dialog 의 기존 sessionStorage 도 살림.
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        if (!state.printOptions) {
+          state.printOptions = DEFAULT_PRINT_OPTIONS;
+        } else {
+          state.printOptions = { ...DEFAULT_PRINT_OPTIONS, ...state.printOptions };
+        }
+        if (!state.exportSource) {
+          state.exportSource = "variant";
+        }
+      },
     },
   ),
 );

@@ -8,6 +8,8 @@ import {
   Icon,
   TopBar,
 } from "@app/components/ui";
+// StepPlaceholder 는 Step 5 placeholder 였는데 Step5Export 구현 후 unused.
+// 향후 다른 placeholder 가 필요해질 때 다시 살리기 쉽도록 정의는 유지하지 않고 제거.
 import { ModalShell } from "@app/components/modal/ModalShell";
 import { deletePageImages, deleteThumbnails } from "@app/lib/imageStore";
 import { useAppStore } from "@app/stores/appStore";
@@ -22,6 +24,7 @@ import { Step2OCRReview } from "./Step2OCRReview";
 import { Step3SolutionReview } from "./Step3SolutionReview";
 import { Step3Options } from "./Step3Options";
 import { Step4Review } from "./Step4Review";
+import { Step5Export } from "./Step5Export";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
@@ -32,23 +35,11 @@ const STEPS: StepperStep[] = [
   { index: 5, label: "내보내기", subLabel: "PDF · DOCX" },
 ];
 
-const StepPlaceholder = ({ title, message }: { title: string; message: string }) => (
-  <div className="max-w-[640px] mx-auto px-6 py-10 text-center">
-    <Icon name="hourglass-medium" size={40} weight="duotone" color="#0EA5E9" />
-    <Heading level="h2" className="mt-4 justify-center">
-      <span>{title}</span>
-    </Heading>
-    <p className="mt-3 text-body text-muted">{message}</p>
-  </div>
-);
-
 /**
- * 5-step wizard orchestrator. State lives in `wizardStore` (sessionStorage-
- * persisted). On mount we guard against accidental tab-close so partial
- * conversion results aren't lost.
- *
- * Steps 1–4 are still placeholders; only Step 1 (upload) is wired up in
- * this pass — Step 2+ land in the next wizard tranche.
+ * 6-step wizard orchestrator (0 Upload / 1 OCR / 2 해설 / 3 옵션 / 4 검토 /
+ * 5 내보내기). State lives in `wizardStore` (sessionStorage-persisted). On
+ * mount we guard against accidental tab-close so partial conversion results
+ * aren't lost.
  */
 export const WizardScreen = () => {
   const step = useWizardStore((s) => s.step);
@@ -144,67 +135,74 @@ export const WizardScreen = () => {
 
   return (
     <div className="w-full h-full flex flex-col bg-bg">
-      <TopBar
-        left={
-          <>
-            <Btn
-              kind="ghost"
-              size="sm"
-              icon="x"
-              onClick={handleExit}
-              aria-label="위자드 종료"
-            >
-              종료
-            </Btn>
-            <Divider vertical className="h-[18px]" />
-            <div className="flex items-center gap-2 text-body min-w-0 whitespace-nowrap overflow-hidden">
-              <span className="text-muted">변환 위자드</span>
-              <Icon name="caret-right" size={11} color="#9CA3AF" />
-              <span
-                className="text-text font-semibold overflow-hidden text-ellipsis"
-                style={{ maxWidth: 280 }}
+      {/* `wizard-chrome` 클래스는 `@media print` 에서 일괄 숨김 — Step 5
+          인쇄/PDF 시 topbar / stepper / footer 가 출력물에 누수되지 않도록. */}
+      <div className="wizard-chrome">
+        <TopBar
+          left={
+            <>
+              <Btn
+                kind="ghost"
+                size="sm"
+                icon="x"
+                onClick={handleExit}
+                aria-label="위자드 종료"
               >
-                {sourceTest?.title ?? "새 시험지"}
-              </span>
-              <Chip tone="accent" size="sm">
-                {step + 1} / {STEPS.length}
-              </Chip>
-            </div>
-          </>
-        }
-      />
+                종료
+              </Btn>
+              <Divider vertical className="h-[18px]" />
+              <div className="flex items-center gap-2 text-body min-w-0 whitespace-nowrap overflow-hidden">
+                <span className="text-muted">변환 위자드</span>
+                <Icon name="caret-right" size={11} color="#9CA3AF" />
+                <span
+                  className="text-text font-semibold overflow-hidden text-ellipsis"
+                  style={{ maxWidth: 280 }}
+                >
+                  {sourceTest?.title ?? "새 시험지"}
+                </span>
+                <Chip tone="accent" size="sm">
+                  {step + 1} / {STEPS.length}
+                </Chip>
+              </div>
+            </>
+          }
+        />
+      </div>
 
       {/* Stepper */}
-      <div className="px-8 py-4 border-b border-line bg-surface">
+      <div className="px-8 py-4 border-b border-line bg-surface wizard-chrome">
         <div className="max-w-[920px] mx-auto">
           <Stepper steps={STEPS} current={step} onJump={setStep} />
         </div>
       </div>
 
-      {/* Step content */}
-      <main className="flex-1 overflow-auto">
+      {/* Step content. Step 5 일 때 main 자체는 미리보기 갤러리지만 인쇄
+          시에는 hidden printable-root 만 보여야 하므로 wizard-chrome-preview. */}
+      <main
+        className={`flex-1 overflow-auto${step === 5 ? " wizard-chrome-preview" : ""}`}
+      >
         <StepFrame step={step}>
           {step === 0 && <Step1Upload onComplete={() => setStep(1)} />}
           {step === 1 && <Step2OCRReview />}
           {step === 2 && <Step3SolutionReview />}
           {step === 3 && <Step3Options />}
           {step === 4 && <Step4Review />}
-          {step === 5 && (
-            <StepPlaceholder
-              title="Step 6 — 내보내기"
-              message="PDF / DOCX / Online (HWP는 준비 중)."
-            />
-          )}
+          {step === 5 && <Step5Export />}
         </StepFrame>
       </main>
 
-      <WizardFooter
-        step={step}
-        totalSteps={STEPS.length}
-        onPrev={prev}
-        onNext={next}
-        canAdvance={canAdvance}
-      />
+      {/* Step 5 는 PrintActionPanel 이 footer 역할 흡수 — 통째 숨김. */}
+      {step !== 5 && (
+        <div className="wizard-chrome">
+          <WizardFooter
+            step={step}
+            totalSteps={STEPS.length}
+            onPrev={prev}
+            onNext={next}
+            canAdvance={canAdvance}
+          />
+        </div>
+      )}
 
       {resumeDialog && (
         <ModalShell
