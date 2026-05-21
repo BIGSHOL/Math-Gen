@@ -1699,15 +1699,240 @@ Step 3 의 *함께 만들 자료* row (단원평가 / 진단평가 / 학습지 /
 
 ---
 
-## 17. 다음 phase 후보
+## 17. Wizard 6 단계 상태
 
-현재 mathg-gen 은 6단계 wizard:
 - **Step 0 (업로드)**: PDF → IndexedDB 이미지 + 자동 회전 감지 ✅
 - **Step 1 (OCR)**: 페이지별 multi-problem 추출, 폴백 체인, 회전 적용 ✅
-- **Step 2 (해설)**: 단계별 해설 + 정답 자동 생성 (Sonnet 4.6 기본) ✅
-- **Step 3 (옵션)**: 변형 옵션 — UI 완성 ✅, extras 는 deferred 🟡
+  + 진행 가시성 (모델·경과 시간·대기 상태 thumbnail 표시) ✅
+- **Step 2 (해설)**: 단계별 해설 + 정답 자동 생성 (Sonnet 4.6) ✅
+  + 진행 가시성 (SolutionItem 대기/생성 구분 + 경과 시간) ✅
+  + 정확도 runtime validator (Pattern J 위반 warning banner) ✅
+- **Step 3 (옵션)**: 변형 옵션 UI ✅, extras (단원평가/통계) deferred 🟡
 - **Step 4 (검토)**: 문항별 원본·변형 비교 ✅
-- **Step 5 (내보내기)**: PDF / DOCX — placeholder 🟡
+  + 진행 가시성 (VariantItem 대기/생성 구분 + 경과 시간) ✅
+- **Step 5 (내보내기)**: PDF (jsPDF + html2canvas) + 인쇄 + 4 templates ✅
+  + DOCX 🟡 (후속 phase)
 
-다음 작업 시 Phase 5 (내보내기) 또는 후속 개선 (in-flight 모델 표시 보강, Step3
-회전 동기화 등) 으로.
+## 18. 심각 오류 카탈로그 — 재발 방지 (이번 phase 누적)
+
+이번 phase 에서 사용자 보고로 *반복 발생* 한 심각 오류들. 같은 함정에 다시 빠지지
+않도록 *코드 + prompt + 후처리 + UI* 4 단으로 강제. 새 기능 추가 시 이 섹션 먼저 읽을 것.
+
+### 18-1. Windows 멀티 vite dev — 같은 port 동시 listen (4 차 진단)
+
+**증상** (사용자 보고 4 차에 걸친 함정): mathg-gen vite dev 서버가 *다른
+프로젝트가 점유 중인 3000 port* 에 **또 listen** 성공. process 목록 확인 시
+*두 node 가 같은 3000 port* listening. 브라우저 접근 시 어느 게 응답할지 비결정.
+
+**Root cause (단계별 진단)**:
+1. **vite 의 strictPort 기본 false** 가 fallback 한다고 *가정* — 실제론 다른 이유로 실패.
+2. **host: "0.0.0.0" + Windows SO_REUSEADDR** — 두 vite 가 *EADDRINUSE 안 뜨고* 둘 다 listen 성공.
+3. **host: "localhost" 로 바꿔도** — IPv4 (`127.0.0.1`) 와 IPv6 (`::1`) binding 이 다른 socket 으로 처리되어 충돌 미감지.
+4. **`net.createServer().listen(p, "0.0.0.0")` 사전 검사** 도 부족 — Next.js Turbopack 의 `::` (IPv6 dual-stack) 와 충돌 안 잡힘.
+
+**최종 해결** (`vite.config.ts`):
+- `findFreePort(start)` 가 *IPv4 + IPv6 둘 다* listen 시도.
+- 어떤 binding 이든 EADDRINUSE 면 다음 port.
+- 빈 port 보장 후 `strictPort: true` 로 잠금.
+
+```ts
+const tryListen = (port, host) =>
+  new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => tester.close(() => resolve(true)));
+    tester.listen(port, host);
+  });
+
+const findFreePort = async (start, max = 30) => {
+  for (let p = start; p < start + max; p++) {
+    if (!(await tryListen(p, "0.0.0.0"))) continue;
+    if (!(await tryListen(p, "::"))) continue;
+    return p;
+  }
+  return start;
+};
+```
+
+**원칙**: 멀티 인스턴스 / 멀티 프로젝트 환경에서 port 자동 fallback 이 필요하면
+*vite 의 strictPort 기본동작에 의존 X* — 명시적 net 모듈 검사 + IPv4·IPv6 양쪽
+확인. `host: "0.0.0.0"` 는 Windows 에서 SO_REUSEADDR 함정 → `localhost` 추천.
+LAN 접근 필요 시 `--host 0.0.0.0` 명시.
+
+### 18-2. KaTeX 분수 크기 일관성 — `\frac` → `\dfrac` 강제 업그레이드
+
+**증상**: 같은 식 안에 분수 크기가 *들쭉날쭉*. 대분수 안 `\frac{2}{3}` 와 진분수
+`\frac{1}{2}` 가 다른 크기. `\displaystyle` prefix 가 *식 중간에 reset* 되거나
+*multi-path 누락* (CLAUDE.md 2-17 패턴).
+
+**기존 코드의 잘못된 가정**: mathlab 의 `\dfrac` → `\frac` *다운그레이드* 가
+"KaTeX fontdimen 부족" 우려로 박혔는데, **KaTeX 0.16.35 + 번들 woff2 폰트**
+환경에서는 `\dfrac` 정상 작동. 오히려 inline 모드에서 작은 사이즈 함정만 남음.
+
+**해결** (`textPreprocess.ts` `applyMathInnerNormalization`):
+- `\dfrac` → `\frac` 다운그레이드 **제거**.
+- `\frac` → `\dfrac` **업그레이드** 추가 (improperToMixed 다음, injectDisplayStyle 이전).
+- `\tfrac` (textstyle 강제) 는 모델 명시 의도 보존 — 매치 안 함.
+
+```ts
+// improperToMixed 다음에:
+s = s.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
+```
+
+**효과**: `\dfrac` 가 *문맥 무관* displaystyle 크기 분수 강제 → inline 모드의 작은
+사이즈 함정 회피. injectDisplayStyle 보조 안전망 유지 (큰 연산자 `\sum`/`\int` 용).
+
+**원칙**: KaTeX 의 inline vs display 사이즈 분기를 *문맥 통제* 로 해결하려 하지
+말 것 — 환경 의존성 (multi-path) 으로 깨짐. `\dfrac` 같은 *명시적 강제 명령* 으로
+일관성 잠금.
+
+### 18-3. `[xxx]` 박스 가드 — 동작 명사 카탈로그 누락 함정
+
+**증상**: 풀이 안 sub-section 라벨 `[절댓값 분해]` 같은 형태가 *대시드 박스*
+(`diagram-placeholder` pill) 로 잘못 렌더. MarkdownRenderer 의 `LABEL_SUFFIXES`
+가드가 "경우 / 단계 / 조건" 등 일부 키워드만 잡고 *동작 명사* 누락.
+
+**해결** (`MarkdownRenderer.tsx` `LABEL_SUFFIXES`):
+- 한국어 풀이 sub-section 라벨로 자주 등장하는 *동작 명사* 일괄 추가:
+  - 분해 / 변환 / 분리 / 계산 / 분석 / 정리 / 비교
+  - 검토 / 확인 / 정의 / 증명 / 결론 / 검증 / 전개
+  - 치환 / 대입 / 소거 / 이항 / 약분 / 통분
+  - 풀이 / 해석 / 표기 / 표현 / 표시
+
+**원칙**: `[xxx]` 가드는 *exclude list* 패턴이라 *새 형태* 의 라벨이 등장하면 또
+누락. 사용자 보고 *그 즉시* 카탈로그에 추가. 또는 *include list* 로 전환 (`[그림N]`,
+`[한글 도형 설명]` 만 박스화) — 후속 검토.
+
+### 18-4. 해설이 *생각 과정 자체* — trial-and-error 재발 방지 (CRITICAL)
+
+**증상** (재발): 사용자 보고 *3 차* — "324 = 2² × 3⁴..." 부터 시작해 "가능한 □
+합 = 847 인데 선택지에 없으므로 *조건을 재검토한다*" 거쳐 *처음부터 다시* "21 ×
+□의 ... 따라서 b ≤ 3 ... = 280" 까지 *오답 → 재해석 → 정답* 전 과정 그대로 노출.
+
+**근본 한계**: CLAUDE.md 7-6 의 *금지 표현 카탈로그* 가 이미 있는데도 모델이
+*새로운 표현* 으로 우회. "조건을 재검토", "선택지에 없으므로", "그런데 ...
+이므로", "처음부터 다시" 등.
+
+**강화** (`SOLUTION_PROMPT`):
+- *추가 금지 표현* — 위 4 종 명시.
+- **장황한 조건 도출 과정 자체 금지** — 문장형 조건 풀이 → *수식 한 줄* 압축.
+- 사용자 사례 2 (장황 분석 + 재시작) 의 *실제 출력 전문* 인용 + *6~8 줄* 올바른
+  압축 풀이 비교.
+
+```
+잘못된 출력: "최소공배수가 ~이 되려면 ~의 소인수는 ~만 가능하고, 지수는 정확히
+~ (이미 ~에 ~이 있으므로 ~)" 같은 문장형 풀이 → 6+ 줄.
+
+올바른 풀이: "□ = 2^a × 3^b 꼴 (a ≤ 2, b ≤ 3). ∵ 7은 21에 이미 있으므로 □에
+없어야 하고, 3의 지수는 1+b ≤ 4 이므로 b ≤ 3."  ← 2 줄.
+```
+
+**원칙**: 모델 출력 *형식 통제* 는 일반 룰보다 *(a) 금지 표현 카탈로그 + (b)
+사용자 실제 잘못된 출력 + (c) 올바른 압축 비교* 3 종 세트가 가장 효과적
+(CLAUDE.md 7-5 패턴). 새 사용자 보고 → 카탈로그에 *즉시 추가*.
+
+### 18-5. "서로 다른 N 개" 조건 위반 — Pattern J + runtime validator harness
+
+**증상** (CRITICAL): "서로 다른 세 정수의 곱 = -50" 문제에서 정답에 *-48*
+포함. -48 = (-50) + 1 + 1 = -48 의 튜플 *(-50, 1, 1)* 은 **1 이 두 번** 들어가
+*서로 다름 위반*. Pattern B (조기 제외 금지) 의 *역방향 함정* — case 살려놓고
+*부호 배정 후* set 크기 미검증.
+
+**3 단 방어선** (사용자 요청 "강력하게 + 하네스화"):
+
+#### (1) mathDefense.ts — *Pattern J 신규* (set-distinct post-assignment)
+- 절댓값 분해에 중복 있을 때 부호 배정 case 유효성 룰:
+  - 절댓값 중복 a 둘 → *서로 다른 부호* 만 유효 (a, -a 가 다름)
+  - 같은 부호 두 개 → 무효
+- 각 case 마다 `|{n₁, n₂, n₃}| === 3` *명시적* 검사 강제.
+- 사용자 실제 사례 (-50, 1, 1) → -48 풀이 그대로 인용.
+
+#### (2) SOLUTION_PROMPT — V5 자가 점검 + STRICT 룰
+- "서로 다른 N 개" 조건이면 풀이 *모든* 튜플 `(...)` / `\{...\}` 의 set 크기 검사.
+- *각 case 명시적 set 크기 적기* 강제 (예: "{-50, 1, 1}: 원소 2 개 → 무효").
+
+#### (3) `lib/solutionValidator.ts` 신규 — Runtime harness
+```ts
+validateDistinctTuples(problemText, solutionText): SolutionWarning | null
+```
+- problem 본문에서 "서로 다른 N" / "모두 다른" 키워드 + N 추출 (한국어 수사
+  한/두/세/네... + 아라비아 숫자).
+- solution 본문에서 정수 튜플 추출 (괄호 / 중괄호, 음수 OK, 변수 섞이면 제외).
+- 각 N-튜플의 set 크기 < N 인 것 카운트 → SolutionWarning.
+
+#### (4) `SolutionItem` warning banner
+- `solutionWarnings` 있으면 카드 헤더 chip *"정확도 검증 실패 가능성"* (warn tone)
+- 카드 border warn ring + 답 직전 warn-soft banner + `<details>` collapsible
+- 답 *무효화 X* (false positive 위험) — 사용자가 본문 확인 후 재생성 결정
+
+**원칙**: AI 출력의 *정확도* 는 prompt 만으로 100% 보장 불가. *명백한 오류
+패턴* (Pattern J 같은) 은 runtime 휴리스틱으로 검출 → 사용자에게 *시각 경고*.
+답 자동 무효화는 false positive 위험으로 안 함 — 사용자 판단 위임. 후속: 자동
+재생성 1 회 시도 옵션.
+
+### 18-6. `\n\n` literal 노출 — JSON escape 후보정 (sanitize)
+
+**증상**: 서술형 4번 본문에 "풀이과정을 쓰시오.\\n\\n(단, A > B이다.)" 가
+화면에 *`\n\n` 두 글자* 그대로 노출. 모델이 JSON wire 에서 `\\\\n\\\\n` 처럼
+*한 번 더 escape* 해서 JSON.parse 후에도 literal `\n\n` (백슬래시 + n) 가
+남음.
+
+**해결** (`sanitize.ts` `sanitizeText` 마지막 단계):
+```ts
+return wrapped
+  .replace(/\\n\\n/g, "\n\n")              // markdown paragraph break
+  .replace(/\\n(?![a-zA-Z])/g, "\n")       // 단일 \n (LaTeX 명령 보호)
+  .replace(/\\t(?![a-zA-Z])/g, "\t");      // \t 도 동일
+```
+
+- `(?![a-zA-Z])` lookahead 로 `\nabla`, `\ne`, `\neq`, `\not`, `\theta`, `\times`
+  같은 LaTeX 명령 보호.
+- `\\n\\n` 연속은 markdown paragraph break 로 우선 변환.
+
+**원칙**: 모델 출력에서 *control char escape 사고* 는 자주 발생.
+`fixLatexEscaping` 이 *반대 방향* (`\t` → `\\t` 보호) 도 처리하므로 충돌 없게
+`sanitizeText` 의 *마지막 단계* 에서 literal → newline 변환. 추가로 사용자 보고
+시 sanitize 강화 패턴 (CLAUDE.md 2-6 의 `fixLatexEscaping` 과 같은 패턴).
+
+### 18-7. 진행 가시성 — Step 2/3/4 일관 패턴
+
+**증상** (사용자 보고): OCR pg-3 가 *큐 대기* 인데 *stuck* 으로 오인. Step 3
+해설 / Step 4 변형도 어떤 항목이 *진행* 인지 *대기* 인지 구분 안 됨.
+
+**일관 패턴 도입**:
+- **WizardPage.ocrStartedAt** / **OCRProblem.solutionStartedAt** /
+  **ProblemReview.generatingStartedAt** — worker 가 *limit() async fn 첫 줄* 에서
+  set, 완료 시 unset. 모두 partialize 에서 strip (휘발성).
+- **`generating: true` vs `startedAt`** — generating 은 dispatched 직후 즉시
+  (큐 대기 포함). startedAt 이 있어야 *실제 in-flight*. 두 상태 시각 구분.
+- **1초 tick hook** — 카드/thumbnail 이 in-flight 일 때만 활성, idle 시 정리.
+
+**UI 시각화**:
+| 상태 | 표시 |
+|---|---|
+| 진행 중 (`generating + startedAt`) | spinner + 모델 짧은 이름 + 경과 시간 ("12s") |
+| 대기 중 (`generating` only) | hourglass-medium 아이콘 + "다른 ~ 처리 후 시작" |
+| 완료 | result 표시 |
+| 에러 | warn icon |
+
+**concurrency 분리** (`usePageOcr.ts`):
+- `pass1Limit = pLimit(3)`, `pass2Limit = pLimit(1)` — Pass2 (느린 GPT-5.5) 가
+  Pass1 슬롯 잠식 X. 3 페이지 시험지 시간 약 50% 단축.
+
+**원칙**: AI 호출 fan-out 마다 *시작 timestamp* 필드를 분리해야 *대기 vs 진행*
+구분 가능. 단일 `generating: boolean` 만으로는 사용자가 정상 큐를 stuck 으로
+오인. 모든 fan-out hook (usePageOcr / useSolutionGen / useVariantGen) 동일 패턴.
+
+---
+
+## 19. 후속 phase 후보
+
+- **DOCX 내보내기** (`docx` 라이브러리 또는 html-docx-js)
+- **HWP 내보내기** (한국 학교 표준, 라이브러리 부족 — 후순위)
+- **자동 재생성 1 회 시도** — validator warning 발생 시 자동으로 1 회 재생성
+- **runtime validator 확장** — sign-parity (Pattern I), ascending-order
+- **Step 5 mathlab 9 templates 풀 import** (large / csat / notebook / formal / bubble)
+- **인쇄 프리셋 localStorage** (mathlab `mathlab_print_preset` 패턴)
+- **워터마크 / 학원 로고** (인쇄 시 옅게)
+- **task #41 — OCRItem 카드별 모델 선택 + 재실행 메뉴**
+- **task #31 — 브라우저 verify (SVG 크기 + 표 줄바꿈)**

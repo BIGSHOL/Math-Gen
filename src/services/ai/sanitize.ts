@@ -494,11 +494,12 @@ export const sanitizeText = (text: string | undefined): string => {
   // 순서: (1) HTML 노이즈 제거 → (2) `\textcircled{N}` 유니코드 변환 →
   //       (3) JSON.parse 백슬래시 복원 →
   //       (4) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.
+  //       (5) literal `\n` / `\t` → 실제 newline / tab (모델 escape 사고).
   // (2) 는 protectLooseLatex 보다 *앞* 이어야 한다 — `\textcircled` 가 `$`
   // 안으로 wrap 되면 KaTeX 가 unknown command 에러를 낸다.
   // (4) 는 (3) 다음 — (3) 이 `frac` → `\frac` 같이 복원해서 (4) 가 wrap
   // 대상으로 인식 가능한 형태로 만든 다음 wrap 한다.
-  return protectLooseLatex(
+  const wrapped = protectLooseLatex(
     fixLatexEscaping(
       normalizeCircledMarkers(
         text
@@ -509,6 +510,18 @@ export const sanitizeText = (text: string | undefined): string => {
       ),
     ),
   );
+  // (5) literal `\n` / `\t` → 실제 newline / tab 후보정.
+  // 사용자 보고 (서술형 4): "...풀이과정을 쓰시오.\\n\\n(단, A > B이다.)"
+  // 가 화면에 `\n\n` 두 글자 그대로 노출. 모델이 JSON wire 에서 escape 를
+  // 한 번 더 (`\\\\n\\\\n`) 해서 JSON.parse 후 `\\n\\n` literal 이 남은 케이스.
+  // LaTeX 명령 (`\nabla`, `\ne`, `\neq`, `\not`) 와 충돌 안 하도록:
+  //   - `\\n\\n` 연속 → markdown paragraph break (실제 \n\n)
+  //   - 단일 `\\n` 은 다음 char 가 *알파벳이 아닐* 때만 변환 (\nabla 등 보호)
+  //   - `\\t` 도 동일 (다음 char 알파벳 아닐 때만 — \times, \theta 보호)
+  return wrapped
+    .replace(/\\n\\n/g, "\n\n")
+    .replace(/\\n(?![a-zA-Z])/g, "\n")
+    .replace(/\\t(?![a-zA-Z])/g, "\t");
 };
 
 /**
