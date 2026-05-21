@@ -1,7 +1,38 @@
 import fs from "fs";
+import net from "net";
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+
+/**
+ * 빈 TCP port 찾기 — `start` 부터 `max` 까지 순차 검사, 첫 빈 port 반환.
+ *
+ * **왜 vite 의 자체 fallback 으로 부족한가**: Windows + IPv6 dual-stack 에서
+ * 다른 프로젝트가 `0.0.0.0` (`::`) 로 3000 점유 중일 때, mathg-gen 의 `localhost`
+ * (`::1`) binding 은 OS 입장에서 *다른 socket*. EADDRINUSE 가 안 떠서 strictPort
+ * fallback 이 동작 안 한다.
+ *
+ * 해결: vite listen 직전에 *0.0.0.0 binding 으로 점유 검사* — 어떤 binding 이든
+ * 충돌하면 EADDRINUSE 발생 → 다음 port 시도. mathg-gen 사용자 보고로 확인됨
+ * (Windows 11, Vite 6.4, Node 22).
+ */
+const findFreePort = async (start: number, max = 30): Promise<number> => {
+  for (let p = start; p < start + max; p++) {
+    const free = await new Promise<boolean>((resolve) => {
+      const tester = net.createServer();
+      tester.once("error", () => resolve(false));
+      tester.once("listening", () => {
+        tester.close(() => resolve(true));
+      });
+      // 0.0.0.0 binding — IPv4/IPv6 dual-stack 모두 검사. localhost binding 만
+      // 시도하면 다른 0.0.0.0 listener 와 충돌 못 잡음 (위 주석 참고).
+      tester.listen(p, "0.0.0.0");
+    });
+    if (free) return p;
+  }
+  // 끝까지 빈 port 못 찾으면 start 반환 — vite 가 자체 fallback 시도하도록.
+  return start;
+};
 
 /**
  * Reads a single dotenv-style file, returning `{}` if missing or empty.
@@ -115,9 +146,12 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
   },
 });
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }) => {
   const fileEnv = readEnvLocal();
   const env = loadEnv(mode, process.cwd(), "");
+  // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
+  // 3001, 3002... 로. dev 명령 출력의 "Local:" URL 이 실제 listen port 와 일치.
+  const devPort = await findFreePort(3000);
   // `.env.local` wins over `loadEnv`'s shell-merged values — see `readEnvLocal`.
   const ANTHROPIC_API_KEY = fileEnv.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || "";
   const GEMINI_API_KEY = fileEnv.GEMINI_API_KEY || env.GEMINI_API_KEY || "";
@@ -130,17 +164,13 @@ export default defineConfig(({ mode }) => {
   };
   return {
     server: {
-      port: 3000,
-      // 3000 이 이미 사용 중이면 자동으로 3001, 3002... 로 fallback.
-      // strictPort: true 면 충돌 시 그냥 종료되는데, 우리는 두 번째 인스턴스가
-      // 무리 없이 다음 port 로 옮겨가야 한다 (멀티 세션 / 다른 vite 앱과 공존).
-      strictPort: false,
-      // **host 결정**: 기본 "localhost" 사용 — Windows + Node.js 의 SO_REUSEADDR
-      // 동작상 host: "0.0.0.0" 일 때 두 vite 가 *같은 port 에 동시 listen* 성공
-      // 해버리는 함정이 있음 (EADDRINUSE 가 안 떠서 strictPort:false fallback 도
-      // 동작 안 함). 사용자 보고: 다른 dev 가 3000 점유 중인데 npm run dev 했더니
-      // 또 3000 으로 떠 충돌이 silent.
-      //
+      // `findFreePort` 가 사전에 0.0.0.0 binding 으로 점유 검사 → 빈 port 반환.
+      // 다른 프로젝트가 (어떤 binding 이든) 3000 점유 중이면 자동으로 3001+.
+      // vite 자체 strictPort fallback 은 Windows IPv6 dual-stack 에서 binding
+      // 차이 (`::` vs `::1`) 를 못 잡으므로 직접 검사가 필요. 사용자 보고로
+      // 확인된 함정.
+      port: devPort,
+      strictPort: true, // 위에서 이미 빈 port 보장했으므로 strict 로 잠금.
       // LAN 접근 필요 시 (휴대폰 / 다른 PC 에서 같은 wifi 로 확인) 다음 명령:
       //   npm run dev -- --host 0.0.0.0
       host: "localhost",
