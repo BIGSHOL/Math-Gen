@@ -1,0 +1,268 @@
+import { useEffect, useMemo, useState } from "react";
+import { Btn, Card, Chip, Icon } from "@app/components/ui";
+import { getPageImage } from "@app/lib/imageStore";
+import { useVariantGen } from "@app/hooks/useVariantGen";
+import { useWizardStore } from "@app/stores/wizardStore";
+import OCRItem from "./OCRItem";
+import PageThumbColumn from "./PageThumbColumn";
+import VariantItem from "./VariantItem";
+
+/**
+ * Step 4 — variant problem review screen.
+ *
+ * 3-pane layout (`Step3SolutionReview` 패턴 차용):
+ *   [ thumb column ] [ 중앙: 원본 OCR read-only ] [ 우측: 변형 카드 ]
+ *
+ * `useVariantGen` hook 마운트 — seed (pages → ProblemReview[]) + per-item
+ * dispatch. 우측 패널은 현재 활성 페이지의 문항에 대응하는 ProblemReview 만
+ * 표시.
+ *
+ * **헤더**:
+ *   - `filterChip` (전체 / 검토 필요 / 미확정) — store 의 `reviewFilter` 활용
+ *   - 전체 진행률 (완료 N / 총 M)
+ *   - "옵션 적용해 재생성" 버튼 (Step 3 옵션 변경 후 reseed)
+ */
+
+const usePageImageDataUrl = (imageRef: string | undefined): string | null => {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!imageRef) {
+      setUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const img = await getPageImage(imageRef);
+      if (!cancelled) setUrl(img?.dataUrl ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [imageRef]);
+  return url;
+};
+
+export const Step4Review = () => {
+  const pages = useWizardStore((s) => s.pages);
+  const problems = useWizardStore((s) => s.problems);
+  const activeIdx = useWizardStore((s) => s.activePageIndex);
+  const reviewFilter = useWizardStore((s) => s.reviewFilter);
+  const goal = useWizardStore((s) => s.goal);
+  const difficulty = useWizardStore((s) => s.difficulty);
+  const updateProblem = useWizardStore((s) => s.updateProblem);
+
+  const { resetDispatch, reseedAll } = useVariantGen();
+
+  const activePage = pages[activeIdx];
+  const pageImage = usePageImageDataUrl(activePage?.imageRef);
+  const setActiveIdx = (i: number) =>
+    useWizardStore.setState({ activePageIndex: i });
+  const setReviewFilter = (f: "all" | "review" | "pending") =>
+    useWizardStore.setState({ reviewFilter: f });
+
+  // 활성 페이지의 item id 집합 — 우측 panel 의 variant 카드 매칭.
+  const activeItemIds = useMemo(() => {
+    if (!activePage) return new Set<string>();
+    return new Set(activePage.ocrResult.map((it) => it.id));
+  }, [activePage]);
+
+  // 도형 여부 lookup — VariantItem 의 `hasDiagram` chip 용.
+  const hasDiagramMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const p of pages) {
+      for (const it of p.ocrResult) {
+        m.set(it.id, (it.images?.length ?? 0) > 0);
+      }
+    }
+    return m;
+  }, [pages]);
+
+  if (!activePage) {
+    return (
+      <div className="max-w-[640px] mx-auto px-6 py-10 text-center">
+        <Icon name="warning" size={36} weight="duotone" color="#F59E0B" />
+        <p className="mt-3 text-body text-muted">
+          업로드된 페이지가 없습니다. 1단계로 돌아가 PDF를 업로드해 주세요.
+        </p>
+      </div>
+    );
+  }
+
+  // 전체 진행률.
+  const totalCount = problems.length;
+  const confirmedCount = problems.filter((p) => p.status === "confirmed").length;
+  const reviewCount = problems.filter((p) => p.status === "review").length;
+  const pendingCount = problems.filter((p) => p.status === "pending").length;
+  const errorCount = problems.filter((p) => !!p.genError).length;
+  const generatingCount = problems.filter((p) => p.generating).length;
+
+  // 활성 페이지 문항에 해당하는 ProblemReview 만 필터 + reviewFilter 적용.
+  const activeProblems = problems.filter((p) => activeItemIds.has(p.id));
+  const filteredProblems = activeProblems.filter((p) => {
+    if (reviewFilter === "all") return true;
+    if (reviewFilter === "review") return p.status === "review";
+    if (reviewFilter === "pending")
+      return p.status === "pending" || !!p.genError;
+    return true;
+  });
+
+  return (
+    <div className="flex gap-4 h-full px-6 py-5 min-h-[580px]">
+      <PageThumbColumn
+        pages={pages}
+        activeIndex={activeIdx}
+        onSelect={setActiveIdx}
+      />
+
+      {/* 중앙: 원본 문제 (read-only) */}
+      <section className="flex-1 min-w-0 flex flex-col">
+        <header className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-2">
+            <Chip size="sm" icon="scan">
+              원본 문제
+            </Chip>
+            <span className="text-small text-muted font-mono">
+              p.{activeIdx + 1} / {pages.length}
+            </span>
+          </div>
+        </header>
+        <div className="flex-1 overflow-auto flex flex-col gap-2.5 pr-1">
+          {activePage.ocrResult.length === 0 ? (
+            <Card pad={16} className="bg-surface2">
+              <p className="text-small text-muted">
+                이 페이지에 OCR 결과가 없습니다. (스킵된 페이지 또는 OCR 미완료)
+              </p>
+            </Card>
+          ) : (
+            activePage.ocrResult.map((item) => (
+              <OCRItem
+                key={item.id}
+                pageId={activePage.id}
+                item={item}
+                pageImageDataUrl={pageImage}
+                readonly
+              />
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* 우측: 변형 문제 */}
+      <section className="flex-[1.2] min-w-0 flex flex-col">
+        <header className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Chip tone="accent" size="sm" icon="sparkle">
+              변형 문제
+            </Chip>
+            <span className="text-small text-muted">
+              확정 {confirmedCount} / {totalCount}
+              {reviewCount > 0 && (
+                <span className="ml-2 text-accent-ink">· 검토 {reviewCount}</span>
+              )}
+              {pendingCount > 0 && (
+                <span className="ml-2 text-muted">· 대기 {pendingCount}</span>
+              )}
+              {generatingCount > 0 && (
+                <span className="ml-2 text-accent">
+                  · 생성 중 {generatingCount}
+                </span>
+              )}
+              {errorCount > 0 && (
+                <span className="ml-2 text-danger">· 실패 {errorCount}</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <FilterChip
+              label="전체"
+              active={reviewFilter === "all"}
+              onClick={() => setReviewFilter("all")}
+            />
+            <FilterChip
+              label="검토"
+              active={reviewFilter === "review"}
+              onClick={() => setReviewFilter("review")}
+            />
+            <FilterChip
+              label="미확정"
+              active={reviewFilter === "pending"}
+              onClick={() => setReviewFilter("pending")}
+            />
+            <Btn
+              kind="ghost"
+              size="sm"
+              icon="arrow-clockwise"
+              onClick={() => {
+                if (
+                  // eslint-disable-next-line no-alert
+                  window.confirm(
+                    `현재 옵션 (${goal} / ${difficulty}) 으로 모든 문항의 변형을 다시 생성합니다. 기존 변형 결과는 사라집니다. 계속하시겠습니까?`,
+                  )
+                ) {
+                  reseedAll();
+                }
+              }}
+              title="옵션 적용해 전체 재생성"
+            >
+              옵션 재생성
+            </Btn>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-auto flex flex-col gap-2.5 pr-1">
+          {filteredProblems.length === 0 ? (
+            <Card pad={16} className="bg-surface2">
+              <p className="text-small text-muted">
+                {reviewFilter === "all"
+                  ? "이 페이지에는 변형할 문항이 없습니다. 다른 페이지를 선택하거나 Step 2 에서 OCR 을 완료해 주세요."
+                  : "필터 조건에 맞는 문항이 없습니다. 필터를 바꿔 보세요."}
+              </p>
+            </Card>
+          ) : (
+            filteredProblems.map((p, idx) => (
+              <VariantItem
+                key={p.id}
+                problem={p}
+                index={idx + 1}
+                hasDiagram={hasDiagramMap.get(p.id)}
+                onRegenerate={() => {
+                  resetDispatch(p.id);
+                  updateProblem(p.id, {
+                    variant: p.original,
+                    status: "pending",
+                    genError: undefined,
+                    generating: false,
+                  });
+                }}
+              />
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const FilterChip = ({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`px-2 py-1 rounded-r1 text-[11.5px] font-medium border transition-colors ${
+      active
+        ? "bg-accent text-white border-accent"
+        : "bg-surface text-text2 border-line hover:border-accent"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+export default Step4Review;

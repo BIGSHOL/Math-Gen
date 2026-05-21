@@ -1,4 +1,8 @@
 import type { SelectionState } from "@app/types";
+import type {
+  ConversionGoal,
+  DifficultyShift,
+} from "@app/stores/wizardStore";
 import { buildMathDefense, GRADE_LABELS, type GradeKey } from "./mathDefense";
 
 /**
@@ -457,6 +461,250 @@ export const buildSolutionPromptBlocksAnthropic = (
     },
     { type: "text", text: problemTextSuffix },
   ];
+};
+
+// ──────────────────────────────────────────────────────────────────
+// Wizard Step 4 — Variant (변형 문제) Generation
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * 목표 (ConversionGoal) 별 변형 깊이 가이드.
+ *
+ * - `digitize`: 변형 X (caller 가 skip, 본 prompt 진입 안 함)
+ * - `similar`: 얕은 변형 — 숫자·변수명만 변경. 단계·구조·선택지 개수 유지
+ * - `variant`: 중간 변형 — 같은 단원 내 유형 교체 (계산 ↔ 응용)
+ * - `targeted`: 깊은 변형 — 약점 강화, 여러 개념 혼합
+ */
+const goalDirectiveText = (goal: ConversionGoal): string => {
+  switch (goal) {
+    case "similar":
+      return `**유사 문제** — 원본의 숫자·변수명만 변경. 풀이 단계 수·식 구조·선택지 개수 모두 동일하게 유지. 학생이 원본을 풀 줄 안다면 변형도 같은 방법으로 풀어야 함. *발문·표현*은 그대로 두고, *값*만 변경.`;
+    case "variant":
+      return `**단원 내 변형** — 같은 단원·같은 개념을 다른 각도에서. 계산 문제면 응용 문제로, 응용 문제면 계산 문제로 (단원 경계는 *절대 넘지 않음*). 예: '이차방정식 근 구하기' → '같은 단원의 근의 개수 판별'.`;
+    case "targeted":
+      return `**심화 변형** — 핵심 개념은 유지하되 약간의 응용·조합 추가. 한 단계 더 생각하게 만들되 *교과 범위 안*. 새 개념 도입은 금지.`;
+    case "digitize":
+      // 이 코드는 호출되지 않아야 함 — useVariantGen 이 digitize 면 generateVariant 를 skip.
+      return `**디지털화만** — 이 경로로 들어왔다면 caller 버그입니다. 원본 그대로 반환하세요.`;
+  }
+};
+
+/**
+ * 난이도 조정 (DifficultyShift) 가이드.
+ *
+ * - `easier (-1)`: 계수↓, 단계↓, 선택지 간격↑ (오답 보기 명확화)
+ * - `same (0)`: 유지
+ * - `harder (+2)`: 계수↑, 차수↑, 응용 추가, 중간 단계 숨김
+ */
+const difficultyDirectiveText = (diff: DifficultyShift): string => {
+  switch (diff) {
+    case "easier":
+      return `**난이도 ↓** — 계수·차수를 줄이고, 풀이 단계를 짧게. 오답 보기는 정답과 차이를 명확히. 결과 \`difficulty\` 필드는 "하" 또는 "중" 권장.`;
+    case "same":
+      return `**난이도 유지** — 원본 풀이 시간·배점·계산량 비슷하게. 결과 \`difficulty\` 필드는 원본 추정값 그대로.`;
+    case "harder":
+      return `**난이도 ↑** — 계수·차수 상향, 중간 단계 숨김, 응용 상황 추가. *단, 단원·개념은 동일* (다른 단원의 도구 도입은 금지). 결과 \`difficulty\` 필드는 "상" 또는 "최상".`;
+  }
+};
+
+/**
+ * `VARIANT_PROMPT` — Wizard Step 4 의 변형 문제 생성 prompt.
+ *
+ * 구조:
+ *   - `{persona}` — 학년 dynamic 페르소나 (buildPersonaAndDefense)
+ *   - `{mathDefense}` — 학년별 단원 함정 + 공통 패턴 A-I (동일 학년 cache)
+ *   - **정적 본문** — 변형 규칙, goal/difficulty directive, V1-V4 자가 검증
+ *   - `{originalProblem}` — 원본 문제 (호출마다 dynamic, cache 외)
+ *
+ * **사용처**:
+ *   - Gemini / OpenAI: `buildVariantPrompt` 가 단일 string 반환
+ *   - Anthropic: `buildVariantPromptBlocksAnthropic` 이 2 blocks 분리 (cache)
+ */
+export const VARIANT_PROMPT = `{persona}
+
+Task: 아래 한국 수학 문제의 **변형 문제** 한 개를 생성하세요. 정답·풀이·보기까지 모두 포함된 완전한 문제 한 묶음. 원본을 그대로 복사하거나 단원을 벗어나거나 답 구조를 바꾸지 마세요.
+
+──────────────────────────────────────────────────────────────────
+출력 (JSON, schema 강제):
+  {
+    "question":   "...",          // 변형된 문제 본문 (Markdown + LaTeX, 보기 *제외*)
+    "choices":    ["...", "..."], // 객관식이면 정확히 5개, 주관식이면 빈 []
+    "answer":     "...",          // 객관식 "③ 5" / 주관식 "5" / "$\\\\frac{4\\\\pi}{3}$"
+    "solution":   "...",          // 변형 문제의 단계별 풀이
+    "topic":      "...",          // 단원 (원본과 동일하게 유지)
+    "difficulty": "하|중|상|최상",
+    "diagramSVG": null            // 이번 phase 는 항상 null (도형 재생성 X)
+  }
+
+──────────────────────────────────────────────────────────────────
+{mathDefense}
+
+──────────────────────────────────────────────────────────────────
+🚨 **변형 STRICT 규칙 (CRITICAL — 위반 시 출력 무효)**
+
+  R1. **답 구조 보존 (절대)**: 원본이 객관식 5지선다면 변형도 *정확히 5* 보기. 원본이 주관식이면 변형도 주관식 (\`choices: []\`). 객관식 ↔ 주관식 변환 절대 금지.
+  R2. **같은 단원 내에서만**: 원본 \`topic\` 과 동일 단원. 예: '이차방정식' → '이차함수' 전환 금지, '최대공약수' → '소인수분해' 전환 금지.
+  R3. **도형 변형 금지 (이번 phase)**: \`diagramSVG\` 필드는 *항상 null* 반환. 원본이 도형 포함이면 그 도형을 가정한 문제 *본문* 만 변형 (도형 자체는 원본 그대로 caller 가 재사용).
+  R4. **답 검증 일관성**: 변형 문제의 \`answer\` 가 변형된 \`question\` + (객관식이면) \`choices\` 와 정확히 맞아야 함. 객관식 마커 (①②③④⑤) 는 \`choices\` 배열 내 *순서* 와 일치.
+  R5. **배점·시간 유지**: 같은 시험에서 같은 점수·풀이 시간이 나와야 함.
+  R6. **한국 교과서 표기**: \`gcd / lcm / max / min\` 함수형 표기 금지 ("최대공약수", "큰 값" 등 자연어). \`\\\\approx\` / \`≈\` 금지 ("약 X"). \`\\\\dfrac\` 금지 (\`\\\\frac\` 만). 가분수는 대분수로.
+  R7. **변수 도입 시 정의 명시**: 원본의 \`□\`·문자를 그대로 활용. 새 변수 도입할 때는 변수 첫 등장 줄에 정의.
+  R8. **trial-and-error / 자가 점검 흔적 X**: "잠깐", "다시 확인", "재정리" 표현 절대 emit X.
+  R9. **나열형 답은 오름차순**: "모든 ~" 류 답은 작은 수 → 큰 수.
+  R10. **boxed/markdown wrapping 없이 plain text**: \`question\`·\`choices\`·\`answer\`·\`solution\` 모두 raw Markdown + LaTeX.
+
+──────────────────────────────────────────────────────────────────
+🎯 **변형 깊이 (이번 호출 옵션)**
+
+{goalDirective}
+
+──────────────────────────────────────────────────────────────────
+📏 **난이도 조정 (이번 호출 옵션)**
+
+{difficultyDirective}
+
+──────────────────────────────────────────────────────────────────
+🔍 **출력 직전 형식 자가 검증 (V1-V5, 1 초 안에 점검)**
+
+  V1. \`choices\` 가 객관식이면 *정확히 5 개*, 주관식이면 \`[]\` 인가?
+  V2. \`answer\` 가 \`choices\` 와 일치 (객관식: 마커 + 값) / \`question\` 과 정확히 풀이됨인가?
+  V3. \`topic\` 이 원본과 *같은 단원* 인가?
+  V4. \`diagramSVG\` 가 \`null\` 인가? (이번 phase 는 항상 null)
+  V5. \`solution\` 본문에 "잠깐", "다시 확인" 같은 self-correction 흔적이 없는가?
+
+(위 V1-V5 점검은 모델 내부에서만 — solution 본문에 노출 X.)
+
+──────────────────────────────────────────────────────────────────
+[원본 문제]
+{originalProblem}
+`;
+
+/**
+ * VARIANT_PROMPT 의 정적 placeholder 를 채워 단일 string 반환.
+ *
+ * **사용처**: Gemini / OpenAI provider — 단일 string content.
+ * Anthropic 은 `buildVariantPromptBlocksAnthropic` 사용 (prompt caching).
+ */
+export const buildVariantPrompt = (
+  problem: {
+    question: string;
+    choices?: string[];
+    answer?: string;
+    solution?: string;
+    topic?: string;
+  },
+  opts: {
+    goal: ConversionGoal;
+    difficulty: DifficultyShift;
+    grade?: GradeKey | null;
+    /** 객관식 보기 개수 — caller 가 결과 검증 시 사용. prompt 본문엔 자동 inject. */
+    choicesCount?: number;
+  },
+): string => {
+  const { persona, defense } = buildPersonaAndDefense(opts.grade);
+  const goalDirective = goalDirectiveText(opts.goal);
+  const difficultyDirective = difficultyDirectiveText(opts.difficulty);
+  const originalProblem = formatOriginalProblemForVariant(problem);
+  return VARIANT_PROMPT.replace("{persona}", persona)
+    .replace("{mathDefense}", defense)
+    .replace("{goalDirective}", goalDirective)
+    .replace("{difficultyDirective}", difficultyDirective)
+    .replace("{originalProblem}", originalProblem);
+};
+
+/**
+ * Anthropic 전용 — VARIANT_PROMPT 의 *학년 dynamic but 시험지 내 동일* prefix
+ * 를 `cache_control: ephemeral` 마킹. 같은 시험지의 30 호출이 같은 prefix
+ * (~7,000 tokens) 공유 → 첫 호출 cache write, 29 호출 cache read (90% 할인).
+ *
+ * **SPLIT_MARKER**: `{originalProblem}` — 호출마다 dynamic 부분이 유일하게
+ * 잔존 (persona / defense / goalDirective / difficultyDirective 는 학년·옵션
+ * dynamic 이지만 *시험지 내 동일* 이므로 prefix 에 inject).
+ *
+ * **byte-identical 보장**: 두 block 의 text 합 = `buildVariantPrompt(...)` 와
+ * *1 글자 차이 없음*. cache key 일관성 유지.
+ */
+export const buildVariantPromptBlocksAnthropic = (
+  problem: {
+    question: string;
+    choices?: string[];
+    answer?: string;
+    solution?: string;
+    topic?: string;
+  },
+  opts: {
+    goal: ConversionGoal;
+    difficulty: DifficultyShift;
+    grade?: GradeKey | null;
+    choicesCount?: number;
+  },
+): Array<{
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+}> => {
+  const { persona, defense } = buildPersonaAndDefense(opts.grade);
+  const goalDirective = goalDirectiveText(opts.goal);
+  const difficultyDirective = difficultyDirectiveText(opts.difficulty);
+  const SPLIT_MARKER = "{originalProblem}";
+  // 정적 + 학년·옵션 dynamic 부분 모두 먼저 치환 → {originalProblem} 만 잔존.
+  const fullTemplate = VARIANT_PROMPT.replace("{persona}", persona)
+    .replace("{mathDefense}", defense)
+    .replace("{goalDirective}", goalDirective)
+    .replace("{difficultyDirective}", difficultyDirective);
+  const idx = fullTemplate.indexOf(SPLIT_MARKER);
+  // 안전망: split 실패 시 단일 block (cache 효과 X, 동작 보존).
+  if (idx < 0) {
+    return [{ type: "text", text: buildVariantPrompt(problem, opts) }];
+  }
+  const cacheablePrefix = fullTemplate.slice(0, idx);
+  const originalProblem = formatOriginalProblemForVariant(problem);
+  const dynamicSuffix = fullTemplate
+    .slice(idx)
+    .replace(SPLIT_MARKER, originalProblem);
+  return [
+    {
+      type: "text",
+      text: cacheablePrefix,
+      cache_control: { type: "ephemeral" },
+    },
+    { type: "text", text: dynamicSuffix },
+  ];
+};
+
+/**
+ * 원본 문제를 VARIANT_PROMPT 의 `{originalProblem}` 자리에 채울 형태로 포맷.
+ *
+ * 모델이 답·풀이까지 보면 *변형의 정확성* 이 올라감 (mathlab variant H5:
+ * "같은 풀이 구조"). 단 trial-error 흔적 등은 노출 X — sanitizeText 가
+ * 이미 처리.
+ */
+const formatOriginalProblemForVariant = (problem: {
+  question: string;
+  choices?: string[];
+  answer?: string;
+  solution?: string;
+  topic?: string;
+}): string => {
+  const parts: string[] = [];
+  if (problem.topic?.trim()) {
+    parts.push(`[단원] ${problem.topic.trim()}`);
+  }
+  parts.push(`[본문]\n${problem.question}`);
+  if (problem.choices && problem.choices.length > 0) {
+    const markers = ["①", "②", "③", "④", "⑤"];
+    const choiceLines = problem.choices
+      .map((c, i) => `${markers[i] ?? `(${i + 1})`} ${c}`)
+      .join("\n");
+    parts.push(`[보기]\n${choiceLines}`);
+  }
+  if (problem.answer?.trim()) {
+    parts.push(`[정답] ${problem.answer.trim()}`);
+  }
+  if (problem.solution?.trim()) {
+    parts.push(`[풀이]\n${problem.solution.trim()}`);
+  }
+  return parts.join("\n\n");
 };
 
 /**

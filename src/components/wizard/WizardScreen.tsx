@@ -21,6 +21,7 @@ import { Step1Upload } from "./Step1Upload";
 import { Step2OCRReview } from "./Step2OCRReview";
 import { Step3SolutionReview } from "./Step3SolutionReview";
 import { Step3Options } from "./Step3Options";
+import { Step4Review } from "./Step4Review";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
@@ -187,12 +188,7 @@ export const WizardScreen = () => {
           {step === 1 && <Step2OCRReview />}
           {step === 2 && <Step3SolutionReview />}
           {step === 3 && <Step3Options />}
-          {step === 4 && (
-            <StepPlaceholder
-              title="Step 5 — 문항별 검토"
-              message="원본 vs 변형 좌우 비교, 인라인 편집, '다시 생성'."
-            />
-          )}
+          {step === 4 && <Step4Review />}
           {step === 5 && (
             <StepPlaceholder
               title="Step 6 — 내보내기"

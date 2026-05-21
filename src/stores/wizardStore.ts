@@ -140,6 +140,19 @@ export interface ProblemReview {
   original: GeneratedProblem;
   variant: GeneratedProblem;
   status: "confirmed" | "review" | "pending";
+  /**
+   * 변형 생성 실패 시 친화적 한국어 메시지. UI 의 재시도 배너에서 표시.
+   * `useVariantGen` 이 generateVariant throw 시 set, 성공 시 clear.
+   */
+  genError?: string;
+  /**
+   * 어떤 모델이 변형을 만들었는지 (UI 배지·디버그). `OCRProblem.ocrModel` /
+   * `solutionModel` 과 같은 패턴. task #41 (item 별 재실행) 도입 시 item 마다
+   * 다를 수 있음.
+   */
+  genModel?: string;
+  /** 변형 생성 in-flight 플래그 — UI spinner 표시용. */
+  generating?: boolean;
 }
 
 export interface WizardState {

@@ -145,9 +145,16 @@ export const Step3Options = () => {
   const setOptions = useWizardStore((s) => s.setOptions);
   const pages = useWizardStore((s) => s.pages);
 
-  // Rough estimate while Step 2 isn't wired up. With OCR results in hand
-  // we'll switch this to a real per-page sum.
-  const problemCount = pages.length > 0 ? pages.length * 3 : 30;
+  // OCR 결과에서 *변형 가능* 문항 수 정확히 계산. Step 2 통과 후 진입이므로
+  // pages[].ocrResult 가 채워져 있음. text 없거나 bodyMissing 인 결손 문항은
+  // 변형 불가 → useVariantGen 의 eligible 필터와 *일관성 유지* 필요 (B10 방어).
+  const problemCount = useMemo(() => {
+    const items = pages
+      .filter((p) => p.isProblemPage || p.forceOcr)
+      .flatMap((p) => p.ocrResult)
+      .filter((it) => it.text && !it.bodyMissing);
+    return items.length > 0 ? items.length : 30;
+  }, [pages]);
 
   const variantMarkdown = useMemo(
     () => buildVariantSample(goal, difficulty),
