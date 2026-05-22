@@ -402,6 +402,22 @@ export const KatexTestScreen = () => {
             <MarkdownRenderer content={"$$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$"} />
           </div>
         </Card>
+
+        <Card pad={16}>
+          <Eyebrow className="mb-3">
+            인라인 + 블록 혼합 — $...$ 와 $$...$$ 경계 (task #20 회귀 가드)
+          </Eyebrow>
+          <p className="text-caption text-muted mb-2">
+            인라인 $...$ 와 블록 $$...$$ 가 섞인 본문. 세 분수가 모두 같은
+            크기로 렌더되고 한글이 수식에 말려들지 않아야 한다 (13번 분수-크기
+            버그 — 인라인 정규식이 $$ 경계를 침범하던 문제).
+          </p>
+          <MarkdownRenderer
+            content={
+              "문장 시작 $\\frac{1}{2}$ 이고\n\n$$S = \\frac{15xy}{2} + 12x - 24$$\n\n선택지와 비교하면 $\\frac{15xy}{2}$ 항이 맞지 않는다."
+            }
+          />
+        </Card>
       </div>
     </div>
   );

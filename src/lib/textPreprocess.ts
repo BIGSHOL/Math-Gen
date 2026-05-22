@@ -595,6 +595,19 @@ const extractHangulFromInner = (inner: string): string | null => {
 };
 
 /**
+ * 인라인 `$...$` 매칭 — `$$블록$$` 경계를 침범하지 않는다.
+ *
+ * 양쪽 delimiter 를 모두 `(?<!\$)` + `(?!\$)` 로 감싸 *단독* `$` 만 매칭한다.
+ * 한쪽 가드만 있으면(`\$(?!\$)` — 다음 글자만 확인) `$$블록$$` 여는 `$$` 의
+ * *둘째* `$` 부터 매칭이 시작돼 블록 안쪽을 인라인으로 오인, `$$` 를 두 동강
+ * 낸다. 사용자 보고(13번): 블록·인라인이 섞인 풀이에서 `$$` 가 쪼개져 한글이
+ * 수식에 말려들고 `\frac` 가 미정규화 → 분수 한 행만 작게 렌더. inner 는 `$`
+ * 불포함(`[^$\\]`), 백슬래시 escape(`\\.`) 만 허용. `/g` regex 를 여러 `.replace`
+ * 에서 공유 — `String.prototype.replace` 가 매 호출 lastIndex 를 리셋하므로 안전.
+ */
+const INLINE_MATH_RE = /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)*)(?<!\$)\$(?!\$)/g;
+
+/**
  * 본문 전체에서 `$...$` / `$$...$$` 안에 섞인 한글을 prose 레벨로 분리.
  * 한글이 없는 수식은 손대지 않는다(바이트 동일 반환 — 회귀 0). `$$...$$`
  * 블록에 한글이 섞이면 인라인 `$...$` 로 다운그레이드한다(한글 오염된 블록
@@ -606,7 +619,7 @@ export const extractHangulFromMath = (content: string): string => {
     (m: string, inner: string) => extractHangulFromInner(inner) ?? m,
   );
   out = out.replace(
-    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    INLINE_MATH_RE,
     (m: string, inner: string) => extractHangulFromInner(inner) ?? m,
   );
   return out;
@@ -653,7 +666,7 @@ export const preprocessMathText = (content: string): string => {
   // 모든 변환 (cleanMalformedLatex, dfrac→frac, unicode, uprightGeometryLabels,
   // autoSizeBrackets, injectDisplayStyle) 일괄 적용.
   out = out.replace(
-    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    INLINE_MATH_RE,
     (_m, inner) => `$${applyMathInnerNormalization(inner)}$`,
   );
   out = out.replace(
@@ -768,7 +781,7 @@ export const preprocessMathText = (content: string): string => {
   // 모델 typo 였는데 path 마다 다르게 처리돼서 leak — 이 final guard 가
   // 마지막 안전망.
   out = out.replace(
-    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    INLINE_MATH_RE,
     (_m, inner: string) => `$${cleanMalformedLatex(inner)}$`,
   );
   out = out.replace(
