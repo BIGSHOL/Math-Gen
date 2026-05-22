@@ -30,6 +30,8 @@ export interface AuthState {
   actionPending: boolean;
   /** 마지막 액션 실패 메시지 (한국어). 성공 시 null. */
   actionError: string | null;
+  /** 비밀번호 재설정 메일 링크로 복귀한 상태 — AuthGate 가 NewPasswordScreen 표시. */
+  recoveryMode: boolean;
 
   /** AuthGate 가 mount 에서 1회 호출. 구독을 설치하고 cleanup 함수를 반환. */
   initialize: () => () => void;
@@ -37,6 +39,10 @@ export interface AuthState {
   /** 반환 `needsConfirm` = true 면 이메일 확인 대기 (세션 미발급). */
   signUp: (email: string, password: string) => Promise<{ needsConfirm: boolean }>;
   signOut: () => Promise<void>;
+  /** 비밀번호 재설정 메일 발송. 성공 시 true. */
+  requestPasswordReset: (email: string) => Promise<boolean>;
+  /** 새 비밀번호로 변경. 성공 시 true + recoveryMode 해제. 재설정·로그인 양쪽에서 사용. */
+  updatePassword: (newPassword: string) => Promise<boolean>;
   clearError: () => void;
 }
 
@@ -50,6 +56,8 @@ const authErrorToKorean = (error: { code?: string; message?: string }): string =
     return "이미 가입된 이메일입니다. 로그인해 주세요.";
   if (code === "weak_password" || /password should be at least|weak.?password/i.test(msg))
     return "비밀번호는 6자 이상이어야 합니다.";
+  if (code === "same_password" || /different from the old/i.test(msg))
+    return "새 비밀번호가 기존 비밀번호와 같습니다.";
   if (code === "email_not_confirmed" || /email not confirmed/i.test(msg))
     return "이메일 확인이 완료되지 않았습니다. 받은 메일의 링크를 클릭해 주세요.";
   if (code === "validation_failed" || /unable to validate email|invalid.?email/i.test(msg))
@@ -70,6 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   status: "loading",
   actionPending: false,
   actionError: null,
+  recoveryMode: false,
 
   initialize: () => {
     if (!supabase) {
@@ -109,7 +118,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       applyUser(data.session?.user ?? null);
     });
 
-    const { data } = sb.auth.onAuthStateChange((_event, session) => {
+    const { data } = sb.auth.onAuthStateChange((event, session) => {
+      // 재설정 메일 링크로 복귀 — supabase 가 임시 세션을 발급하지만 곧장
+      // 앱으로 보내지 않고 NewPasswordScreen 으로 라우팅하려 recoveryMode 를 켠다.
+      if (event === "PASSWORD_RECOVERY") set({ recoveryMode: true });
       applyUser(session?.user ?? null);
     });
 
@@ -141,8 +153,31 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (!supabase) return;
     set({ actionPending: true });
     await supabase.auth.signOut();
-    set({ actionPending: false });
+    set({ actionPending: false, recoveryMode: false });
     // user=null + downstream store 리셋은 onAuthStateChange(SIGNED_OUT) 가 처리.
+  },
+
+  requestPasswordReset: async (email) => {
+    if (!supabase) return false;
+    set({ actionPending: true, actionError: null });
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    set({ actionPending: false, actionError: error ? authErrorToKorean(error) : null });
+    // 보안상 가입 안 된 이메일이어도 supabase 는 성공(error=null)으로 응답한다.
+    return !error;
+  },
+
+  updatePassword: async (newPassword) => {
+    if (!supabase) return false;
+    set({ actionPending: true, actionError: null });
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      set({ actionPending: false, actionError: authErrorToKorean(error) });
+      return false;
+    }
+    set({ actionPending: false, recoveryMode: false });
+    return true;
   },
 
   clearError: () => set({ actionError: null }),

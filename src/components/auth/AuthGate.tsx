@@ -3,6 +3,7 @@ import { Icon, Logo } from "@app/components/ui";
 import { supabase } from "@app/services/api/supabase";
 import { useAuthStore } from "@app/stores/authStore";
 import { AuthScreen } from "./AuthScreen";
+import { NewPasswordScreen } from "./NewPasswordScreen";
 
 /**
  * Phase G — 인증 게이트.
@@ -14,6 +15,7 @@ import { AuthScreen } from "./AuthScreen";
  *   - `!supabase` (SUPABASE_ENABLED=false) → children passthrough. 기존
  *     IndexedDB/sessionStorage dev 경로 100% 보존.
  *   - status "loading" → AuthSplash (초기 세션 확인 중)
+ *   - recoveryMode → NewPasswordScreen (재설정 메일 링크로 복귀)
  *   - 비로그인 → AuthScreen
  *   - 로그인 → children
  *
@@ -32,12 +34,16 @@ export const AuthGate = ({ children }: { children: ReactNode }) => {
   const initialize = useAuthStore((s) => s.initialize);
   const status = useAuthStore((s) => s.status);
   const user = useAuthStore((s) => s.user);
+  const recoveryMode = useAuthStore((s) => s.recoveryMode);
 
   useEffect(() => initialize(), [initialize]);
 
   // flag off — 인증 비활성. children 을 그대로 통과.
   if (!supabase) return <>{children}</>;
   if (status === "loading") return <AuthSplash />;
+  // 재설정 메일 링크로 복귀 — 임시 세션이 있어 user 는 set 되지만, 새 비번을
+  // 설정하기 전까지 앱 진입을 막는다 (!user 체크보다 먼저).
+  if (recoveryMode) return <NewPasswordScreen />;
   if (!user) return <AuthScreen />;
   return <>{children}</>;
 };
