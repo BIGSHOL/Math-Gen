@@ -33,9 +33,10 @@ export const SUPABASE_ENABLED: boolean =
 export const supabase: SupabaseClient | null = SUPABASE_ENABLED
   ? createClient(URL!, ANON_KEY!, {
       auth: {
-        // dev 단계엔 인증 없으므로 persistence 불필요. Phase E 에서 true 로.
-        persistSession: false,
-        autoRefreshToken: false,
+        // Phase G — Auth 도입. 세션을 localStorage 에 보관해 리로드 후에도
+        // 로그인 유지 + 만료 토큰 자동 갱신.
+        persistSession: true,
+        autoRefreshToken: true,
       },
     })
   : null;
@@ -48,8 +49,8 @@ export const supabase: SupabaseClient | null = SUPABASE_ENABLED
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 /**
- * 현재 사용자 UUID — 로그인 됐으면 `auth.uid()`, 아니면 DEV_USER_ID.
- * Phase E 에 auth 도입 후 의미 있음. dev 단계엔 항상 DEV_USER_ID 반환.
+ * 현재 사용자 UUID — 로그인 됐으면 실제 user id, 아니면 DEV_USER_ID.
+ * Phase G (Auth) 이후 활성 — 로그인 사용자는 본인 UUID 가 반환된다.
  */
 export const currentUserId = async (): Promise<string> => {
   if (!supabase) return DEV_USER_ID;

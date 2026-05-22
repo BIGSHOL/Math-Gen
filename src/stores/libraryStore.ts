@@ -27,6 +27,8 @@ export interface LibraryState {
   upsertTest: (test: TestPaper) => void;
   removeTest: (id: string) => void;
   getTest: (id: string) => TestPaper | undefined;
+  /** 신원 변경(로그인/로그아웃) 시 호출 — 다음 hydrate 가 새 사용자 데이터로 재실행. */
+  reset: () => void;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -70,4 +72,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   getTest: (id) => get().tests.find((t) => t.id === id),
+
+  reset: () => set({ tests: [], hydrated: false }),
 }));

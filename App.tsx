@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { AuthGate } from "@app/components/auth";
 import { DetailScreen } from "@app/components/detail";
 import { LibraryScreen } from "@app/components/library";
 import { ModalLayer } from "@app/components/modal";
@@ -42,12 +43,14 @@ const App = () => {
   if (route === "bench") return <ModelBenchScreen />;
 
   return (
-    <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
-      {screen === "library" && <LibraryScreen />}
-      {screen === "detail" && <DetailScreen />}
-      {screen === "wizard" && <WizardScreen />}
-      <ModalLayer />
-    </div>
+    <AuthGate>
+      <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
+        {screen === "library" && <LibraryScreen />}
+        {screen === "detail" && <DetailScreen />}
+        {screen === "wizard" && <WizardScreen />}
+        <ModalLayer />
+      </div>
+    </AuthGate>
   );
 };
 

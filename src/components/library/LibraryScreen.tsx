@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
+import { UserMenu } from "@app/components/auth";
 import {
-  Avatar,
   Btn,
   Divider,
   Eyebrow,
@@ -89,7 +89,7 @@ export const LibraryScreen = () => {
             >
               새 변환
             </Btn>
-            <Avatar />
+            <UserMenu />
           </>
         }
       />
