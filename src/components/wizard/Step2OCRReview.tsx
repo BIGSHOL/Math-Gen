@@ -181,7 +181,6 @@ export const Step2OCRReview = () => {
         pages={pages}
         activeIndex={activeIdx}
         onSelect={setActiveIdx}
-        onResetDispatch={resetDispatch}
       />
 
       {/* 원본 스캔 */}

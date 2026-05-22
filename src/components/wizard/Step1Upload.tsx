@@ -25,6 +25,10 @@ import {
   renderPageThumbnail,
 } from "@app/lib/pdfProcessor";
 import {
+  usePageThumbnails,
+  useRotatedThumbnails,
+} from "@app/hooks/usePageThumbnails";
+import {
   useWizardStore,
   type ExamCategory,
   type WizardPage,
@@ -42,11 +46,6 @@ const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 const MAX_PAGES = 20;
 
 type Phase = "idle" | "loading" | "rendering" | "done" | "error";
-
-interface PreviewPage {
-  pageNum: number;
-  thumbnail: string;
-}
 
 /**
  * Wizard Step 1 — drop a PDF and we render it into per-page images.
@@ -87,7 +86,6 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
   const [dragOver, setDragOver] = useState(false);
   const [phase, setPhase] = useState<Phase>(uploadedFileName ? "done" : "idle");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [previews, setPreviews] = useState<PreviewPage[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const validate = (file: File): string | null => {
@@ -147,7 +145,6 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
       );
 
       const pages: WizardPage[] = [];
-      const previewBatch: PreviewPage[] = [];
       for (let p = 1; p <= pdf.numPages; p++) {
         // Hi-res image + text layer + low-res thumbnail rendered in parallel,
         // but we MUST await all IndexedDB writes before pushing to `pages` —
@@ -177,8 +174,6 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
         void insertPage(testId, p, wizPage, imageBase64, thumb).catch((err) =>
           console.warn(`[Step1Upload] insertPage p=${p} failed:`, err),
         );
-        previewBatch.push({ pageNum: p, thumbnail: thumb });
-        setPreviews([...previewBatch]);
         setProgress({ done: p, total: pdf.numPages });
       }
       // Single setPages call only AFTER every put*-await above has resolved —
@@ -250,7 +245,6 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
     setPhase("idle");
     setError(null);
     setProgress({ done: 0, total: 0 });
-    setPreviews([]);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -470,24 +464,14 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
             </Btn>
           </div>
 
-          {previews.length > 0 && (
+          {persistedPages.length > 0 && (
             <div className="mt-5">
-              <Eyebrow className="mb-2.5">페이지 미리보기</Eyebrow>
-              <div className="grid grid-cols-5 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
-                {previews.map((p) => (
-                  <div
-                    key={p.pageNum}
-                    className="border border-line rounded-r1 overflow-hidden bg-white"
-                    style={{ aspectRatio: "3/4" }}
-                  >
-                    <img
-                      src={p.thumbnail}
-                      alt={`Page ${p.pageNum}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                ))}
-              </div>
+              <Eyebrow className="mb-1">페이지 미리보기</Eyebrow>
+              <p className="text-caption text-muted mb-2.5">
+                누워 있는 페이지는 ⟲ 버튼으로 세워 주세요 — 회전은 OCR 전에
+                이 단계에서 끝내야 합니다.
+              </p>
+              <RotatablePageGrid pages={persistedPages} />
             </div>
           )}
 
@@ -533,3 +517,66 @@ const SelectablePill = ({
     {children}
   </button>
 );
+
+/**
+ * 업로드 단계 페이지 미리보기 그리드 — 회전 가능.
+ *
+ * 회전은 *OCR 이전* 인 이 단계에서만 한다. OCR·해설·변형 후 회전하면 OCR
+ * item id 가 새로 발급돼 변형 검토(`problems`)가 stale 되므로,
+ * `PageThumbColumn` (OCR 이후 단계) 에는 회전 버튼이 없다.
+ *
+ * 썸네일 로드·회전 적용은 공유 훅 재사용. ⟲ 클릭 → 90° 시계방향 순환.
+ */
+const RotatablePageGrid = ({ pages }: { pages: WizardPage[] }) => {
+  const thumbs = usePageThumbnails(pages);
+  const rotatedThumbs = useRotatedThumbnails(pages, thumbs);
+  const setPageRotation = useWizardStore((s) => s.setPageRotation);
+
+  const rotate = (page: WizardPage) =>
+    setPageRotation(
+      page.id,
+      ((page.rotation + 90) % 360) as WizardPage["rotation"],
+    );
+
+  return (
+    <div className="grid grid-cols-5 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
+      {pages.map((page, idx) => {
+        const orig = thumbs.get(page.thumbRef);
+        const thumb =
+          page.rotation === 0
+            ? orig
+            : rotatedThumbs.get(`${page.thumbRef}@${page.rotation}`) ?? orig;
+        const landscape = page.rotation === 90 || page.rotation === 270;
+        return (
+          <div
+            key={page.id}
+            className="relative border border-line rounded-r1 overflow-hidden bg-white"
+            style={{ aspectRatio: landscape ? "4 / 3" : "3 / 4" }}
+          >
+            {thumb ? (
+              <img
+                src={thumb}
+                alt={`${idx + 1}페이지`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-surface2 animate-pulse" />
+            )}
+            <button
+              type="button"
+              aria-label={`${idx + 1}페이지 90도 시계방향 회전`}
+              title="90° 회전"
+              onClick={() => rotate(page)}
+              className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white/85 hover:bg-accent grid place-items-center text-muted hover:text-white shadow-s1 transition-colors"
+            >
+              <Icon name="arrow-clockwise" size={12} weight="bold" />
+            </button>
+            <span className="absolute bottom-1 right-1 text-[9px] font-mono font-semibold text-muted bg-white/85 rounded-sm px-1 leading-none py-[1px]">
+              {idx + 1}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};

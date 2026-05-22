@@ -418,9 +418,8 @@ export const usePageOcr = () => {
    * `ocrComplete: false` but the dispatched Set still has the id and skips
    * the page forever — effectively bricking that page until reload.
    *
-   * Callers: Step2OCRReview's `requestRetry` / `forcePageOcr`, and the
-   * rotation button in PageThumbColumn (rotation already invalidates OCR
-   * state via `setPageRotation`, but the dispatched marker stays).
+   * Callers: Step2OCRReview's `requestRetry` / `forcePageOcr`. (페이지 회전은
+   * 업로드 단계 — OCR 이전 — 에서만 하므로 dispatched 마커와 무관하다.)
    */
   const resetDispatch = (pageId: string): void => {
     dispatched.current.delete(pageId);

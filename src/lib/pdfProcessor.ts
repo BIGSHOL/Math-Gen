@@ -413,9 +413,9 @@ const detectRotationFromTextLayer = async (
  *   2. textLayer 글리프 transform 매트릭스 휴리스틱
  *   3. 신호 없으면 0
  *
- * 사용자가 PageThumbColumn 의 ⟲ 버튼으로 자동 감지 결과를 override 할
- * 수 있도록 store 의 `rotation` 필드는 이 함수의 반환값으로 *초기화*만
- * 한다 — 이후 변경은 `setPageRotation` 액션이 담당.
+ * 사용자가 업로드 단계 미리보기 그리드의 ⟲ 버튼으로 자동 감지 결과를
+ * override 할 수 있도록 store 의 `rotation` 필드는 이 함수의 반환값으로
+ * *초기화*만 한다 — 이후 변경은 `setPageRotation` 액션이 담당.
  */
 export const detectPageRotation = async (pdf: PDFDocumentProxy, pageNum: number): Promise<PageRotation> => {
   try {

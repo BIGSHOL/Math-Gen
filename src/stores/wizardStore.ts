@@ -117,7 +117,8 @@ export interface WizardPage {
   /**
    * 페이지 회전(rotation, 시계 방향, degrees). 일부 PDF가 가로 저장돼 있어
    * 정상 OCR 위해 회전이 필요. Step1Upload 가 `detectPageRotation` 으로
-   * 자동 감지하고, 사용자가 PageThumbColumn 의 ⟲ 버튼으로 수동 override.
+   * 자동 감지하고, 사용자가 *업로드 단계* 미리보기 그리드의 ⟲ 버튼으로
+   * 수동 override (회전은 OCR 이전에만 — 이후 회전은 problems stale 유발).
    * 실제 이미지 변환은 OCR 호출 시점에만 `applyRotation(dataUrl, rotation)`
    * 으로 적용 — IndexedDB 의 원본 이미지는 그대로 둔다.
    */
