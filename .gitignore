@@ -25,6 +25,9 @@ dist-ssr
 # Claude Code local state (sessions, settings, agent telemetry)
 .claude/
 
+# Supabase CLI local state (project link, temp files — per-machine)
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
