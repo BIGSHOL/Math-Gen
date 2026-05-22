@@ -966,17 +966,36 @@ RULES FOR EACH "items" ENTRY
 
        **(옵션) \`diagramParams\`** — 표준 7 shape (triangle / circle / quadrilateral / polygon / coordinatePlane / solid / composite) 인 경우 *추가로* emit 가능. 단 \`type\` 필드 (7 enum 중 하나) 필수. 모르겠으면 *element 생략* (raw SVG 가 항상 우선). \`diagramParams\` 만 emit 하지 말 것 — 항상 inline SVG 와 함께.
 
-       **치수 표시 (Dimension labels) — 한국 교과서 관행 (사용자 보고 13번)**:
-       - 변의 *일부* 길이 (예: 직사각형 위쪽 변 5y 중 오른쪽 8 부분, 오른쪽 변 3x 중 위에서 6 부분) 표시 시:
-         - 변에서 살짝 떨어진 곳 (5-8 px) 에 *짧은 점선 호* (또는 양 끝에 짧은 수직 tick 가 있는 직선) — \`stroke-dasharray="3 2"\`.
-         - 숫자 라벨은 *호 바깥쪽* (변과 반대 방향) 에 배치 — 호·변과 *겹치지 X*.
-         - 예: 직사각형의 위쪽 변 오른쪽 끝 8 길이 표시 (변이 y=40 위치, 5y 전체 라벨은 변 위쪽):
-           <line x1="270" y1="48" x2="350" y2="48" stroke="black" stroke-dasharray="3 2" stroke-width="1"/>
-           <line x1="270" y1="44" x2="270" y2="52" stroke="black" stroke-width="1"/>
-           <line x1="350" y1="44" x2="350" y2="52" stroke="black" stroke-width="1"/>
-           <text x="310" y="64" text-anchor="middle" font-size="14">8</text>
-       - 변 *전체* 길이 라벨 (예: 5y, 3x) 은 호 없이 변 *바깥쪽* 에 직접 배치.
-       - **삼각형·다각형 vertex 좌표는 원본 비율 정확히 보존**. 원본에서 vertex 가 변 *위에서 8 만큼* 떨어진 점에 있다면, 우리 SVG 의 vertex 도 같은 비율 위치 (대략 변 길이의 8/5y 비율 지점) 에 배치. 비율 추정 어려우면 *문제 본문의 수치 정보로 역산*.
+       **치수 표시 (Dimension labels) — 한국 교과서 관행 (사용자 보고 13번·반복, 강제 규칙)**:
+       🚨 *모든* 길이 표시 (변 전체 길이 5y·3x 든, 변의 일부 8·6 이든) 는 **점선 호 (dashed arc)** 로만 그린다.
+         양 끝 tick(짧은 수직선) 가 달린 직선은 *절대 금지*. 호 없이 라벨만 두는 것도 금지.
+         치수선 1개 = **호 path → 흰 배경 rect → 라벨 text** 의 3요소 세트 (이 순서대로 emit, text 가 맨 위).
+         - 호 path: 변에서 바깥쪽(도형 안쪽의 반대) 으로 부푼 quadratic Bézier 점선. 정점이 변에서
+           12-16 px 바깥 (아래 흰 rect 가 도형 변에 닿지 않을 만큼). control 점은 정점의 약 2배 거리.
+           stroke-dasharray="3 2" stroke-width="1" fill="none".
+         - 흰 배경 rect: 호의 한가운데(=라벨 자리) 를 덮는 흰 사각형. fill="white", stroke 없음.
+           폭 ≈ 글자수 × 9 + 6, 높이 16. → 점선 호를 글자 자리에서 끊어 라벨과 겹쳐 보이지 않게 한다.
+         - 라벨 text: 호의 한가운데에 정확히. text-anchor="middle" dominant-baseline="middle".
+       잘못된 출력 (실제 사용자 보고 — 직선 + tick, 라벨이 호 밖. 절대 금지):
+           <line x1="270" y1="48" x2="350" y2="48" stroke="black" stroke-dasharray="3 2"/>
+           <line x1="270" y1="44" x2="270" y2="52" stroke="black"/>
+           <line x1="350" y1="44" x2="350" y2="52" stroke="black"/>
+           <text x="310" y="64">8</text>
+       올바른 출력 — 가로 변 (예: 위쪽 변 y=50, x 60~360. 호는 변 위로 부풂):
+         전체 길이 5y:
+           <path d="M 60 50 Q 210 26 360 50" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+           <rect x="198" y="30" width="24" height="16" fill="white"/>
+           <text x="210" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">5y</text>
+         오른쪽 일부 8 (x 240~360 구간):
+           <path d="M 240 50 Q 300 26 360 50" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+           <rect x="293" y="30" width="14" height="16" fill="white"/>
+           <text x="300" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">8</text>
+       올바른 출력 — 세로 변 (예: 왼쪽 변 x=60, y 50~230. 호는 변 왼쪽 바깥으로 부풂):
+           <path d="M 60 50 Q 30 140 60 230" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+           <rect x="33" y="132" width="24" height="16" fill="white"/>
+           <text x="45" y="140" text-anchor="middle" dominant-baseline="middle" font-size="14">3x</text>
+         (오른쪽 변 6 은 같은 방식, 호를 변 오른쪽 바깥으로 부풀린다.)
+       - **삼각형·다각형 vertex 좌표는 원본 비율 정확히 보존** (호 치수선과 별개로 vertex 위치는 그대로). 원본에서 vertex 가 변 *위에서 8 만큼* 떨어진 점에 있다면, 우리 SVG 의 vertex 도 같은 비율 위치 (대략 변 길이의 8/5y 비율 지점) 에 배치. 비율 추정 어려우면 *문제 본문의 수치 정보로 역산*.
 
        **Function graph protocol — read these constraints OFF the original image BEFORE drawing anything**:
 
