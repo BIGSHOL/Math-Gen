@@ -217,6 +217,27 @@ const CASES: SymbolCase[] = [
     latex: "\\begin{cases} x & 양수 \\\\ -x & 음수 \\end{cases}",
     expect: "분리 안 함 — 환경 보존",
   },
+
+  // ── 잘못된 \text{} 래퍼 정리 (unwrapBogusTextWrappers) ─────
+  // 모델이 수학 토큰을 \text{} 로 (중첩까지) 감싼 것을 벗겨내야 한다.
+  {
+    group: "\\text{} 오염 정리",
+    label: "중첩 \\text → 괄호 복원",
+    latex: "3\\dfrac{1}{5}\\times\\text{\\text{\\text{\\text{(}}}}\\dfrac{1}{5}+\\dfrac{1}{50}\\text{\\text{\\text{\\text{)}}}}",
+    expect: "괄호 복원 → \\left( ... \\right), 에러 0",
+  },
+  {
+    group: "\\text{} 오염 정리",
+    label: "중첩 \\text → \\dot{c}",
+    latex: "0.b\\text{\\text{\\text{\\dot{c}}}}",
+    expect: "0.bċ (c 위에 점), 빨간 에러 0",
+  },
+  {
+    group: "\\text{} 오염 정리",
+    label: "정상 \\text{cm} 보존",
+    latex: "5\\text{cm}",
+    expect: "5 cm — \\text{cm} 단위는 그대로 유지",
+  },
 ];
 
 const KATEX_FONTS = [

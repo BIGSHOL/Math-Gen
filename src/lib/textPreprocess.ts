@@ -232,7 +232,8 @@ const improperToMixed = (math: string): string =>
  * 군데서만 적용하면 path 가 다를 때 leak 됨.
  */
 export const cleanMalformedLatex = (s: string): string =>
-  s
+  // 모델이 수학 토큰을 \text{} 로 (중첩까지) 잘못 감싼 것 먼저 벗긴다 (아래 정의).
+  unwrapBogusTextWrappers(s)
     // 중복 명령어 (\left\left, \right\right, \frac\frac, \sqrt\sqrt) → 단일화
     .replace(/\\left(?=\\left\b)/g, "")
     .replace(/\\right(?=\\right\b)/g, "")
@@ -461,6 +462,51 @@ const findBraceClose = (s: string, openIdx: number): number => {
     }
   }
   return -1;
+};
+
+/**
+ * 모델이 수학 토큰을 `\text{}` 로 (심하면 여러 겹 중첩까지) 잘못 감싼 것을 푼다.
+ *
+ * 사용자 보고 (3번 문제): gemini-3-flash-preview 가 `(` · `\dots` · `\dot{c}`
+ * 를 `\text{\text{\text{\text{(}}}}` 처럼 4 중 `\text{}` 로 감싸 emit. KaTeX 는
+ * `\text{}` 안의 `\dot`·`\left` 등을 못 그려 통째로 빨간 에러 fallback. 게다가
+ * `autoSizeBrackets` 가 `\text{(}` 의 `(` 를 `\left(` 로 바꿔 더 악화시킨다.
+ *
+ * 규칙: `\text{}` (및 `\textrm`/`\mathrm` 등) 의 내용을 *먼저 재귀 처리* 한 뒤,
+ * 내용이 한글이 아니고 (a) 백슬래시 명령으로 시작하거나 (b) 단일 구분자
+ * (`( ) [ ] |`) 이면 → 래퍼를 벗긴다 (중첩은 재귀로 자연히 collapse). 내용이
+ * prose (글자·숫자·한글로 시작) 면 래퍼 유지 — `\text{cm}` 같은 정상 단위 보존.
+ *
+ * `cleanMalformedLatex` 의 첫 단계로 호출 — 모든 wrap path 에서 일관 적용.
+ */
+const unwrapBogusTextWrappers = (s: string): string => {
+  // 래퍼가 아예 없으면 char 순회 생략 (fast path).
+  if (!/\\(?:text|math[rbs]|mbox|hbox)/.test(s)) return s;
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === "\\") {
+      const wm = s.slice(i).match(TEXT_WRAPPER_OPEN);
+      if (wm) {
+        const braceOpen = i + wm[0].length - 1; // 여는 `{`
+        const close = findBraceClose(s, braceOpen);
+        if (close > braceOpen) {
+          // 내용 먼저 재귀 처리 → 중첩 `\text` 가 안쪽부터 collapse.
+          const inner = unwrapBogusTextWrappers(s.slice(braceOpen + 1, close));
+          const t = inner.trim();
+          const bogus =
+            !HANGUL_CHAR.test(inner) &&
+            (t.startsWith("\\") || /^[()[\]|]$/.test(t));
+          out += bogus ? inner : `${wm[0]}${inner}}`;
+          i = close + 1;
+          continue;
+        }
+      }
+    }
+    out += s[i];
+    i++;
+  }
+  return out;
 };
 
 interface MathSegment {
