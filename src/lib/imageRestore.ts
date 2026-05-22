@@ -1,5 +1,5 @@
 import type { WizardPage } from "@app/stores/wizardStore";
-import { getPageImage, putPageImage } from "@app/lib/imageStore";
+import { getPageImage, putPageImage, putThumbnail } from "@app/lib/imageStore";
 import { getSignedUrl } from "@app/services/api/storage";
 
 /**
@@ -59,4 +59,21 @@ export const ensurePageImage = async (
   if (!dataUrl) return null;
   const ref = await putPageImage({ pageNum: pageNumFromPath(storagePath), dataUrl });
   return { ref, dataUrl };
+};
+
+/**
+ * 페이지 썸네일을 Supabase Storage(`page-thumbnails`)에서 받아 IndexedDB 에
+ * 저장하고 ref 를 반환. "이어서 작업" hydrate 가 위자드 PageThumbColumn 표시용
+ * 으로 호출. 썸네일은 작아서(수십 KB) hydrate 시점에 eager 로 받아도 무방.
+ * 실패(경로 null·fetch 실패) 시 null → 그 페이지만 placeholder 표시.
+ */
+export const restoreThumbnail = async (
+  thumbStoragePath: string | null,
+): Promise<string | null> => {
+  if (!thumbStoragePath) return null;
+  const signedUrl = await getSignedUrl("page-thumbnails", thumbStoragePath, 3600);
+  if (!signedUrl) return null;
+  const dataUrl = await fetchAsDataUrl(signedUrl);
+  if (!dataUrl) return null;
+  return putThumbnail({ pageNum: pageNumFromPath(thumbStoragePath), dataUrl });
 };

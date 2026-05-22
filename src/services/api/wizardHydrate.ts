@@ -9,6 +9,7 @@ import type { GradeKey } from "@app/services/ai/mathDefense";
 import { loadDetailData } from "@app/hooks/useDetailData";
 import { getTestRow } from "@app/services/api/tests";
 import { pageRowToWizard } from "@app/services/api/mappers";
+import { restoreThumbnail } from "@app/lib/imageRestore";
 
 /**
  * "이어서 작업" — 저장된 시험지(Supabase)를 위자드 스냅샷으로 변환.
@@ -63,8 +64,14 @@ export const hydrateWizardFromTest = async (
   if (detail.pages.length === 0) return null;
 
   // pages → WizardPage[] — ocr_problems 를 page_id 로 그룹핑해 각 페이지에 주입.
-  const pages: WizardPage[] = detail.pages.map((row) =>
-    pageRowToWizard(row, detail.problemsByPage.get(row.id) ?? []),
+  // 썸네일은 Storage 에서 받아 IndexedDB 에 캐시 + thumbRef 채움 (위자드
+  // PageThumbColumn 표시용). 썸네일은 작아서 hydrate 시점 eager 복원해도 부담 없음.
+  const pages: WizardPage[] = await Promise.all(
+    detail.pages.map(async (row) => {
+      const wp = pageRowToWizard(row, detail.problemsByPage.get(row.id) ?? []);
+      const thumbRef = await restoreThumbnail(row.thumb_storage_path);
+      return thumbRef ? { ...wp, thumbRef } : wp;
+    }),
   );
 
   // 재OCR lazy 복원용 storage path 맵 갱신.
