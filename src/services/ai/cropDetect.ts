@@ -104,9 +104,59 @@ For each problem, decide its TYPE and find its crop box:
    - type = "essay", endMarkerKind = "total".
 
 Rules:
-- Bias toward OVER-cropping: pad every box by ~15 units (0-1000 grid) on all four sides. A box slightly too large is fine; a box that cuts off content is NOT.
+- Bias toward OVER-cropping. Pad every box by ~15 units (0-1000 grid) on all four sides. The LEFT edge must include the printed problem number itself (the "9." / "10." digits), not start at the problem text. The RIGHT edge must reach past the rightmost content — text and figures often extend further right than they first appear. A box slightly too large is fine; a box that cuts off content is NOT.
 - Only emit boxes for actual problems — never for empty answer space, the page header, or page furniture.
 - Output strictly the given JSON schema. In "note", briefly state the end marker you saw.`;
+
+/**
+ * 컬럼별 여백 보강 상수 (모두 정규화 0–1000 그리드 기준).
+ *  - LEFT_PAD  : 1단(또는 단일 컬럼) 박스의 좌측 확장 — 문항번호 잘림 방지.
+ *  - RIGHT_PAD : 모든 박스의 우측 확장 — 소폭만. 과하면 1단이 거터를 넘어 2단 침범.
+ *  - COLUMN_GAP_MIN : 정렬된 xMin 간격이 이 값 이상이면 단(段) 경계로 인정.
+ */
+const LEFT_PAD = 25;
+const RIGHT_PAD = 15;
+const COLUMN_GAP_MIN = 200;
+
+/**
+ * 검출 박스들의 좌측 끝(xMin) 분포에서 2단 분할선을 동적으로 추정.
+ *
+ * 단 경계는 시험지마다 달라 고정값을 쓸 수 없다. 한 컬럼의 문항들은 같은 좌측
+ * 여백에 정렬돼 xMin 이 좁게 뭉친다 — 2단이면 xMin 이 두 무리로 갈리고 그 사이
+ * 큰 간격이 생긴다. 정렬된 xMin 의 최대 간격이 COLUMN_GAP_MIN 이상이면 그 간격
+ * 중점을 분할선으로, 아니면 단일 컬럼으로 보고 null 반환. (같은 컬럼 내 xMin
+ * 흔들림 <50 vs 실제 단 경계 400+ 라 200 이 둘을 안전하게 가른다.)
+ */
+const estimateColumnSplit = (boxes: number[][]): number | null => {
+  const xMins = boxes
+    .filter((b) => Array.isArray(b) && b.length === 4 && Number.isFinite(b[1]))
+    .map((b) => b[1])
+    .sort((a, b) => a - b);
+  if (xMins.length < 2) return null;
+  let maxGap = 0;
+  let splitAt = 0;
+  for (let i = 1; i < xMins.length; i++) {
+    const gap = xMins[i] - xMins[i - 1];
+    if (gap > maxGap) {
+      maxGap = gap;
+      splitAt = (xMins[i] + xMins[i - 1]) / 2;
+    }
+  }
+  return maxGap >= COLUMN_GAP_MIN ? splitAt : null;
+};
+
+/**
+ * cropBox [yMin,xMin,yMax,xMax] 한 개에 좌·우 여백 적용 (0–1000 클램프).
+ * split 이 null(단일 컬럼) 이거나 박스가 split 왼쪽(1단) 이면 좌측을 LEFT_PAD
+ * 확장. 우측은 컬럼 무관 RIGHT_PAD.
+ */
+const padCropBox = (box: number[], split: number | null): number[] => {
+  if (!Array.isArray(box) || box.length !== 4) return box;
+  const [yMin, xMin, yMax, xMax] = box;
+  const isLeftColumn = split == null || xMin < split;
+  const paddedXMin = isLeftColumn ? Math.max(0, xMin - LEFT_PAD) : xMin;
+  return [yMin, paddedXMin, yMax, Math.min(1000, xMax + RIGHT_PAD)];
+};
 
 /**
  * 페이지 이미지(base64 dataURL)에서 문항별 크롭 박스를 검출.
@@ -148,7 +198,9 @@ export const detectCropBoxes = async (
     const parsed = parseJsonOrThrow<{ items?: DetectedCrop[] }>(
       stripCodeFences(rawJson),
     );
-    return Array.isArray(parsed.items) ? parsed.items : [];
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    const split = estimateColumnSplit(items.map((c) => c.cropBox));
+    return items.map((c) => ({ ...c, cropBox: padCropBox(c.cropBox, split) }));
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);

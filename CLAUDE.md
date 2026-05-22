@@ -1934,7 +1934,7 @@ return wrapped
 - **Phase G — Supabase Auth** — 이메일 / OAuth 로그인. `DEV_USER_ID` → `auth.uid()` 자연 전환 (RLS 정책 이미 대응 — schema.sql L138). Auth UI + onboarding 흐름 추가. ~600줄.
 
 ### 19-2. 비용 / 정확도 보강
-- **cropped Pass 2 — 호출 자체 절감** — 현재 페이지 단위 Pass 2 (GPT-5.5) 호출. Pass 1 결과의 도형 bbox union 으로 cropped image 만 Pass 2 입력 → vision token 30-50% 절감. ~400줄 + bbox 좌표계 역변환 주의.
+- **cropped Pass 2 — 호출 자체 절감** — 현재 페이지 단위 Pass 2 (GPT-5.5) 호출. Pass 1 결과의 도형 bbox union 으로 cropped image 만 Pass 2 입력 → vision token 30-50% 절감. ~400줄 + bbox 좌표계 역변환 주의. 크롭 정확도 사전 검증 하니스는 §20.
 - **도형 vector 정확도 검증 데이터 수집** — Phase F (OCR Tier 2) + Phase I (raw SVG 메인) 적용 후 *실제 PDF* 테스트로 [diagram] 검증 로그 확인. issue 패턴 발견 시 prompt 의 *부정 예시* 보강.
 - **DiagramParams 재활성화 검토** — 현재 OCR_PAGE_SCHEMA 에서 *완전 제거* (OpenAI strict 호환 위해). raw SVG 가 충분히 정확함을 검증 후, *교사 편집 기능* 필요 시 strict: false 모드 + schema 재추가 또는 *완전 specified 필드* 로 재활성.
 - **runtime validator 확장** — sign-parity (Pattern I), ascending-order, set-distinct (이미 J 부분 적용)
@@ -1951,3 +1951,54 @@ return wrapped
 - **task #31 — 브라우저 verify (SVG 크기 + 표 줄바꿈)**
 - **Windows 콜론 파일명 처리** — `migrated_prompt_history/prompt_*T*Z.json` 같은 ISO timestamp 파일이 Windows 체크아웃 실패. `.gitattributes` 또는 *cross-platform safe naming* 으로 마이그레이션.
 - **Step 5 PDF 출력의 KaTeX 깨짐** — html2canvas → jsPDF 경로의 폰트 / SVG 누락. Puppeteer headless print 또는 react-pdf 검토.
+
+---
+
+## 20. 크롭 검출 / 크롭 테스트 페이지 (?croptest)
+
+"cropped Pass 2" (문항을 개별 크롭해 도형·난문항만 재OCR — §19-2) 본구현 전, 크롭
+정확도를 눈으로 측정하는 테스트 하니스. 프로덕션 OCR (`ocr.ts`/`prompts.ts`) 무수정.
+
+- `src/services/ai/cropDetect.ts` — `detectCropBoxes(pageBase64)` Gemini 3 Flash
+  structured-output 단일 호출. 페이지에서 문항별 크롭 박스 검출.
+- `src/screens/CropTestScreen.tsx` — `?croptest` URL gate. 보관함/PDF 두 소스 →
+  검출 → % 오버레이 → 크롭 미리보기 → 크롭 재OCR → 기존 whole-page 결과 비교.
+- `App.tsx` `route` union 에 `"croptest"` 추가 (AuthGate 우회, `?katex` 동일 패턴).
+
+### 20-1. 크롭 경계 규칙 (CROP_DETECT_PROMPT)
+
+한국 시험 문항은 또렷한 텍스트 마커로 경계가 잡힘:
+- 객관식: [문항번호 → 마지막 보기 ⑤ 행]. 도형은 항상 번호와 보기 사이 → 박스 포함.
+- 단순 서술형: [번호 → (N점) 배점 마커].
+- 분할 서술형: [번호 → 하위 배점 누적이 [총 N점] 도달하는 마지막 하위문항]. 하위
+  문항 전체가 ONE 박스.
+
+### 20-2. 크롭 박스 여백 보정 — 컬럼 인지 + 동적 분류 (CRITICAL)
+
+검출된 raw 박스는 실제 내용보다 안쪽으로 잡히는 경향 → 사용자 "우측 짤림" 보고.
+여백 후처리를 추가하며 부딪힌 함정 3 가지:
+
+**(a) 프롬프트 지시 + 결정적 후처리는 *합산* 된다.** 프롬프트에 "우측 ~45 units
+패딩" 을 넣고 *동시에* 후처리로 `xMax + 35` → 총 80 → 1단 박스가 중앙 거터를 넘어
+2단 침범. **원칙**: 결정적 후처리가 있으면 프롬프트는 같은 수치를 *올리지 말 것* —
+한쪽이 단독 책임. 프롬프트는 "내용 끝까지 정확히" 같은 *정확도* 지시만, 여유 마진은
+후처리 단독.
+
+**(b) 좌측 확장은 항상 안전, 우측 확장은 위험.** 박스 왼쪽엔 항상 빈 공간 (페이지
+좌측 여백 또는 단 사이 거터) → `xMin` 을 줄여도 흰 여백만 더 들어옴. 반면 1단 박스의
+`xMax` 를 키우면 거터를 넘어 2단 *본문* 을 침범. → 좌측 패딩 넉넉히 (`LEFT_PAD` 25),
+우측 보수적 (`RIGHT_PAD` 15).
+
+**(c) 단 경계는 시험지마다 다르다 — 고정값 금지.** 처음 `PAGE_MIDLINE = 500` 으로
+1/2단을 갈랐으나 시험지마다 단 경계 위치·좌우 폭이 제각각 → 오분류. **해결 —
+`estimateColumnSplit`**: 검출 박스들의 `xMin` 을 정렬해 *최대 간격* 탐색. 한 컬럼
+문항들은 같은 좌측 여백에 정렬돼 `xMin` 이 좁게 뭉치므로 (흔들림 <50), 2단이면 두
+무리 사이에 큰 간격 (400+) 발생. 간격 ≥ `COLUMN_GAP_MIN` (200) → 2단 (간격 중점이
+분할선), 미만 → 단일 컬럼 (전부 1단 취급 → 모두 좌측 패딩). 페이지마다 그 페이지
+박스에서 계산하므로 단 경계가 480·520·비대칭이든 자동 적응.
+
+**원칙**: 페이지 레이아웃 의존 파라미터 (단 경계, 여백 폭) 는 *고정 상수로 박지 말고*
+검출 결과에서 동적 산출. 정규화 0–1000 그리드라 임계값 (`COLUMN_GAP_MIN`) 자체는
+해상도 무관 고정 가능.
+
+**참고**: `src/services/ai/cropDetect.ts` `estimateColumnSplit` / `padCropBox`.
