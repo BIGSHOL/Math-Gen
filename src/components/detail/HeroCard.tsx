@@ -1,8 +1,11 @@
 import { Card, Chip } from "@app/components/ui";
 import type { TestPaper } from "@app/types";
+import type { OCRProblem } from "@app/stores/wizardStore";
 
 export interface HeroCardProps {
   test: TestPaper;
+  /** Detail view 의 실제 OCR 문항 — 통계를 실측값으로 계산. 없으면 test 메타 폴백. */
+  problems?: OCRProblem[];
 }
 
 interface HeroStat {
@@ -12,18 +15,36 @@ interface HeroStat {
   tone?: "ok" | "warn";
 }
 
-const buildStats = (test: TestPaper): HeroStat[] => [
-  { label: "문항", value: String(test.problemCount) },
-  {
-    label: "확정",
-    value: String(Math.max(0, test.problemCount - 3)),
-    unit: `/${test.problemCount}`,
-    tone: "ok",
-  },
-  { label: "검토 필요", value: "3", tone: "warn" },
-  { label: "변형본", value: String(test.variants.length), unit: "개" },
-  { label: "평균 난이도", value: "중" },
-];
+/**
+ * 5-up 통계 행. problems 가 있으면 *실측값*, 없으면 test 메타로 폴백.
+ * 이전엔 확정 = 총합−3, 검토 필요 = "3" 고정, 평균 난이도 = "중" 고정 같은
+ * placeholder 였다 — 실제 데이터와 어긋난다는 사용자 보고로 실측 계산으로 교체.
+ */
+const buildStats = (test: TestPaper, problems: OCRProblem[]): HeroStat[] => {
+  const hasData = problems.length > 0;
+  const total = hasData ? problems.length : test.problemCount;
+  const confirmed = problems.filter((p) => p.status === "ok").length;
+  const review = problems.filter(
+    (p) => p.status === "warn" || p.status === "pending",
+  ).length;
+  const solved = problems.filter((p) => Boolean(p.solution)).length;
+  return [
+    { label: "문항", value: String(total) },
+    {
+      label: "확정",
+      value: hasData ? String(confirmed) : "—",
+      unit: hasData ? `/${total}` : undefined,
+      tone: "ok",
+    },
+    { label: "검토 필요", value: hasData ? String(review) : "—", tone: "warn" },
+    {
+      label: "해설",
+      value: hasData ? String(solved) : "—",
+      unit: hasData ? `/${total}` : undefined,
+    },
+    { label: "변형본", value: String(test.variants.length), unit: "개" },
+  ];
+};
 
 const TONE_COLOR: Record<NonNullable<HeroStat["tone"]>, string> = {
   ok: "#10B981",
@@ -35,8 +56,10 @@ const TONE_COLOR: Record<NonNullable<HeroStat["tone"]>, string> = {
  * The thumbnail is the same placeholder pattern as Library's TestCard so
  * the visual rhythm carries from Library → Detail.
  */
-export const HeroCard = ({ test }: HeroCardProps) => {
-  const stats = buildStats(test);
+export const HeroCard = ({ test, problems }: HeroCardProps) => {
+  const probs = problems ?? [];
+  const stats = buildStats(test, probs);
+  const displayCount = probs.length > 0 ? probs.length : test.problemCount;
   return (
     <Card pad={24}>
       <div className="flex gap-6 items-start">
@@ -81,7 +104,7 @@ export const HeroCard = ({ test }: HeroCardProps) => {
           </div>
           <div className="text-h1 text-text mb-1">{test.title}</div>
           <div className="text-body text-muted mb-4">
-            {test.subject} · {test.problemCount}문항 · {test.tags.length}개 태그 · {test.time}
+            {test.subject} · {displayCount}문항 · {test.tags.length}개 태그 · {test.time}
           </div>
 
           <div className="grid gap-7" style={{ gridTemplateColumns: "repeat(5, max-content)" }}>

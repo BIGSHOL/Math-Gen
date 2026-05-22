@@ -4,6 +4,7 @@ import { updatePageOcr } from "./pages";
 import { upsertOcrProblems, updateOcrProblem } from "./problems";
 import { upsertReviews, updateReview } from "./reviews";
 import { insertVariantBatch } from "./variantHistory";
+import { updateTest } from "./tests";
 import type { PageInsert, OcrProblemInsert, ReviewInsert } from "./mappers";
 
 /**
@@ -22,11 +23,32 @@ import type { PageInsert, OcrProblemInsert, ReviewInsert } from "./mappers";
 
 let installed = false;
 let unsubscribe: (() => void) | null = null;
+/**
+ * `suspendWizardSync` 가 켜는 플래그. true 인 동안 subscribe 콜백이 no-op.
+ * `hydrateFromTest` 의 set() 이 콜백을 깨워 problems 첫-seed 로 오인 →
+ * `insertVariantBatch` 가 variant_history 를 오염시키는 것을 막는다.
+ */
+let suspended = false;
+
+/**
+ * fn 실행 동안 wizardStore → Supabase sync 를 일시 정지. zustand 의 set() 과
+ * subscribe 콜백은 *동기* 실행이므로, fn 안의 모든 set() 이 try 범위에서 끝나
+ * finally 가 정확히 그 만큼만 건너뛴다. "이어서 작업" hydrate 가 사용.
+ */
+export const suspendWizardSync = (fn: () => void): void => {
+  suspended = true;
+  try {
+    fn();
+  } finally {
+    suspended = false;
+  }
+};
 
 export const installWizardSync = (): void => {
   if (installed) return;
   installed = true;
   unsubscribe = useWizardStore.subscribe((state, prev) => {
+    if (suspended) return; // hydrateFromTest 등 — 의도적으로 sync 건너뜀
     const testId = state.testId;
     if (!testId) return;
     // ── pages 변경 감지 ────────────────────────────────────────────────────
@@ -35,6 +57,16 @@ export const installWizardSync = (): void => {
         const oldPage = prev.pages.find((p) => p.id === newPage.id);
         if (!oldPage) continue; // 신규 페이지는 Step1Upload 가 직접 insert
         syncPageDiff(newPage, oldPage);
+      }
+      // 모든 페이지 OCR 완료 시 tests 행 상태 1회 갱신 — 업로드 때 박힌
+      // "OCR 대기" 가 영원히 안 바뀌던 버그 (사용자 보고) 해소.
+      if (state.pages.length > 0) {
+        const allDoneNow = state.pages.every(pageOcrDone);
+        const allDonePrev =
+          prev.pages.length > 0 && prev.pages.every(pageOcrDone);
+        if (allDoneNow && !allDonePrev) {
+          syncTestStatusAfterOcr(testId, state.pages);
+        }
       }
     }
     // ── problems (variant reviews) 변경 감지 ──────────────────────────────
@@ -65,6 +97,36 @@ export const uninstallWizardSync = (): void => {
   if (unsubscribe) unsubscribe();
   unsubscribe = null;
   installed = false;
+};
+
+// ============================================================================
+// tests 행 상태 갱신
+// ============================================================================
+
+/** 페이지의 OCR 가 끝났는지 (성공 또는 에러 — 둘 다 "더는 진행 중 아님"). */
+const pageOcrDone = (p: WizardPage): boolean =>
+  p.ocrComplete || Boolean(p.ocrError);
+
+/**
+ * 모든 페이지 OCR 완료 시 tests 행 갱신.
+ * - problem_count: 업로드 때 박은 추정치(페이지 × 5) → 실제 추출 문항 수로 교체.
+ * - status / status_text: OCR 결과 confidence 기반. warn/pending 문항이 있으면
+ *   "검토 필요 N건", 전부 ok 면 "확정". HeroCard 통계와 같은 기준.
+ */
+const syncTestStatusAfterOcr = (testId: string, pages: WizardPage[]): void => {
+  const problems = pages.flatMap((p) => p.ocrResult);
+  const warnCount = problems.filter(
+    (it) => it.status === "warn" || it.status === "pending",
+  ).length;
+  void updateTest(
+    testId,
+    {
+      problem_count: problems.length,
+      status: warnCount > 0 ? "warn" : "ok",
+      status_text: warnCount > 0 ? `검토 필요 ${warnCount}건` : "확정",
+    },
+    { debounceMs: 800 },
+  );
 };
 
 // ============================================================================

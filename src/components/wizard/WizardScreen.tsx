@@ -75,6 +75,12 @@ export const WizardScreen = () => {
     // 마운트 시점에 sessionStorage 가 hydrate 된 상태. uploadedFileName 또는
     // 페이지 데이터가 살아 있으면 "이어하기 / 새로 시작" 묻는다.
     const s = useWizardStore.getState();
+    // "이어서 작업" 으로 보관함에서 직접 hydrate 한 경우 — 사용자가 명시적으로
+    // 불러온 시험지라 resume 다이얼로그를 띄우지 않는다 (1회용 플래그).
+    if (s.justHydrated) {
+      useWizardStore.setState({ justHydrated: false });
+      return;
+    }
     const hasState = Boolean(s.uploadedFileName) || s.pages.length > 0;
     if (hasState) {
       setResumeDialog({

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
+import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation } from "@app/lib/pdfProcessor";
+import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
 import {
@@ -183,35 +185,53 @@ export const usePageOcr = () => {
       marker: "pass1" | "pass2",
     ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
       if (isCancelled(page.id, marker)) return null;
-      // 이전에 관찰된 footgun: idb 의 `db.get()` 이 어떤 환경 (다른 탭이
-      // 같은 DB 를 잡고 있거나 upgrade event 가 미완료된 상태, 또는 dev
-      // HMR cascade 로 메인 스레드가 starved 된 상태) 에서 영구 pending
-      // 으로 끝남. await 가 settle 안 되면 worker 전체가 hang, OCR 가
-      // 0/N 에서 멈춤. 명시적 timeout 으로 hang → throw 변환.
-      const IDB_TIMEOUT_MS = 8000;
-      const image = await Promise.race([
-        getPageImage(page.imageRef),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `IndexedDB read timeout (${IDB_TIMEOUT_MS}ms) — DB 가 다른 탭에 ` +
-                    `locked 됐거나 upgrade 가 멈춰있을 수 있습니다. F12 → Application ` +
-                    `→ Storage → "Clear site data" 후 PDF 다시 업로드.`,
+      // 페이지 이미지 dataURL 확보. 일반 경로는 IndexedDB(`imageRef`), "이어서
+      // 작업" 으로 hydrate 된 페이지(`imageRef` 빈 문자열)는 Supabase Storage
+      // 에서 lazy 복원해 IndexedDB 에 캐시한다.
+      let imageDataUrl: string;
+      if (!page.imageRef) {
+        const restored = await ensurePageImage(page, getPageStoragePath(page.id));
+        if (isCancelled(page.id, marker)) return null;
+        if (!restored) {
+          throw new Error(
+            "페이지 이미지를 찾을 수 없습니다. (Storage 복원 실패 — 재OCR 불가)",
+          );
+        }
+        // 복원한 IndexedDB ref 를 store 에 저장 — 다음 재OCR 시 재다운로드 방지.
+        setPageOCR(page.id, { imageRef: restored.ref });
+        imageDataUrl = restored.dataUrl;
+      } else {
+        // 이전에 관찰된 footgun: idb 의 `db.get()` 이 어떤 환경 (다른 탭이
+        // 같은 DB 를 잡고 있거나 upgrade event 가 미완료된 상태, 또는 dev
+        // HMR cascade 로 메인 스레드가 starved 된 상태) 에서 영구 pending
+        // 으로 끝남. await 가 settle 안 되면 worker 전체가 hang, OCR 가
+        // 0/N 에서 멈춤. 명시적 timeout 으로 hang → throw 변환.
+        const IDB_TIMEOUT_MS = 8000;
+        const image = await Promise.race([
+          getPageImage(page.imageRef),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `IndexedDB read timeout (${IDB_TIMEOUT_MS}ms) — DB 가 다른 탭에 ` +
+                      `locked 됐거나 upgrade 가 멈춰있을 수 있습니다. F12 → Application ` +
+                      `→ Storage → "Clear site data" 후 PDF 다시 업로드.`,
+                  ),
                 ),
-              ),
-            IDB_TIMEOUT_MS,
+              IDB_TIMEOUT_MS,
+            ),
           ),
-        ),
-      ]);
-      if (isCancelled(page.id, marker)) return null;
-      if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
+        ]);
+        if (isCancelled(page.id, marker)) return null;
+        if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
+        imageDataUrl = image.dataUrl;
+      }
 
       // 회전 적용 — 0° 면 fast-path 로 원본 그대로. 90/180/270 이면 canvas
       // redraw 한 번. 페이지마다 한 번씩만 호출되므로 성능 무관.
       const rotated =
-        page.rotation === 0 ? image.dataUrl : await applyRotation(image.dataUrl, page.rotation);
+        page.rotation === 0 ? imageDataUrl : await applyRotation(imageDataUrl, page.rotation);
 
       let lastErr: Error | null = null;
       for (let i = 0; i < chain.length; i++) {

@@ -51,6 +51,64 @@ const EMPTY: DetailData = {
   error: null,
 };
 
+/**
+ * testId 의 pages / problems / reviews / variantHistory 를 Supabase 에서 4-병렬
+ * fetch + (옵션) Storage signed URL 발급. `useDetailData` 훅과 "이어서 작업"
+ * hydrate (`wizardHydrate.ts`) 가 공유하는 순수 async 함수.
+ *
+ * withSignedUrls=false 면 signed URL 발급 생략 — 위자드 hydrate 는 이미지가
+ * 불필요(재OCR 시점에 lazy 복원)하므로 네트워크를 아낀다.
+ */
+export const loadDetailData = async (
+  testId: string,
+  opts: { withSignedUrls?: boolean } = {},
+): Promise<DetailData> => {
+  const withSignedUrls = opts.withSignedUrls ?? true;
+  const [pageRows, problemRows, reviewRows, historyRows] = await Promise.all([
+    loadPagesByTest(testId),
+    loadProblemsByTest(testId),
+    loadReviewsByTest(testId),
+    loadVariantHistory(testId),
+  ]);
+  const pages: PageWithUrls[] = withSignedUrls
+    ? await Promise.all(
+        (pageRows ?? []).map(async (p) => {
+          const [imageUrl, thumbUrl] = await Promise.all([
+            p.image_storage_path
+              ? getSignedUrl("page-images", p.image_storage_path, 3600)
+              : Promise.resolve(null),
+            p.thumb_storage_path
+              ? getSignedUrl("page-thumbnails", p.thumb_storage_path, 3600)
+              : Promise.resolve(null),
+          ]);
+          return {
+            ...p,
+            imageUrl: imageUrl ?? undefined,
+            thumbUrl: thumbUrl ?? undefined,
+          };
+        }),
+      )
+    : (pageRows ?? []);
+  const problems = (problemRows ?? []).map(ocrProblemRowToWizard);
+  // page_id 별 그룹 — tabs 가 page-grouped 렌더에 사용.
+  const problemsByPage = new Map<string, OCRProblem[]>();
+  (problemRows ?? []).forEach((row, idx) => {
+    const arr = problemsByPage.get(row.page_id) ?? [];
+    arr.push(problems[idx]);
+    problemsByPage.set(row.page_id, arr);
+  });
+  const reviews = (reviewRows ?? []).map(reviewRowToWizard);
+  return {
+    pages,
+    problems,
+    problemsByPage,
+    reviews,
+    history: historyRows ?? [],
+    loading: false,
+    error: null,
+  };
+};
+
 export const useDetailData = (testId: string | null): DetailData => {
   const [data, setData] = useState<DetailData>(EMPTY);
   // Phase D: latest pages 를 timer 안에서 stale-free 로 읽기 위한 ref.
@@ -104,53 +162,9 @@ export const useDetailData = (testId: string | null): DetailData => {
 
     (async () => {
       try {
-        const [pageRows, problemRows, reviewRows, historyRows] = await Promise.all([
-          loadPagesByTest(testId),
-          loadProblemsByTest(testId),
-          loadReviewsByTest(testId),
-          loadVariantHistory(testId),
-        ]);
+        const result = await loadDetailData(testId, { withSignedUrls: true });
         if (cancelled) return;
-        // Signed URL 발급 — pages 의 image/thumb path 가 있는 경우만.
-        const pages: PageWithUrls[] = await Promise.all(
-          (pageRows ?? []).map(async (p) => {
-            const [imageUrl, thumbUrl] = await Promise.all([
-              p.image_storage_path
-                ? getSignedUrl("page-images", p.image_storage_path, 3600)
-                : Promise.resolve(null),
-              p.thumb_storage_path
-                ? getSignedUrl("page-thumbnails", p.thumb_storage_path, 3600)
-                : Promise.resolve(null),
-            ]);
-            return {
-              ...p,
-              imageUrl: imageUrl ?? undefined,
-              thumbUrl: thumbUrl ?? undefined,
-            };
-          }),
-        );
-        if (cancelled) return;
-        const problems = (problemRows ?? []).map(ocrProblemRowToWizard);
-        // page_id 별 그룹
-        const problemsByPage = new Map<string, OCRProblem[]>();
-        const problemPageMap = new Map<string, string>(); // problem id → page id
-        (problemRows ?? []).forEach((row, idx) => {
-          problemPageMap.set(row.id, row.page_id);
-          const arr = problemsByPage.get(row.page_id) ?? [];
-          arr.push(problems[idx]);
-          problemsByPage.set(row.page_id, arr);
-        });
-        const reviews = (reviewRows ?? []).map(reviewRowToWizard);
-
-        setData({
-          pages,
-          problems,
-          problemsByPage,
-          reviews,
-          history: historyRows ?? [],
-          loading: false,
-          error: null,
-        });
+        setData(result);
       } catch (err) {
         if (cancelled) return;
         console.warn("[useDetailData]", err);

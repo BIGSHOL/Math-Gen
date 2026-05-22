@@ -146,6 +146,28 @@ export const getTest = async (id: string): Promise<TestPaper | null> => {
 };
 
 /**
+ * 단건 조회 — TestRow 원본 반환. getTest 와 달리 testRowToTestPaper 변환을
+ * 생략해 grade / exam_category / uploaded_file_name 을 보존. "이어서 작업"
+ * hydrate 가 selectedGrade / examCategory 추출에 사용.
+ */
+export const getTestRow = async (id: string): Promise<TestRow | null> => {
+  if (!SUPABASE_ENABLED || !supabase) return null;
+  const { data, error } = await supabase
+    .from("tests")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) {
+    // PGRST116 = "0 rows returned" — getTest 와 동일 처리.
+    if (error.code !== "PGRST116") {
+      console.warn("[api/tests] getTestRow failed:", error.message);
+    }
+    return null;
+  }
+  return data as TestRow;
+};
+
+/**
  * draft 상태의 row 만 삭제 + Storage cleanup — reset/handleRestart 가 호출.
  * 이미 사용자가 진행 (status="ok"/"warn") 한 시험지는 *건드리지 않음*.
  *

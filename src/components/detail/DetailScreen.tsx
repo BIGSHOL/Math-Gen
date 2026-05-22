@@ -17,8 +17,11 @@ import { renderDiagram, type DiagramParams } from "@app/lib/diagram";
 import { useDetailData, type PageWithUrls } from "@app/hooks/useDetailData";
 import { useImageAsDataUrl } from "@app/hooks/useImageAsDataUrl";
 import { formatRelativeKo, historyRowToVariant } from "@app/services/api/mappers";
+import { hydrateWizardFromTest } from "@app/services/api/wizardHydrate";
+import { suspendWizardSync } from "@app/services/api/wizardSync";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
+import { useWizardStore } from "@app/stores/wizardStore";
 import type { OCRProblem, ProblemReview } from "@app/stores/wizardStore";
 import type { TestStatus } from "@app/types";
 import { PageThumbnails } from "./PageThumbnails";
@@ -44,7 +47,7 @@ const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
 export const DetailScreen = () => {
   const selectedTestId = useAppStore((s) => s.selectedTestId);
   const backToLibrary = useAppStore((s) => s.backToLibrary);
-  const openModal = useAppStore((s) => s.openModal);
+  const startWizard = useAppStore((s) => s.startWizard);
   const getTest = useLibraryStore((s) => s.getTest);
 
   const test = selectedTestId ? getTest(selectedTestId) : undefined;
@@ -52,6 +55,34 @@ export const DetailScreen = () => {
 
   const [activeTab, setActiveTab] = useState<DetailTab>("problems");
   const [activePage, setActivePage] = useState(1);
+  const [resuming, setResuming] = useState(false);
+
+  /**
+   * "이어서 작업" — 저장된 시험지를 위자드로 hydrate 해 미완료 단계부터 재개.
+   * `suspendWizardSync` 로 감싸 hydrate 의 set() 이 variant_history 를 오염시키지
+   * 않게 하고, `justHydrated` 플래그(hydrateFromTest 가 set)로 위자드의 resume
+   * 다이얼로그를 skip 한다.
+   */
+  const handleResume = async () => {
+    if (!selectedTestId || resuming) return;
+    setResuming(true);
+    try {
+      const snapshot = await hydrateWizardFromTest(selectedTestId);
+      if (!snapshot) {
+        window.alert("이어서 작업할 데이터가 없습니다.");
+        return;
+      }
+      // 로딩 중 사용자가 보관함으로 돌아갔으면 화면 전환 취소.
+      if (useAppStore.getState().screen !== "detail") return;
+      suspendWizardSync(() => useWizardStore.getState().hydrateFromTest(snapshot));
+      startWizard(snapshot.testId);
+    } catch (err) {
+      console.warn("[DetailScreen] 이어서 작업 실패:", err);
+      window.alert("이어서 작업 진입에 실패했습니다.");
+    } finally {
+      setResuming(false);
+    }
+  };
 
   if (!test) {
     return (
@@ -126,10 +157,11 @@ export const DetailScreen = () => {
             <Btn
               kind="accent"
               size="sm"
-              icon="sparkle"
-              onClick={() => openModal("new-variant")}
+              icon="play"
+              onClick={handleResume}
+              disabled={resuming || detail.loading}
             >
-              변형 만들기
+              {resuming ? "불러오는 중…" : "이어서 작업"}
             </Btn>
           </>
         }
@@ -145,7 +177,7 @@ export const DetailScreen = () => {
 
         <main className="flex-1 overflow-auto">
           <div className="max-w-[2400px] mx-auto px-8 py-6">
-            <HeroCard test={enrichedTest} />
+            <HeroCard test={enrichedTest} problems={detail.problems} />
 
             <div className="mt-[22px] mb-5">
               <ProblemTabs
@@ -189,7 +221,7 @@ export const DetailScreen = () => {
               </>
             )}
 
-            <CtaBanner onLaunch={() => openModal("new-variant")} />
+            <CtaBanner onLaunch={handleResume} />
           </div>
         </main>
 

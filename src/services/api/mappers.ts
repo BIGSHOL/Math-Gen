@@ -286,6 +286,29 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
   ocrModel: row.ocr_model ?? undefined,
 });
 
+/**
+ * pages row → WizardStore 의 WizardPage. "이어서 작업" hydrate 용 — 저장된
+ * 시험지를 위자드로 되불러올 때 사용. imageRef/thumbRef 는 빈 문자열 — 이미지는
+ * Supabase Storage 에만 있고 재OCR 시점에 imageRestore.ensurePageImage 가 lazy
+ * 복원한다. in-flight 필드(upgrading 등)는 전부 undefined.
+ */
+export const pageRowToWizard = (
+  row: PageRow,
+  ocrResult: OCRProblem[],
+): WizardPage => ({
+  id: row.id,
+  imageRef: "",
+  thumbRef: "",
+  textLayer: row.text_layer ?? "",
+  isProblemPage: row.is_problem_page,
+  ocrResult,
+  ocrComplete: row.ocr_complete,
+  ocrError: row.ocr_error ?? undefined,
+  forceOcr: row.force_ocr ?? undefined,
+  ocrModel: (row.ocr_model as WizardPage["ocrModel"]) ?? undefined,
+  rotation: row.rotation,
+});
+
 export const reviewRowToWizard = (row: ReviewRow): ProblemReview => ({
   id: row.id,
   original: row.original_problem,

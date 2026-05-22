@@ -22,14 +22,27 @@ export const upsertOcrProblems = async (
   items: OCRProblem[],
 ): Promise<void> => {
   if (!SUPABASE_ENABLED || !supabase) return;
+  // page 단위 "전체 교체" — 기존 행 삭제 후 삽입.
+  // 재OCR 하면 OCRProblem.id 가 새 randomUUID 로 발급되므로 onConflict:"id"
+  // upsert 로는 옛 행이 안 지워지고 누적된다 (사용자 보고: 15문항인데 58행).
+  // page_id 로 싹 지우고 새로 넣어야 정확히 1:1 이 된다.
+  // (참고: problem_reviews.ocr_problem_id 는 ON DELETE CASCADE — 재OCR 시
+  //  해당 문항의 옛 변형도 함께 정리됨. 의도된 동작.)
+  const { error: delError } = await supabase
+    .from("ocr_problems")
+    .delete()
+    .eq("page_id", pageId);
+  if (delError) {
+    console.warn(
+      `[api/problems] upsertOcrProblems delete failed: ${delError.message} (code: ${delError.code ?? "-"})`,
+    );
+  }
   if (items.length === 0) return;
   const payloads = items.map((it) => ocrProblemToInsert(pageId, it));
-  const { error } = await supabase
-    .from("ocr_problems")
-    .upsert(payloads, { onConflict: "id" });
+  const { error } = await supabase.from("ocr_problems").insert(payloads);
   if (error) {
     console.warn(
-      `[api/problems] upsertOcrProblems failed: ${error.message} (code: ${error.code ?? "-"})`,
+      `[api/problems] upsertOcrProblems insert failed: ${error.message} (code: ${error.code ?? "-"})`,
     );
   }
 };

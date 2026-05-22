@@ -251,9 +251,29 @@ export interface ProblemReview {
   generatingStartedAt?: number;
 }
 
+/**
+ * "이어서 작업" — 저장된 시험지로부터 wizardStore 를 재구성할 때 `hydrateFromTest`
+ * 에 넘기는 스냅샷. `initialState` 위에 얹혀 위자드 state 를 복원한다.
+ */
+export interface WizardHydrateSnapshot {
+  testId: string;
+  step: WizardStepIndex;
+  pages: WizardPage[];
+  problems: ProblemReview[];
+  selectedGrade: GradeKey | null;
+  examCategory: ExamCategory | null;
+  uploadedFileName: string | null;
+}
+
 export interface WizardState {
   testId: string | null;
   step: WizardStepIndex;
+  /**
+   * "이어서 작업" hydrate 직후 1회만 true. WizardScreen 의 resume 다이얼로그가
+   * 이 플래그를 보면 skip — 이미 명시적으로 불러온 시험지라 재차 묻지 않는다.
+   * `partialize` 제외 (휘발성) — 새로고침 후엔 일반 resume 흐름.
+   */
+  justHydrated: boolean;
 
   // Step 1 — Upload
   uploadedFileName: string | null;
@@ -320,6 +340,7 @@ export interface WizardState {
         | "upgrading"
         | "ocrInflightModel"
         | "ocrStartedAt"
+        | "imageRef"
       >
     >,
   ) => void;
@@ -334,12 +355,15 @@ export interface WizardState {
     >,
   ) => void;
   startWizard: (testId: string) => void;
+  /** "이어서 작업" — 저장된 시험지 스냅샷으로 위자드 state 재구성. */
+  hydrateFromTest: (snapshot: WizardHydrateSnapshot) => void;
   reset: () => void;
 }
 
 const initialState = {
   testId: null,
   step: 0 as WizardStepIndex,
+  justHydrated: false,
   uploadedFileName: null,
   uploadProgress: 0,
   selectedGrade: null as GradeKey | null,
@@ -423,6 +447,8 @@ export const useWizardStore = create<WizardState>()(
       setExport: (patch) => set((state) => ({ ...state, ...patch })),
 
       startWizard: (testId) => set({ ...initialState, testId }),
+      hydrateFromTest: (snapshot) =>
+        set({ ...initialState, ...snapshot, justHydrated: true }),
       reset: () => set(initialState),
     }),
     {

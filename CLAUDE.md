@@ -930,7 +930,10 @@ choice grid 로 변환.
 
 1. **Vite dev compile 확인** — `curl -s "http://localhost:3005/src/path/to/file.ts"`
    로 트랜스파일 결과에 추가한 export / function 보이는지
-2. **Chrome MCP 콘솔 에러 확인** — `read_console_messages` 로 새 에러 없는지
+2. **브라우저 검증 — Chrome MCP 최우선** — 콘솔 에러 확인 (`read_console_messages`),
+   UI 동작 검증 등 *브라우저 확인은 모두* Chrome MCP (`mcp__Claude_in_Chrome__*`) 를
+   **최우선**으로 사용. 확장 미연결 등으로 사용 불가능할 때만 Preview MCP
+   (`mcp__Claude_Preview__*`) 로 폴백 — Preview MCP 는 화면 패널을 차지하므로 차선.
 3. **TaskUpdate completed** — 끝낸 작업은 반드시 completed 마킹
 
 ### 7-5. 프롬프트 수정 — "일반 지시문" 보다 *사용자 실제 보고 사례* 가 강력
