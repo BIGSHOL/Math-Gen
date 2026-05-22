@@ -466,11 +466,7 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
 
           {persistedPages.length > 0 && (
             <div className="mt-5">
-              <Eyebrow className="mb-1">페이지 미리보기</Eyebrow>
-              <p className="text-caption text-muted mb-2.5">
-                누워 있는 페이지는 ⟲ 버튼으로 세워 주세요 — 회전은 OCR 전에
-                이 단계에서 끝내야 합니다.
-              </p>
+              <Eyebrow className="mb-2.5">페이지 미리보기</Eyebrow>
               <RotatablePageGrid pages={persistedPages} />
             </div>
           )}
@@ -525,6 +521,9 @@ const SelectablePill = ({
  * item id 가 새로 발급돼 변형 검토(`problems`)가 stale 되므로,
  * `PageThumbColumn` (OCR 이후 단계) 에는 회전 버튼이 없다.
  *
+ * 누워 있는(가로 90/270°) 페이지는 누운 채로 OCR 하면 인식 오류 확률이
+ * 높으므로 경고 배너 + 카드 표시로 사용자가 ⟲ 로 세우도록 유도한다.
+ *
  * 썸네일 로드·회전 적용은 공유 훅 재사용. ⟲ 클릭 → 90° 시계방향 순환.
  */
 const RotatablePageGrid = ({ pages }: { pages: WizardPage[] }) => {
@@ -538,45 +537,77 @@ const RotatablePageGrid = ({ pages }: { pages: WizardPage[] }) => {
       ((page.rotation + 90) % 360) as WizardPage["rotation"],
     );
 
+  const isLandscape = (p: WizardPage) =>
+    p.rotation === 90 || p.rotation === 270;
+  const landscapeCount = pages.filter(isLandscape).length;
+
   return (
-    <div className="grid grid-cols-5 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
-      {pages.map((page, idx) => {
-        const orig = thumbs.get(page.thumbRef);
-        const thumb =
-          page.rotation === 0
-            ? orig
-            : rotatedThumbs.get(`${page.thumbRef}@${page.rotation}`) ?? orig;
-        const landscape = page.rotation === 90 || page.rotation === 270;
-        return (
-          <div
-            key={page.id}
-            className="relative border border-line rounded-r1 overflow-hidden bg-white"
-            style={{ aspectRatio: landscape ? "4 / 3" : "3 / 4" }}
-          >
-            {thumb ? (
-              <img
-                src={thumb}
-                alt={`${idx + 1}페이지`}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-surface2 animate-pulse" />
-            )}
-            <button
-              type="button"
-              aria-label={`${idx + 1}페이지 90도 시계방향 회전`}
-              title="90° 회전"
-              onClick={() => rotate(page)}
-              className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white/85 hover:bg-accent grid place-items-center text-muted hover:text-white shadow-s1 transition-colors"
+    <div className="space-y-2.5">
+      {landscapeCount > 0 && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-r2 border border-warn/40 bg-warn-soft text-small text-warn-ink">
+          <Icon
+            name="warning"
+            size={15}
+            weight="fill"
+            className="flex-shrink-0 mt-[1px] text-warn"
+          />
+          <span>
+            누워 있는 페이지가 <b>{landscapeCount}개</b> 있습니다. 누운 채로
+            OCR 하면 문항·수식 인식 오류 확률이 크게 높아집니다 — 카드의{" "}
+            <b>⟲</b> 버튼으로 똑바로 세운 뒤 OCR 단계로 넘어가세요.
+          </span>
+        </div>
+      )}
+      <div className="grid grid-cols-5 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
+        {pages.map((page, idx) => {
+          const orig = thumbs.get(page.thumbRef);
+          const thumb =
+            page.rotation === 0
+              ? orig
+              : rotatedThumbs.get(`${page.thumbRef}@${page.rotation}`) ?? orig;
+          const landscape = isLandscape(page);
+          return (
+            <div
+              key={page.id}
+              className={cn(
+                "relative border rounded-r1 overflow-hidden bg-white",
+                landscape ? "border-warn" : "border-line",
+              )}
+              style={{ aspectRatio: landscape ? "4 / 3" : "3 / 4" }}
             >
-              <Icon name="arrow-clockwise" size={12} weight="bold" />
-            </button>
-            <span className="absolute bottom-1 right-1 text-[9px] font-mono font-semibold text-muted bg-white/85 rounded-sm px-1 leading-none py-[1px]">
-              {idx + 1}
-            </span>
-          </div>
-        );
-      })}
+              {thumb ? (
+                <img
+                  src={thumb}
+                  alt={`${idx + 1}페이지`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-surface2 animate-pulse" />
+              )}
+              <button
+                type="button"
+                aria-label={`${idx + 1}페이지 90도 시계방향 회전`}
+                title="90° 회전"
+                onClick={() => rotate(page)}
+                className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white/85 hover:bg-accent grid place-items-center text-muted hover:text-white shadow-s1 transition-colors"
+              >
+                <Icon name="arrow-clockwise" size={12} weight="bold" />
+              </button>
+              {landscape && (
+                <span
+                  className="absolute top-1 right-1 grid place-items-center w-4 h-4 rounded-full bg-warn text-white shadow-s1"
+                  title="누워 있는 페이지 — 이대로 OCR 하면 인식 오류 확률이 높습니다. ⟲ 로 세워 주세요."
+                >
+                  <Icon name="warning" size={10} weight="fill" />
+                </span>
+              )}
+              <span className="absolute bottom-1 right-1 text-[9px] font-mono font-semibold text-muted bg-white/85 rounded-sm px-1 leading-none py-[1px]">
+                {idx + 1}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
