@@ -1013,31 +1013,49 @@ RULES FOR EACH "items" ENTRY
        🚨 *모든* 길이 표시 (변 전체 길이 5y·3x 든, 변의 일부 8·6 이든) 는 **점선 호 (dashed arc)** 로만 그린다.
          양 끝 tick(짧은 수직선) 가 달린 직선은 *절대 금지*. 호 없이 라벨만 두는 것도 금지.
          치수선 1개 = **호 path → 흰 배경 rect → 라벨 text** 의 3요소 세트 (이 순서대로 emit, text 가 맨 위).
-         - 호 path: 변에서 바깥쪽(도형 안쪽의 반대) 으로 부푼 quadratic Bézier 점선. 정점이 변에서
-           12-16 px 바깥 (아래 흰 rect 가 도형 변에 닿지 않을 만큼). control 점은 정점의 약 2배 거리.
+         - 호 path: 변에서 바깥쪽(도형 안쪽의 반대) 으로 부푼 quadratic Bézier 점선.
            stroke-dasharray="3 2" stroke-width="1" fill="none".
          - 흰 배경 rect: 호의 한가운데(=라벨 자리) 를 덮는 흰 사각형. fill="white", stroke 없음.
            폭 ≈ 글자수 × 9 + 6, 높이 16. → 점선 호를 글자 자리에서 끊어 라벨과 겹쳐 보이지 않게 한다.
          - 라벨 text: 호의 한가운데에 정확히. text-anchor="middle" dominant-baseline="middle".
+
+       🚨 **원본에 없는 선·점선 절대 금지 (사용자 보고 — 매우 심각)**:
+         사각형·삼각형 등 *순수 도형* 의 SVG 에 좌표축·중심선·십자(+) 점선·격자·보조선을
+         **절대 추가하지 않는다**. 점선은 오직 (1) 위 치수 호, (2) 함수 그래프의 꼭짓점→축
+         보조선(함수 그래프 문제 한정) 에만 쓴다. *도형 내부를 가로지르는* 점선·실선 = 절대 금지.
+         (실제 보고: 사각형 안에 원본에 없는 십자 점선이 그려짐.) SVG 는 원본에 *실제로 보이는*
+         선·도형·라벨만 — 없는 요소를 "보기 좋게" 추가하지 말 것.
+
+       🚨 **부분 길이 호 — 원본이 재는 변의 구간을 좌우까지 정확히 보존**:
+         8·6 같은 *부분* 길이 호는 원본에서 그 치수가 가리키는 변의 *구간* 을 똑같이 그린다.
+         원본의 8 이 위쪽 변의 *오른쪽* 을 재면 우리 SVG 의 8 호도 오른쪽에 둔다. 좌우를 임의로
+         뒤집거나 기본값으로 가운데·왼쪽에 두지 말 것. (실제 보고: 원본은 우상단인데 좌상단 렌더.)
+
+       🚨 **같은 변에 호가 2개 이상이면 높이를 어긋나게 (stagger) — 겹침 방지**:
+         span 이 *긴 호일수록 변에서 더 멀리(높이)* 부풀려, 짧은 호가 긴 호 안쪽에 nested 되게 한다.
+         - 가장 긴 호 (예: 전체 5y): 정점이 변에서 28-34 px 바깥.
+         - 짧은 호 (예: 부분 8): 정점이 변에서 12-16 px 바깥.
+         라벨·흰 rect 도 각 호 정점 높이에 맞춰 따로 둔다. 호가 1개뿐이면 정점 12-16 px.
+
        잘못된 출력 (실제 사용자 보고 — 직선 + tick, 라벨이 호 밖. 절대 금지):
            <line x1="270" y1="48" x2="350" y2="48" stroke="black" stroke-dasharray="3 2"/>
            <line x1="270" y1="44" x2="270" y2="52" stroke="black"/>
            <line x1="350" y1="44" x2="350" y2="52" stroke="black"/>
            <text x="310" y="64">8</text>
-       올바른 출력 — 가로 변 (예: 위쪽 변 y=50, x 60~360. 호는 변 위로 부풂):
-         전체 길이 5y:
-           <path d="M 60 50 Q 210 26 360 50" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+       올바른 출력 — 위쪽 변 (y=70, x 60~360) 에 호 2개. 5y(전체) 를 8(부분) 보다 *높게*:
+         전체 길이 5y (긴 호 — 변에서 ~32 px):
+           <path d="M 60 70 Q 210 6 360 70" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
            <rect x="198" y="30" width="24" height="16" fill="white"/>
            <text x="210" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">5y</text>
-         오른쪽 일부 8 (x 240~360 구간):
-           <path d="M 240 50 Q 300 26 360 50" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
-           <rect x="293" y="30" width="14" height="16" fill="white"/>
-           <text x="300" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">8</text>
-       올바른 출력 — 세로 변 (예: 왼쪽 변 x=60, y 50~230. 호는 변 왼쪽 바깥으로 부풂):
-           <path d="M 60 50 Q 30 140 60 230" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
-           <rect x="33" y="132" width="24" height="16" fill="white"/>
-           <text x="45" y="140" text-anchor="middle" dominant-baseline="middle" font-size="14">3x</text>
-         (오른쪽 변 6 은 같은 방식, 호를 변 오른쪽 바깥으로 부풀린다.)
+         오른쪽 일부 8 (짧은 호 — x 240~360 구간, 변에서 ~14 px, 5y 호 안쪽에 nested):
+           <path d="M 240 70 Q 300 42 360 70" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+           <rect x="293" y="48" width="14" height="16" fill="white"/>
+           <text x="300" y="56" text-anchor="middle" dominant-baseline="middle" font-size="14">8</text>
+       올바른 출력 — 세로 변 (예: 왼쪽 변 x=60, y 70~240. 호는 변 왼쪽 바깥으로 부풂):
+           <path d="M 60 70 Q 28 155 60 240" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+           <rect x="33" y="147" width="24" height="16" fill="white"/>
+           <text x="45" y="155" text-anchor="middle" dominant-baseline="middle" font-size="14">3x</text>
+         (오른쪽 변 6 은 같은 방식, 호를 변 오른쪽 바깥으로. 같은 변에 호 2개면 stagger.)
        - **삼각형·다각형 vertex 좌표는 원본 비율 정확히 보존** (호 치수선과 별개로 vertex 위치는 그대로). 원본에서 vertex 가 변 *위에서 8 만큼* 떨어진 점에 있다면, 우리 SVG 의 vertex 도 같은 비율 위치 (대략 변 길이의 8/5y 비율 지점) 에 배치. 비율 추정 어려우면 *문제 본문의 수치 정보로 역산*.
 
        **Function graph protocol — read these constraints OFF the original image BEFORE drawing anything**:
