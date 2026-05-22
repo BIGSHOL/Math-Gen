@@ -418,6 +418,200 @@ const uprightGeometryLabels = (inner: string): string => {
   return out;
 };
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * 한글-수식 분리 — `$...$` / `$$...$$` 안에 섞인 한글을 prose 레벨로 떼어낸다.
+ *
+ * 모델(OCR·해설·변형)이 한글 설명어를 수식 안에 박는 사례가 잦다. 사용자
+ * 보고(4번 해설 — 실제 출력):
+ *   `$2ab^3 \times (\text{가운데}) \times A = 8a^6b^6$`
+ * KaTeX 는 `\text{한글}` / raw 한글을 *math 컨텍스트 크기* 로 렌더 → 본문
+ * prose 와 글씨 크기가 달라 "한글 크기가 제멋대로" 로 보인다.
+ *
+ * 해결: 한글 구간을 떼어 `$수식$한글$수식$` 형태로 재조립 → 한글이 본문
+ * prose 폰트로 렌더돼 크기가 통일된다. **안전 구간만** 분리한다:
+ *  - brace depth 0 — 첨자 `x_{한글}` · 분수 인자 `\frac{한글}{}` 안은 쪼개면
+ *    구조가 깨지므로 제외.
+ *  - `\left .. \right` 밖 — 안에서 쪼개면 `\left` 짝이 두 span 으로 분리돼
+ *    KaTeX "Expected \right" 에러.
+ *  - `\begin{}` 환경 없음 — cases/array 내용은 depth 0 라 잘못 쪼개지므로
+ *    한글이 있어도 그 span 전체를 통째로 건드리지 않는다.
+ * 위 위험 구간의 한글은 그대로 두고 프롬프트에서 별도 방어한다 (v1 한계).
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/** 한글 음절 + 자모. 수식 안에 있으면 분리 트리거. */
+const HANGUL_CHAR = /[가-힣ㄱ-ㅎㅏ-ㅣ]/;
+
+/** `\text{}` 류 텍스트 래퍼 여는 부분 — 모델이 한글 설명어를 감쌀 때 쓰는 형태. */
+const TEXT_WRAPPER_OPEN =
+  /^\\(?:textnormal|textrm|textbf|textit|textsf|textsc|text|mathrm|mathbf|mathsf|mbox|hbox)\s*\{/;
+
+/** `openIdx`(`{`)에 매칭되는 `}` 인덱스. `\{` `\}` escape 는 건너뜀. 못 찾으면 -1. */
+const findBraceClose = (s: string, openIdx: number): number => {
+  let depth = 0;
+  for (let k = openIdx; k < s.length; k++) {
+    const c = s[k];
+    if (c === "\\") {
+      k++; // escape — 다음 글자 소비
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return k;
+    }
+  }
+  return -1;
+};
+
+interface MathSegment {
+  type: "math" | "text";
+  content: string;
+}
+
+/**
+ * 수식 inner 를 math / 한글-text 구간으로 분해. brace depth 0 + `\left..\right`
+ * 밖의 한글(raw 또는 `\text{순수한글}`)만 text 구간으로 떼어낸다.
+ */
+const splitMathInnerByHangul = (inner: string): MathSegment[] => {
+  const segs: MathSegment[] = [];
+  let buf = "";
+  let bufType: "math" | "text" = "math";
+  let depth = 0; // `{}` 중첩 깊이
+  let leftDepth = 0; // `\left .. \right` 중첩 깊이
+  const switchTo = (type: "math" | "text") => {
+    if (buf && bufType !== type) {
+      segs.push({ type: bufType, content: buf });
+      buf = "";
+    }
+    bufType = type;
+  };
+  let i = 0;
+  const n = inner.length;
+  while (i < n) {
+    const ch = inner[i];
+    if (ch === "\\") {
+      // escape 된 brace `\{` `\}` — 리터럴, depth 영향 없음.
+      if (inner[i + 1] === "{" || inner[i + 1] === "}") {
+        switchTo("math");
+        buf += ch + inner[i + 1];
+        i += 2;
+        continue;
+      }
+      const rest = inner.slice(i);
+      if (/^\\left\b/.test(rest)) {
+        leftDepth++;
+      } else if (/^\\right\b/.test(rest)) {
+        leftDepth = Math.max(0, leftDepth - 1);
+      } else if (depth === 0 && leftDepth === 0) {
+        // 텍스트 래퍼 — 내용이 *순수 한글* 이면 text 구간으로 추출.
+        const wm = rest.match(TEXT_WRAPPER_OPEN);
+        if (wm) {
+          const braceOpen = i + wm[0].length - 1; // 여는 `{` 위치
+          const close = findBraceClose(inner, braceOpen);
+          if (close > braceOpen) {
+            const content = inner.slice(braceOpen + 1, close);
+            if (
+              HANGUL_CHAR.test(content) &&
+              !content.includes("\\") &&
+              !content.includes("{") &&
+              !content.includes("}")
+            ) {
+              switchTo("text");
+              buf += content;
+              i = close + 1;
+              continue;
+            }
+          }
+        }
+      }
+      switchTo("math"); // 그 외 백슬래시 명령 — math 그대로.
+      buf += ch;
+      i++;
+      continue;
+    }
+    if (ch === "{") {
+      depth++;
+      switchTo("math");
+      buf += ch;
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      depth = Math.max(0, depth - 1);
+      switchTo("math");
+      buf += ch;
+      i++;
+      continue;
+    }
+    // depth 0 + `\left` 밖의 raw 한글.
+    if (depth === 0 && leftDepth === 0 && HANGUL_CHAR.test(ch)) {
+      switchTo("text");
+      buf += ch;
+      i++;
+      continue;
+    }
+    // 공백 — 현재 구간에 흡수 (math ↔ text 전환 안 함, 원본 간격 보존).
+    if (ch === " " || ch === "\t") {
+      buf += ch;
+      i++;
+      continue;
+    }
+    switchTo("math");
+    buf += ch;
+    i++;
+  }
+  if (buf) segs.push({ type: bufType, content: buf });
+  return segs;
+};
+
+/** math 구간이 비었거나 directive/공백뿐이라 버려도 되는지. */
+const isDroppableMath = (s: string): boolean =>
+  s
+    .replace(/\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b/g, "")
+    .replace(/\\(?:qquad|quad|,|;|:|!)/g, "")
+    .replace(/[\s{}]/g, "")
+    .length === 0;
+
+/** 한 수식 span 의 inner 한글 분리 결과. 분리할 게 없으면 null(원본 유지). */
+const extractHangulFromInner = (inner: string): string | null => {
+  if (!HANGUL_CHAR.test(inner)) return null;
+  // `\begin{}` 환경(cases/array/aligned 등)은 내용이 depth 0 라 잘못 쪼개면
+  // 환경 자체가 깨진다 — 한글이 있어도 통째로 건드리지 않는다.
+  if (/\\begin\s*\{/.test(inner)) return null;
+  const segs = splitMathInnerByHangul(inner);
+  if (!segs.some((s) => s.type === "text")) return null; // 분리할 한글 없음
+  const parts: string[] = [];
+  for (const seg of segs) {
+    if (seg.type === "text") {
+      parts.push(seg.content);
+    } else if (isDroppableMath(seg.content)) {
+      // 내용 없는 math 구간은 버리되, 공백이 있었으면 한 칸은 보존.
+      if (/\s/.test(seg.content)) parts.push(" ");
+    } else {
+      parts.push(`$${seg.content}$`);
+    }
+  }
+  return parts.join("");
+};
+
+/**
+ * 본문 전체에서 `$...$` / `$$...$$` 안에 섞인 한글을 prose 레벨로 분리.
+ * 한글이 없는 수식은 손대지 않는다(바이트 동일 반환 — 회귀 0). `$$...$$`
+ * 블록에 한글이 섞이면 인라인 `$...$` 로 다운그레이드한다(한글 오염된 블록
+ * 수식은 이미 깨진 상태라 인라인이 안전).
+ */
+export const extractHangulFromMath = (content: string): string => {
+  let out = content.replace(
+    /\$\$([\s\S]*?)\$\$/g,
+    (m: string, inner: string) => extractHangulFromInner(inner) ?? m,
+  );
+  out = out.replace(
+    /\$(?!\$)((?:[^$\\]|\\.)*)\$/g,
+    (m: string, inner: string) => extractHangulFromInner(inner) ?? m,
+  );
+  return out;
+};
+
 /**
  * 수식 정규화 — KaTeX 입력 전 안전 변환.
  *  1) `\(\)` / `\[\]` → `$...$` / `$$...$$`
@@ -448,6 +642,12 @@ export const preprocessMathText = (content: string): string => {
     /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)(?<!\$)\$(?!\$)/g,
     (match, inner) => (MULTILINE_ENV.test(inner) ? `$$${inner}$$` : match),
   );
+
+  // 한글-수식 분리 — `$...$` / `$$...$$` 안에 섞인 한글을 prose 레벨로 떼어
+  // 낸다. 모델이 `\text{한글}` / raw 한글을 수식 안에 박으면 KaTeX 가 math
+  // 크기로 렌더 → 본문과 글씨 크기 불일치. inner 정규화(아래) *이전* 에
+  // 실행해야 쪼개서 생긴 새 `$...$` 도 같은 정규화를 거친다.
+  out = extractHangulFromMath(out);
 
   // `$...$` / `$$...$$` inner 정규화 — applyMathInnerNormalization 한 곳에서
   // 모든 변환 (cleanMalformedLatex, dfrac→frac, unicode, uprightGeometryLabels,

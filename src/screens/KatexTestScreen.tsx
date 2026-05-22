@@ -166,6 +166,57 @@ const CASES: SymbolCase[] = [
   { group: "종합", label: "사인법칙", latex: "\\frac{a}{\\sin A} = \\frac{b}{\\sin B} = \\frac{c}{\\sin C} = 2R", expect: "세 분수 = 2R" },
   { group: "종합", label: "코사인법칙", latex: "a^2 = b^2 + c^2 - 2bc\\cos A", expect: "cos A — A 직립" },
   { group: "종합", label: "원의 넓이", latex: "S = \\pi r^2", expect: "πr²" },
+
+  // ── 한글 수식 분리 (extractHangulFromMath — task #19) ──────
+  // Direct = 보정 전(한글이 math 크기), Pipeline = 보정 후(한글 prose 크기).
+  {
+    group: "한글 수식 분리",
+    label: "순수 \\text{한글}",
+    latex: "\\text{가운데}",
+    expect: "Pipeline: $ 없이 prose '가운데'",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "내장 (\\text{한글})",
+    latex: "2ab^3 \\times (\\text{가운데}) \\times A = 8a^6b^6",
+    expect: "Pipeline: '가운데'만 prose, 나머지 수식 크기",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "여러 어절 한글",
+    latex: "(\\text{가운데 행 왼쪽}) \\times 2a^2b^2 = 8a^6b^6",
+    expect: "Pipeline: '가운데 행 왼쪽' 통째로 prose",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "접두 한글",
+    latex: "\\text{따라서 } x = 5",
+    expect: "Pipeline: '따라서' prose + $x = 5$",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "접미 한글",
+    latex: "x = 5 \\text{ 이다}",
+    expect: "Pipeline: $x = 5$ + '이다' prose",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "raw 한글 (\\text 없음)",
+    latex: "5 \\times 가운데 = 10",
+    expect: "Pipeline: '가운데' prose",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "\\left 안 한글 (보호)",
+    latex: "\\left( \\text{가운데} \\right)^2",
+    expect: "분리 안 함 — \\left 짝 보존",
+  },
+  {
+    group: "한글 수식 분리",
+    label: "cases 환경 (보호)",
+    latex: "\\begin{cases} x & 양수 \\\\ -x & 음수 \\end{cases}",
+    expect: "분리 안 함 — 환경 보존",
+  },
 ];
 
 const KATEX_FONTS = [
