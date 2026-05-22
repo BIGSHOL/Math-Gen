@@ -8,6 +8,7 @@ import { WizardScreen } from "@app/components/wizard";
 import { LegacyScreen } from "@app/screens/LegacyScreen";
 import { ModelBenchScreen } from "@app/screens/ModelBenchScreen";
 import { KatexTestScreen } from "@app/screens/KatexTestScreen";
+import { CropTestScreen } from "@app/screens/CropTestScreen";
 import { useAppStore } from "@app/stores/appStore";
 
 /**
@@ -18,6 +19,8 @@ import { useAppStore } from "@app/stores/appStore";
  *   - `?legacy` → original single-page SelectionPanel / ProblemDisplay UI
  *   - `?bench`  → model comparison bench: drop an image, run every
  *                 vision-capable model in parallel, compare side-by-side
+ *   - `?katex`  → KaTeX 렌더링 스모크 테스트
+ *   - `?croptest` → cropped Pass 2 크롭 정확도 테스트
  *   - (default) → new Library / Detail / Wizard screens, switched by the
  *                 appStore's `screen` state
  *
@@ -25,10 +28,11 @@ import { useAppStore } from "@app/stores/appStore";
  * own substate via Zustand selectors.
  */
 const App = () => {
-  const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "app">(() => {
+  const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "croptest" | "app">(() => {
     if (typeof window === "undefined") return "app";
     const search = window.location.search;
     if (search.includes("katex")) return "katex";
+    if (search.includes("croptest")) return "croptest";
     if (search.includes("ui")) return "ui";
     if (search.includes("legacy")) return "legacy";
     if (search.includes("bench")) return "bench";
@@ -38,6 +42,7 @@ const App = () => {
   const screen = useAppStore((s) => s.screen);
 
   if (route === "katex") return <KatexTestScreen />;
+  if (route === "croptest") return <CropTestScreen />;
   if (route === "ui") return <UIPlayground />;
   if (route === "legacy") return <LegacyScreen />;
   if (route === "bench") return <ModelBenchScreen />;
