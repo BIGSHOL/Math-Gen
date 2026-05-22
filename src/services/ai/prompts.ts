@@ -70,7 +70,7 @@ Output Requirements:
 5. [Visuals & Diagrams — HIGH QUALITY REQUIRED]
    - When to generate: Geometry (plane/solid), Functions (graphs), Statistics (charts/histograms).
    - SVG Requirements:
-     - Code: provide a raw, valid SVG string in "diagramSVG", or null if no visual is needed.
+     - Placement: embed the figure as a raw, valid inline <svg>...</svg> element directly in the body text, at the spot where the figure belongs — this is the main path for every diagram. The renderer extracts inline SVG and renders it natively. (Any separate "diagramSVG" JSON field is legacy — leave it null.)
      - Root attribute: include shape-rendering="geometricPrecision" so browsers prioritise curve smoothness over speed.
      - Style: viewBox ~ "0 0 400 300" (widen to ≥ 500 for composite Cube→Arrow→Net transformations). Stroke black (#000): main object lines 2px, axes/auxiliary lines 1px. Transparent background.
    - **Curves & function graphs — STRICT, NON-NEGOTIABLE**:
@@ -604,9 +604,10 @@ const difficultyDirectiveText = (diff: DifficultyShift): string => {
 };
 
 /**
- * Vector 도형 spec 가이드. Phase E (DiagramParams 시스템) 의 cacheable prefix —
- * 학년·시험지·문제 무관 static. VARIANT_PROMPT 의 `{diagram_guide}` placeholder
- * 에 inject. Anthropic cache_control 마킹 대상.
+ * Vector 도형 spec 가이드 (diagramParams). **현재 비활성** — 사용자 결정으로
+ * 도형은 raw inline <svg> 가 메인 경로다. VARIANT_PROMPT 에 더는 주입하지 않음.
+ * diagramParams 재도입 시 VARIANT_PROMPT 에 다시 inject — 이 상수·스키마
+ * (variantSchema.ts)·파싱(variants.ts) 은 비활성 상태로 보존한다.
  */
 export const DIAGRAM_PARAMS_GUIDE = `🔷 **도형 vector spec 가이드 (diagramParams)**
 
@@ -663,22 +664,19 @@ Task: 아래 한국 수학 문제의 **변형 문제** 한 개를 생성하세�
     "solution":     "...",          // 변형 문제의 단계별 풀이
     "topic":        "...",          // 단원 (원본과 동일하게 유지)
     "difficulty":   "하|중|상|최상",
-    "diagramSVG":   null,           // DEPRECATED — 항상 null. diagramParams 우선.
-    "diagramParams": null           // 도형 없으면 null. 있으면 spec 배열 ({diagram_guide} 참조).
+    "diagramSVG":   null,           // 항상 null — 도형은 question 본문 inline <svg> 로.
+    "diagramParams": null           // 항상 null (비활성) — 도형은 question 본문 inline <svg> 로.
   }
 
 ──────────────────────────────────────────────────────────────────
 {mathDefense}
 
 ──────────────────────────────────────────────────────────────────
-{diagram_guide}
-
-──────────────────────────────────────────────────────────────────
 🚨 **변형 STRICT 규칙 (CRITICAL — 위반 시 출력 무효)**
 
   R1. **답 구조 보존 (절대)**: 원본이 객관식 5지선다면 변형도 *정확히 5* 보기. 원본이 주관식이면 변형도 주관식 (\`choices: []\`). 객관식 ↔ 주관식 변환 절대 금지.
   R2. **같은 단원 내에서만**: 원본 \`topic\` 과 동일 단원. 예: '이차방정식' → '이차함수' 전환 금지, '최대공약수' → '소인수분해' 전환 금지.
-  R3. **도형 변형 (raw SVG main)**: 원본의 \`question\` 본문 안 inline \`<svg>...</svg>\` 가 있으면 *같은 위치에 새 inline SVG* embed. 원본의 도형 *모양·구조 (직사각형, 삼각형, 좌표축 등)* 는 유지하고 *수치 라벨* (예: "5y" → "7y", "3x" → "4x") 만 변형 문제의 새 값으로 갱신. SVG 의 viewBox·coordinate·stroke 등은 원본 비례 보존. \`diagramParams\` 는 *optional* — 원본에 있으면 수치만 보존, 없으면 null. \`diagramSVG\` 필드는 deprecated (항상 null) — 도형은 question 본문 안 inline 으로 처리.
+  R3. **도형 = raw inline SVG (main, 강제)**: 원본의 \`question\` 본문 안 inline \`<svg>...</svg>\` 가 있으면 *같은 위치에 새 inline SVG* embed. 원본의 도형 *모양·구조 (직사각형, 삼각형, 좌표축 등)* 는 유지하고 *수치 라벨* (예: "5y" → "7y", "3x" → "4x") 만 변형 문제의 새 값으로 갱신. SVG 의 viewBox·coordinate·stroke 등은 원본 비례 보존. \`diagramSVG\`·\`diagramParams\` JSON 필드는 둘 다 *항상 null* — 도형은 question 본문 inline \`<svg>\` 로만 처리한다.
   R4. **답 검증 일관성**: 변형 문제의 \`answer\` 가 변형된 \`question\` + (객관식이면) \`choices\` 와 정확히 맞아야 함. 객관식 마커 (①②③④⑤) 는 \`choices\` 배열 내 *순서* 와 일치.
   R5. **배점·시간 유지**: 같은 시험에서 같은 점수·풀이 시간이 나와야 함.
   R6. **한국 교과서 표기**: \`gcd / lcm / max / min\` 함수형 표기 금지 ("최대공약수", "큰 값" 등 자연어). \`\\\\approx\` / \`≈\` 금지 ("약 X"). \`\\\\dfrac\` 금지 (\`\\\\frac\` 만). 가분수는 대분수로.
@@ -703,7 +701,7 @@ Task: 아래 한국 수학 문제의 **변형 문제** 한 개를 생성하세�
   V1. \`choices\` 가 객관식이면 *정확히 5 개*, 주관식이면 \`[]\` 인가?
   V2. \`answer\` 가 \`choices\` 와 일치 (객관식: 마커 + 값) / \`question\` 과 정확히 풀이됨인가?
   V3. \`topic\` 이 원본과 *같은 단원* 인가?
-  V4. 원본 본문에 inline \`<svg>\` 가 있었으면, 변형 본문 (\`question\`) 에도 *같은 위치에 inline \`<svg>\`* 가 emit 됐는가? SVG 안 수치 라벨이 변형 새 값으로 갱신됐는가? (\`diagramParams\` 는 optional — 원본에 있었으면 보존하되 수치만 변경, 없으면 null. \`diagramSVG\` 항상 null.)
+  V4. 원본 본문에 inline \`<svg>\` 가 있었으면, 변형 본문 (\`question\`) 에도 *같은 위치에 inline \`<svg>\`* 가 emit 됐는가? SVG 안 수치 라벨이 변형 새 값으로 갱신됐는가? (\`diagramSVG\`·\`diagramParams\` 필드는 둘 다 항상 null.)
   V5. \`solution\` 본문에 "잠깐", "다시 확인" 같은 self-correction 흔적이 없는가?
 
 (위 V1-V5 점검은 모델 내부에서만 — solution 본문에 노출 X.)
@@ -741,7 +739,6 @@ export const buildVariantPrompt = (
   const originalProblem = formatOriginalProblemForVariant(problem);
   return VARIANT_PROMPT.replace("{persona}", persona)
     .replace("{mathDefense}", defense)
-    .replace("{diagram_guide}", DIAGRAM_PARAMS_GUIDE)
     .replace("{goalDirective}", goalDirective)
     .replace("{difficultyDirective}", difficultyDirective)
     .replace("{originalProblem}", originalProblem);
@@ -785,7 +782,6 @@ export const buildVariantPromptBlocksAnthropic = (
   // 정적 + 학년·옵션 dynamic 부분 모두 먼저 치환 → {originalProblem} 만 잔존.
   const fullTemplate = VARIANT_PROMPT.replace("{persona}", persona)
     .replace("{mathDefense}", defense)
-    .replace("{diagram_guide}", DIAGRAM_PARAMS_GUIDE)
     .replace("{goalDirective}", goalDirective)
     .replace("{difficultyDirective}", difficultyDirective);
   const idx = fullTemplate.indexOf(SPLIT_MARKER);
@@ -1186,7 +1182,7 @@ export const buildExactExtractPrompt = (removeScore?: boolean): string => {
 2. Format: convert the extracted content into the required JSON format.
    - Do NOT change the numbers, functions, or context.
    - If there are choices in the image, put them in the "choices" array. If there are no choices, leave it [].
-   - If there is a diagram, recreate it using SVG in "diagramSVG", or leave it null if not possible or not present.
+   - If there is a diagram, recreate it as a raw inline <svg>...</svg> embedded directly in the problem text where it belongs. The renderer handles inline SVG natively. (The "diagramSVG" field is legacy — leave it null.)
    - Provide the correct answer and a detailed solution for the problem.
    - Estimate the topic and difficulty level.`;
 };
