@@ -5,6 +5,7 @@ import MarkdownRenderer, {
 } from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
 import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
+import { friendlyError } from "@app/lib/friendlyError";
 import {
   logDiagramIssues,
   renderDiagram,
@@ -176,7 +177,8 @@ export const VariantItem = ({
           </Btn>
         </div>
         <div className="text-small text-warn-ink whitespace-pre-wrap">
-          {problem.genError}
+          {/* legacy raw 영문 에러도 display 시점에 한국어로 normalize. */}
+          {friendlyError(problem.genError)}
         </div>
       </Card>
     );

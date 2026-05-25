@@ -149,6 +149,43 @@ export const Step4Review = () => {
 
       {/* 우측: 변형 문제 */}
       <section className="flex-[1.2] min-w-0 flex flex-col">
+        {/* 옵션 mismatch 안내 — Step 3 에서 옵션 바꿨는데 기존 problems 가 옛 옵션 결과 그대로 남은 경우.
+            digitize 면 변형 호출 0건이어야 하는데 genError 있으면 옛 옵션의 잔재. */}
+        {goal === "digitize" && errorCount > 0 && (
+          <Card pad={12} className="mb-3 bg-warn-soft border-warn/30 border-l-4">
+            <div className="flex items-start gap-2">
+              <Icon name="info" size={16} color="#F59E0B" weight="duotone" className="mt-0.5 flex-shrink-0" />
+              <div className="flex-1 text-small">
+                <div className="font-semibold text-warn-ink mb-1">
+                  옵션이 변경되었습니다 — *디지털화* 선택
+                </div>
+                <p className="text-warn-ink/80 text-caption leading-relaxed">
+                  현재 옵션은 "디지털화만" 인데 화면에 표시된 결과는 *이전 변형 옵션*
+                  의 잔재 ({errorCount} 건 실패). 우측 *옵션 재생성* 버튼을 누르면
+                  새 옵션에 맞게 모든 문항이 *변환 X 원본 그대로* 확정됩니다.
+                </p>
+              </div>
+              <Btn
+                kind="accent"
+                size="sm"
+                icon="arrow-clockwise"
+                onClick={() => {
+                  if (
+                    // eslint-disable-next-line no-alert
+                    window.confirm(
+                      "디지털화 옵션으로 모든 문항을 원본 그대로 확정합니다. 기존 변형 결과/에러는 사라집니다. 계속?",
+                    )
+                  ) {
+                    reseedAll();
+                  }
+                }}
+              >
+                지금 재생성
+              </Btn>
+            </div>
+          </Card>
+        )}
+
         <header className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             <Chip tone="accent" size="sm" icon="sparkle">
