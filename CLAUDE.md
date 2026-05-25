@@ -1382,6 +1382,52 @@ OCRItem / SolutionItem 등 *모든 모델 chip* 이 공유.
 **참고**: `src/components/wizard/VariantItem.tsx` L321-390. 사용자 보고
 (2026-05-26) 후 *정답 strip 을 문제 + 선택지 *아래* 로 이동*.
 
+### 13-6. 액션 버튼 위치 — *한 곳에 모으기* (CRITICAL)
+
+사용자 보고 (2026-05-26): DetailScreen 의 *TopBar 우측* (공유/PDF/이어서작업)
++ *하단 CtaBanner* (변형만들기) 가 *제각각 위치* → "버튼들 위치가 제각각이여서
+매우 불편함. 좌우측 공간 활용해야할듯"
+
+**원칙 — 한 화면의 *주요 액션* 은 *한 묶음* 으로**:
+- 흩어지면 사용자가 *어디 클릭해야 할지* 매번 찾음 — 인지 부하 ↑
+- 좌우 sidebar 가 *좁아 보여도* 액션 모으기엔 충분 (~280px width)
+- *TopBar 의 액션* 은 *글로벌 네비* (보관함, 검색) 만 — 화면별 액션은 sidebar 로
+
+**적용 예시 (DetailScreen)**:
+
+| 위치 | 이전 | 이후 |
+|---|---|---|
+| TopBar 우측 | [공유][PDF][이어서작업] | (비움) |
+| 메인 하단 | [변형 만들기 CTA banner] | (제거) |
+| 우측 sidebar 최상단 | (없음) | **[액션 섹션]** — 변형 만들기 / 이어서 작업 / 공유 / PDF |
+
+**구현 (`DetailMetaSidebar`)**:
+```tsx
+<aside>
+  {/* 1. 액션 — 최상단 */}
+  <Eyebrow>액션</Eyebrow>
+  <Btn kind="accent" full icon="sparkle" iconRight="arrow-right" onClick={onResume}>
+    변형 만들기
+  </Btn>
+  <Btn kind="secondary" full icon="play" onClick={onResume}>이어서 작업</Btn>
+  <div className="flex gap-2">
+    <Btn kind="ghost" full size="sm" icon="share-network" onClick={onShare}>공유</Btn>
+    <Btn kind="ghost" full size="sm" icon="download-simple" onClick={onPdf}>PDF</Btn>
+  </div>
+
+  {/* 2. 정보 */}
+  {/* 3. 변형 이력 */}
+</aside>
+```
+
+**원칙 일반화**:
+- 화면별 *주요 액션 4개+* 가 있으면 *sidebar 의 액션 섹션* 으로 모음
+- TopBar 는 *글로벌 네비 + status indicator* 만
+- 본문 안의 inline CTA banner 는 *데이터 없음 / empty state* 에만 사용 (액션 중복 방지)
+
+**참고**: `src/components/detail/DetailMetaSidebar.tsx` (액션 섹션 신설),
+`src/components/detail/DetailScreen.tsx` (TopBar 우측 비움 + CtaBanner 제거).
+
 ---
 
 ## 14. Plan mode 활용 패턴

@@ -28,7 +28,7 @@ import { PageThumbnails } from "./PageThumbnails";
 import { HeroCard } from "./HeroCard";
 import { ProblemTabs, TabPlaceholder, type DetailTab } from "./ProblemTabs";
 import { DetailMetaSidebar } from "./DetailMetaSidebar";
-import { CtaBanner } from "./CtaBanner";
+// CtaBanner 는 더 이상 사용 안 함 (DetailMetaSidebar 의 액션 섹션으로 통합).
 
 const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
   ok: "ok",
@@ -147,23 +147,10 @@ export const DetailScreen = () => {
           </>
         }
         right={
-          <>
-            <Btn kind="ghost" size="sm" icon="share-network">
-              공유
-            </Btn>
-            <Btn kind="secondary" size="sm" icon="download-simple">
-              PDF
-            </Btn>
-            <Btn
-              kind="accent"
-              size="sm"
-              icon="play"
-              onClick={handleResume}
-              disabled={resuming || detail.loading}
-            >
-              {resuming ? "불러오는 중…" : "이어서 작업"}
-            </Btn>
-          </>
+          /* 액션은 우측 sidebar 의 *액션* 섹션으로 통합 — 사용자 보고 (2026-05-26):
+             TopBar 의 공유/PDF/이어서작업 + 하단 CtaBanner 가 *제각각 위치* 라 불편.
+             좌우측 공간 활용 위해 모두 sidebar 최상단으로 모음. */
+          undefined
         }
       />
 
@@ -221,11 +208,16 @@ export const DetailScreen = () => {
               </>
             )}
 
-            <CtaBanner onLaunch={handleResume} />
+            {/* CtaBanner 는 DetailMetaSidebar 의 *액션* 섹션으로 이동 — 사용자 보고. */}
           </div>
         </main>
 
-        <DetailMetaSidebar test={enrichedTest} />
+        <DetailMetaSidebar
+          test={enrichedTest}
+          onResume={handleResume}
+          resuming={resuming}
+          loading={detail.loading}
+        />
       </div>
     </div>
   );
