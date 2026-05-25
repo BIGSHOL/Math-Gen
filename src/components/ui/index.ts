@@ -31,3 +31,4 @@ export { StatCard, type StatCardProps, type StatCardTone } from "./StatCard";
 export { Progress, type ProgressProps, type ProgressTone } from "./Progress";
 export { Backdrop, type BackdropProps } from "./Backdrop";
 export { NavList, type NavListProps, type NavListItem } from "./NavList";
+export { RangeSlider, type RangeSliderProps } from "./RangeSlider";

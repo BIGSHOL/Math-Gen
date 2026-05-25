@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Heading, Icon, Segmented, Toggle, Chip } from "@app/components/ui";
+import { Heading, Icon, Segmented, Toggle, Chip, RangeSlider } from "@app/components/ui";
 import {
   DEFAULT_PRINT_OPTIONS,
   type ExportSource,
@@ -172,19 +172,17 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 5. 세로 여백 */}
+        {/* 5. 세로 여백 — 드래그 부드럽게: RangeSlider (local state + rAF throttle) */}
         <Section title={`세로 여백 (${printOptions.spacing}px)`}>
           <div className="flex items-center gap-3">
-            <input
-              type="range"
+            <RangeSlider
               min={0}
               max={150}
-              step={2}
+              step={1}
               value={printOptions.spacing}
-              onChange={(e) =>
-                onChangePrintOptions({ spacing: Number(e.target.value) })
-              }
+              onChange={(v) => onChangePrintOptions({ spacing: v })}
               className="flex-1 accent-accent h-1"
+              aria-label="세로 여백"
             />
             <span className="text-caption font-mono text-muted w-10 text-right">
               {printOptions.spacing}px
