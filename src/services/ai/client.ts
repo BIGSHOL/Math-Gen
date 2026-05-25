@@ -28,7 +28,16 @@ const hasAnyProviderKey =
   Boolean(process.env.GEMINI_API_KEY) ||
   Boolean(process.env.OPENAI_API_KEY);
 
-if (!hasAnyProviderKey) {
+// Phase 5a — production build 의 client bundle 에는 *AI 키가 의도적으로 없음*
+// (vite.config.ts 의 define 이 command="serve" 만 inject). 모든 AI 호출은
+// `/api/ai-*` Vercel function 경유 → 키 없는 게 정상. 따라서 *서버 함수 경로*
+// (USE_API=true) 에서는 이 경고를 skip — 노이즈 방지.
+const USE_API: boolean =
+  typeof window !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean(import.meta.env?.PROD || import.meta.env?.VITE_USE_API === "true");
+
+if (!hasAnyProviderKey && !USE_API) {
   // eslint-disable-next-line no-console
   console.warn(
     "[ai] No provider key is set (ANTHROPIC_API_KEY / GEMINI_API_KEY / " +

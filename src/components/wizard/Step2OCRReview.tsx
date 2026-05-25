@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import { getPageImage } from "@app/lib/imageStore";
+import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation } from "@app/lib/pdfProcessor";
+import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { usePageOcr } from "@app/hooks/usePageOcr";
 import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
 import OCRItem from "./OCRItem";
@@ -28,38 +30,53 @@ import PageThumbColumn from "./PageThumbColumn";
  */
 const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
   const [url, setUrl] = useState<string | null>(null);
+  const pageId = page?.id;
   const imageRef = page?.imageRef;
   const rotation = page?.rotation ?? 0;
 
   useEffect(() => {
-    if (!imageRef) {
+    if (!pageId) {
       setUrl(null);
       return;
     }
     let cancelled = false;
     (async () => {
-      const img = await getPageImage(imageRef);
+      // Step 1: IndexedDB lookup (fast path — 같은 device 의 dev 시점).
+      let dataUrl: string | null = null;
+      if (imageRef) {
+        const img = await getPageImage(imageRef);
+        if (img) dataUrl = img.dataUrl;
+      }
+      // Step 2: IndexedDB 미스 — Storage 에서 복원 (다른 device / 시크릿 모드 /
+      // hydrate "이어서 작업" 시점에 imageRef 가 "" 또는 캐시 없는 경우).
+      if (!dataUrl && page) {
+        const storagePath = getPageStoragePath(pageId);
+        if (storagePath) {
+          const restored = await ensurePageImage(page, storagePath);
+          if (restored) dataUrl = restored.dataUrl;
+        }
+      }
       if (cancelled) return;
-      if (!img) {
+      if (!dataUrl) {
         setUrl(null);
         return;
       }
       if (rotation === 0) {
-        setUrl(img.dataUrl);
+        setUrl(dataUrl);
         return;
       }
       try {
-        const rotated = await applyRotation(img.dataUrl, rotation);
+        const rotated = await applyRotation(dataUrl, rotation);
         if (!cancelled) setUrl(rotated);
       } catch {
         // Fall back to the un-rotated original — better than blank.
-        if (!cancelled) setUrl(img.dataUrl);
+        if (!cancelled) setUrl(dataUrl);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [imageRef, rotation]);
+  }, [pageId, imageRef, rotation, page]);
 
   return url;
 };
