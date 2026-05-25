@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Heading, Icon, Segmented, Toggle, Chip, RangeSlider } from "@app/components/ui";
 import {
   DEFAULT_PRINT_OPTIONS,
@@ -70,6 +70,14 @@ export const PrintOptionsPanel = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportSource]);
+
+  // 세로 여백 슬라이더의 *드래그 중 표시값* — store 와 분리. drag 중엔 store
+  // update 안 함 (미리보기 reflow 무거움 ~0.5s) → thumb 가 마우스 따라옴.
+  // release 시에만 store commit. 외부 (예: reset) 변경은 sync.
+  const [spacingPreview, setSpacingPreview] = useState(printOptions.spacing);
+  useEffect(() => {
+    setSpacingPreview(printOptions.spacing);
+  }, [printOptions.spacing]);
 
   const isBoth = exportSource === "both";
 
@@ -172,20 +180,21 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 5. 세로 여백 — 드래그 부드럽게: RangeSlider (local state + rAF throttle) */}
-        <Section title={`세로 여백 (${printOptions.spacing}px)`}>
+        {/* 5. 세로 여백 — drag 중엔 local preview 만, release 시 store commit. */}
+        <Section title={`세로 여백 (${spacingPreview}px)`}>
           <div className="flex items-center gap-3">
             <RangeSlider
               min={0}
               max={150}
               step={1}
               value={printOptions.spacing}
+              onPreview={setSpacingPreview}
               onChange={(v) => onChangePrintOptions({ spacing: v })}
               className="flex-1 accent-accent h-1"
               aria-label="세로 여백"
             />
             <span className="text-caption font-mono text-muted w-10 text-right">
-              {printOptions.spacing}px
+              {spacingPreview}px
             </span>
           </div>
         </Section>
