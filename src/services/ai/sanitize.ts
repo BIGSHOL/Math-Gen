@@ -8,7 +8,7 @@
  * SECURITY NOTE: this module only handles "broken icon" prevention. Full
  * XSS-safe SVG sanitization (DOMPurify) lands in Phase 5 — see the plan.
  */
-import { cleanMalformedLatex } from "@app/lib/textPreprocess";
+import { cleanMalformedLatex } from "../../lib/textPreprocess.js";
 
 const IMG_TAG_RE = /<img[^>]*>/gi;
 const MD_IMG_RE = /!\[.*?\]\(.*?\)/g;

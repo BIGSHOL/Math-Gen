@@ -7,12 +7,41 @@ import type { ExportProgress } from "@app/lib/pdfExporter";
  * Step 5 우측 액션 패널. filename input + 페이지 요약 + 인쇄/PDF 버튼 +
  * 진행률 표시 + 이전 단계 버튼.
  *
- * Plan §1.6 + §4.5 패턴. mathlab `print/page.tsx` L444-462 의 좌측 하단
- * 인쇄 버튼 패턴 차용 + 우측 액션 패널로 위치 이동.
+ * **PDF 다운로드 2 경로**:
+ *   - **서버 PDF** (`handleServerPDF`) → `/api/export-pdf` (Puppeteer headless
+ *     Chromium). KaTeX·SVG·웹폰트 100% 정확. 권장 path.
+ *   - **클라이언트 PDF** (`handlePDF`) → html2canvas + jsPDF. 오프라인 fallback.
+ *     CLAUDE.md §19-4 — KaTeX 깨짐 위험.
  *
  * **dynamic import 패턴**: PDF 안 쓰는 사용자에게 jspdf/html2canvas (~150KB
  * gzip) 비용 zero. `handlePDF` 안에서 `await import("@app/lib/pdfExporter")`.
  */
+
+/**
+ * 같은 origin 의 `<link rel="stylesheet">` 들의 절대 URL 수집. 서버 Puppeteer
+ * 가 fetch 해서 같은 styling 으로 렌더. 외부 도메인 CSS (CDN 등) 는 puppeteer
+ * 가 직접 알아서 fetch 하므로 보내지 않아도 OK.
+ */
+const collectStylesheetUrls = (): string[] => {
+  const origin = window.location.origin;
+  return Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .map((l) => (l as HTMLLinkElement).href)
+    .filter((href) => href.startsWith(origin));
+};
+
+/** Blob → 임시 anchor → click → cleanup. 자동 다운로드 트리거. */
+const downloadBlob = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Safari 가 fetch 끝나기 전 revoke 하면 download 가 cancel — 약간 지연 후.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 
 export interface PrintActionPanelProps {
   /** Step5Export 의 printable-root ref. PDF 캡처 대상. */
@@ -74,6 +103,55 @@ export const PrintActionPanel = ({
       });
     } finally {
       // 2초 후 progress 클리어 — 완료/에러 모두.
+      setTimeout(() => setProgress(null), 2500);
+    }
+  }, [filename, printableRootRef, totalPages]);
+
+  /**
+   * 서버 PDF 경로 — `/api/export-pdf` (Puppeteer headless Chromium).
+   *
+   * **흐름**:
+   *   1. printable-root outerHTML + 같은 origin stylesheet URLs 수집
+   *   2. POST `/api/export-pdf` → PDF binary 반환
+   *   3. Blob → `URL.createObjectURL` → 임시 `<a>` click 자동 다운로드
+   *
+   * **장점**: KaTeX SVG/woff2 폰트 + 원본 diagram dataUrl + Tailwind CSS 모두
+   * Chromium 으로 직접 렌더 → 100% 정확. 클라이언트 path 의 html2canvas 깨짐
+   * 함정 (CLAUDE.md §19-4) 회피.
+   */
+  const handleServerPDF = useCallback(async () => {
+    if (!printableRootRef.current) {
+      setProgress({ current: 0, total: 0, phase: "error", error: "인쇄 영역을 찾을 수 없습니다." });
+      return;
+    }
+    setProgress({ current: 0, total: totalPages, phase: "preparing" });
+    try {
+      const { sanitizeFilename } = await import("@app/lib/pdfExporter");
+      const html = printableRootRef.current.outerHTML;
+      const cssUrls = collectStylesheetUrls();
+      const safeName = sanitizeFilename(filename || "변형시험지");
+
+      setProgress({ current: 0, total: totalPages, phase: "saving" });
+      const res = await fetch("/api/export-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html, cssUrls, title: safeName }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(errBody.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      downloadBlob(blob, `${safeName}.pdf`);
+      setProgress({ current: totalPages, total: totalPages, phase: "done" });
+    } catch (err) {
+      setProgress({
+        current: 0,
+        total: totalPages,
+        phase: "error",
+        error: (err as Error).message ?? "서버 PDF 생성 실패",
+      });
+    } finally {
       setTimeout(() => setProgress(null), 2500);
     }
   }, [filename, printableRootRef, totalPages]);
@@ -161,13 +239,15 @@ export const PrintActionPanel = ({
           </Card>
         )}
 
-        {/* 액션 버튼 */}
+        {/* 액션 버튼 — *서버 PDF* (Puppeteer) 가 KaTeX/SVG 100% 정확하므로 1순위.
+            인쇄 다이얼로그도 동등 품질 (브라우저 native print). 클라이언트 PDF
+            (html2canvas) 는 §19-4 의 KaTeX 깨짐 위험으로 *오프라인 fallback*. */}
         <div className="space-y-2">
           <Btn
             kind="accent"
             icon="file-pdf"
             full
-            onClick={handlePDF}
+            onClick={handleServerPDF}
             disabled={isExporting || totalPages === 0}
           >
             PDF 다운로드
@@ -179,7 +259,16 @@ export const PrintActionPanel = ({
             onClick={handlePrint}
             disabled={isExporting || totalPages === 0}
           >
-            인쇄 미리보기
+            인쇄 · PDF 저장
+          </Btn>
+          <Btn
+            kind="ghost"
+            icon="file-pdf"
+            full
+            onClick={handlePDF}
+            disabled={isExporting || totalPages === 0}
+          >
+            PDF 다운로드 (오프라인 fallback)
           </Btn>
           <Btn kind="ghost" icon="file-doc" full disabled>
             DOCX (준비 중)
@@ -188,8 +277,9 @@ export const PrintActionPanel = ({
 
         {/* 안내 */}
         <p className="text-caption text-muted leading-relaxed">
-          <Icon name="info" size={11} color="#9CA3AF" /> 인쇄와 PDF 가 같은 layout
-          으로 출력됩니다. 인쇄 다이얼로그에서 "PDF 로 저장" 도 가능합니다.
+          <Icon name="info" size={11} color="#9CA3AF" /> PDF 다운로드는 서버
+          Chromium 으로 렌더해 KaTeX·도형이 정확합니다. 첫 호출은 약 5-10 초 (콜드
+          스타트), 이후 2-3 초.
         </p>
       </div>
 

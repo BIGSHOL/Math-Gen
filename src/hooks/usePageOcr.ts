@@ -4,6 +4,7 @@ import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation } from "@app/lib/pdfProcessor";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
+import { friendlyError } from "@app/lib/friendlyError";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
 import {
   GEMINI_3_1_FLASH_LITE,
@@ -310,7 +311,7 @@ export const usePageOcr = () => {
             // eslint-disable-next-line no-console
             console.error(`[usePageOcr] 페이지 ${page.id} 1차 실패 (전 체인)`, err);
             setPageOCR(page.id, {
-              ocrError: (err as Error).message || "알 수 없는 오류",
+              ocrError: friendlyError(err),
               ocrComplete: true,
             });
           } finally {

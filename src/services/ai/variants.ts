@@ -18,7 +18,7 @@
  * **AbortSignal**: 모든 SDK 에 전달. unmount / step 이동 시 cancel.
  */
 
-import { anthropic, SONNET_MODEL, type AnthropicModelId } from "./client";
+import { anthropic, SONNET_MODEL, type AnthropicModelId } from "./client.js";
 import {
   getGeminiClient,
   type GeminiModel,
@@ -29,8 +29,8 @@ import {
   GEMINI_3_1_PRO,
   GEMINI_3_5_FLASH,
   GEMINI_3_FLASH,
-} from "./gemini";
-import { getOpenAIClient, type OpenAIModel } from "./openai";
+} from "./gemini.js";
+import { getOpenAIClient, type OpenAIModel } from "./openai.js";
 import {
   friendlyGeminiError,
   friendlyOpenAIError,
@@ -40,22 +40,27 @@ import {
   usesCompletionTokens,
   OCR_MODELS,
   type OCRModel,
-} from "./ocr";
-import { SYSTEM_BLOCKS, extractJsonText, stripCodeFences } from "./generate";
+} from "./ocr.js";
+import {
+  SYSTEM_BLOCKS,
+  extractJsonText,
+  extractToolUseInput,
+  stripCodeFences,
+} from "./generate.js";
 import {
   COMMON_INSTRUCTIONS,
   buildVariantPrompt,
   buildVariantPromptBlocksAnthropic,
-} from "./prompts";
-import { VARIANT_SCHEMA } from "./variantSchema";
-import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize";
-import type { GradeKey } from "./mathDefense";
+} from "./prompts.js";
+import { VARIANT_SCHEMA } from "./variantSchema.js";
+import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize.js";
+import type { GradeKey } from "./mathDefense.js";
 import type {
   ConversionGoal,
   DifficultyShift,
-} from "@app/stores/wizardStore";
-import type { GeneratedProblem } from "@app/types";
-import type { DiagramParams } from "@app/lib/diagram";
+} from "../../stores/wizardStore.js";
+import type { GeneratedProblem } from "../../types/index.js";
+import type { DiagramParams } from "../../lib/diagram/index.js";
 
 export interface VariantGenInput {
   /** 원본 문제 (Step 2 의 OCRProblem → GeneratedProblem 어댑터 결과). */
@@ -129,6 +134,10 @@ const callAnthropic = async (
     grade: input.grade,
     choicesCount: input.choicesCount,
   });
+  // tool_use 패턴 — Anthropic 권장. output_config.format.schema 의 server-side
+  // strict validator 가 array schema 일괄 거부 (`maxItems is not supported`)
+  // 문제 회피. input_schema 는 동일 VARIANT_SCHEMA.
+  const TOOL_NAME = "emit_variant";
   const response = await anthropic.messages.create(
     {
       model,
@@ -143,18 +152,26 @@ const callAnthropic = async (
           content: userBlocks,
         },
       ],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: VARIANT_SCHEMA as unknown as Record<string, unknown>,
+      tools: [
+        {
+          name: TOOL_NAME,
+          description:
+            "Emit the variant problem JSON with question / choices / answer / solution / topic / difficulty / diagramSVG / diagramParams fields.",
+          input_schema: VARIANT_SCHEMA as unknown as {
+            type: "object";
+            properties?: Record<string, unknown>;
+            required?: string[];
+          },
         },
-      },
+      ],
+      tool_choice: { type: "tool", name: TOOL_NAME },
     },
     input.signal ? { signal: input.signal } : undefined,
   );
 
   // DEV-only — cache hit 측정. 1 호출: creation > 0, read = 0. 이후: read > 0.
-  if (import.meta.env.DEV) {
+  // Vercel function (Node ESM) 에서는 import.meta.env 가 undefined → ?. 으로 안전 access.
+  if (import.meta.env?.DEV) {
     const usage = (
       response as {
         usage?: {
@@ -170,8 +187,9 @@ const callAnthropic = async (
     );
   }
 
-  const rawJson = stripCodeFences(extractJsonText(response));
-  return parseJsonOrThrow<RawVariantResponse>(rawJson);
+  // tool_use 패턴: 응답 content 에서 emit_variant tool block 의 input (이미
+  // parsed JSON object) 추출. JSON.parse 불필요.
+  return extractToolUseInput<RawVariantResponse>(response, TOOL_NAME);
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -378,7 +396,7 @@ const callOpenAI = async (
  *
  * **default model**: Claude Sonnet 4.6. caller 가 override 가능.
  */
-export const generateVariant = async (
+const generateVariantDirect = async (
   input: VariantGenInput,
 ): Promise<VariantGenResult> => {
   if (input.signal?.aborted) {
@@ -435,3 +453,36 @@ export const generateVariant = async (
     modelUsed: model,
   };
 };
+
+/**
+ * 클라이언트 프로덕션 빌드 — `/api/ai-variant` Vercel function 호출.
+ * dev (USE_API=false) 에서는 *direct SDK* 사용.
+ */
+const generateVariantViaApi = async (
+  input: VariantGenInput,
+): Promise<VariantGenResult> => {
+  if (input.signal?.aborted) {
+    throw new DOMException("Aborted before request", "AbortError");
+  }
+  const { signal, ...body } = input;
+  const res = await fetch("/api/ai-variant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
+
+const USE_API: boolean =
+  typeof window !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean(import.meta.env?.PROD || import.meta.env?.VITE_USE_API === "true");
+
+export const generateVariant: typeof generateVariantDirect = USE_API
+  ? generateVariantViaApi
+  : generateVariantDirect;

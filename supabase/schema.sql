@@ -131,10 +131,15 @@ CREATE TRIGGER tests_touch
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 -- ============================================================================
--- 7. RLS 정책 (dev anon + production authenticated 양쪽 호환)
+-- 7. RLS 정책 (dev anon + production authenticated + role-aware admin)
 -- ----------------------------------------------------------------------------
--- dev 단계: auth.uid() 가 null 이면 anon UUID 와 비교 → 같은 dev row 모두 접근.
--- production: 사용자가 로그인하면 auth.uid() 가 본인 UUID → 본인 row 만.
+-- 정책 분기 (OR):
+--   1. dev / 본인:       user_id = COALESCE(auth.uid(), DEV_USER_ID)
+--   2. tenant_admin:     tests.tenant_id = auth_tenant() (같은 학원 모든 row)
+--   3. system_admin:     전체 row
+--
+-- ⚠ 전제: schema-admin.sql 가 *먼저* 적용되어야 함 — auth_role() / auth_tenant()
+-- helper 함수가 정의돼 있어야 함. 멱등 안전 — 여러 번 실행 가능.
 -- 두 단계가 *같은 정책* — Phase E 에 코드 변경 없이 자연 전환.
 -- ============================================================================
 
@@ -146,51 +151,84 @@ ALTER TABLE variant_history ENABLE ROW LEVEL SECURITY;
 
 -- ── tests ────────────────────────────────────────────────────────────────────
 DROP POLICY IF EXISTS tests_select_own ON tests;
-CREATE POLICY tests_select_own ON tests
+DROP POLICY IF EXISTS tests_select_role ON tests;
+CREATE POLICY tests_select_role ON tests
   FOR SELECT TO anon, authenticated
-  USING (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
 DROP POLICY IF EXISTS tests_insert_own ON tests;
-CREATE POLICY tests_insert_own ON tests
+DROP POLICY IF EXISTS tests_insert_role ON tests;
+CREATE POLICY tests_insert_role ON tests
   FOR INSERT TO anon, authenticated
-  WITH CHECK (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+  WITH CHECK (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR auth_role() IN ('tenant_admin', 'system_admin')
+  );
 DROP POLICY IF EXISTS tests_update_own ON tests;
-CREATE POLICY tests_update_own ON tests
+DROP POLICY IF EXISTS tests_update_role ON tests;
+CREATE POLICY tests_update_role ON tests
   FOR UPDATE TO anon, authenticated
-  USING (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
 DROP POLICY IF EXISTS tests_delete_own ON tests;
-CREATE POLICY tests_delete_own ON tests
+DROP POLICY IF EXISTS tests_delete_role ON tests;
+CREATE POLICY tests_delete_role ON tests
   FOR DELETE TO anon, authenticated
-  USING (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
 
 -- ── pages: tests FK 통해 user_id 확인 ────────────────────────────────────────
+-- tests 의 새 정책이 자동 전파 — EXISTS 가 tests RLS 를 거치므로 admin row 도 보임.
 DROP POLICY IF EXISTS pages_all_own ON pages;
-CREATE POLICY pages_all_own ON pages
+DROP POLICY IF EXISTS pages_all_role ON pages;
+CREATE POLICY pages_all_role ON pages
   FOR ALL TO anon, authenticated
   USING (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = pages.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR (auth_role() = 'tenant_admin' AND tests.tenant_id IS NOT NULL AND tests.tenant_id = auth_tenant())
+          OR auth_role() = 'system_admin'
+        )
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = pages.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR auth_role() IN ('tenant_admin', 'system_admin')
+        )
     )
   );
 
 -- ── ocr_problems: pages → tests 조인 ─────────────────────────────────────────
 DROP POLICY IF EXISTS ocr_problems_all_own ON ocr_problems;
-CREATE POLICY ocr_problems_all_own ON ocr_problems
+DROP POLICY IF EXISTS ocr_problems_all_role ON ocr_problems;
+CREATE POLICY ocr_problems_all_role ON ocr_problems
   FOR ALL TO anon, authenticated
   USING (
     EXISTS (
       SELECT 1 FROM pages
       JOIN tests ON tests.id = pages.test_id
       WHERE pages.id = ocr_problems.page_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR (auth_role() = 'tenant_admin' AND tests.tenant_id IS NOT NULL AND tests.tenant_id = auth_tenant())
+          OR auth_role() = 'system_admin'
+        )
     )
   )
   WITH CHECK (
@@ -198,45 +236,64 @@ CREATE POLICY ocr_problems_all_own ON ocr_problems
       SELECT 1 FROM pages
       JOIN tests ON tests.id = pages.test_id
       WHERE pages.id = ocr_problems.page_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR auth_role() IN ('tenant_admin', 'system_admin')
+        )
     )
   );
 
 -- ── problem_reviews: tests FK 통해 ────────────────────────────────────────────
 DROP POLICY IF EXISTS reviews_all_own ON problem_reviews;
-CREATE POLICY reviews_all_own ON problem_reviews
+DROP POLICY IF EXISTS reviews_all_role ON problem_reviews;
+CREATE POLICY reviews_all_role ON problem_reviews
   FOR ALL TO anon, authenticated
   USING (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = problem_reviews.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR (auth_role() = 'tenant_admin' AND tests.tenant_id IS NOT NULL AND tests.tenant_id = auth_tenant())
+          OR auth_role() = 'system_admin'
+        )
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = problem_reviews.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR auth_role() IN ('tenant_admin', 'system_admin')
+        )
     )
   );
 
 -- ── variant_history ─────────────────────────────────────────────────────────
 DROP POLICY IF EXISTS variant_history_all_own ON variant_history;
-CREATE POLICY variant_history_all_own ON variant_history
+DROP POLICY IF EXISTS variant_history_all_role ON variant_history;
+CREATE POLICY variant_history_all_role ON variant_history
   FOR ALL TO anon, authenticated
   USING (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = variant_history.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR (auth_role() = 'tenant_admin' AND tests.tenant_id IS NOT NULL AND tests.tenant_id = auth_tenant())
+          OR auth_role() = 'system_admin'
+        )
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM tests
       WHERE tests.id = variant_history.test_id
-        AND tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+        AND (
+          tests.user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+          OR auth_role() IN ('tenant_admin', 'system_admin')
+        )
     )
   );
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
+import { friendlyError } from "@app/lib/friendlyError";
 import { generateVariant } from "@app/services/ai/variants";
 import { ocrToGenerated } from "@app/lib/problemAdapter";
 import {
@@ -157,7 +158,7 @@ export const useVariantGen = (): {
           updateProblem(p.id, {
             generating: false,
             generatingStartedAt: undefined,
-            genError: (err as Error).message || "알 수 없는 오류",
+            genError: friendlyError(err),
             status: "pending",
           });
         }

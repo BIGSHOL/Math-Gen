@@ -24,7 +24,7 @@
  * additional `signal.aborted` check before writing the result back to store.
  */
 
-import { anthropic, SONNET_MODEL, type AnthropicModelId } from "./client";
+import { anthropic, SONNET_MODEL, type AnthropicModelId } from "./client.js";
 import {
   getGeminiClient,
   type GeminiModel,
@@ -35,8 +35,8 @@ import {
   GEMINI_3_1_PRO,
   GEMINI_3_5_FLASH,
   GEMINI_3_FLASH,
-} from "./gemini";
-import { getOpenAIClient, type OpenAIModel } from "./openai";
+} from "./gemini.js";
+import { getOpenAIClient, type OpenAIModel } from "./openai.js";
 import {
   friendlyGeminiError,
   friendlyOpenAIError,
@@ -46,18 +46,23 @@ import {
   usesCompletionTokens,
   OCR_MODELS,
   type OCRModel,
-} from "./ocr";
-import { SYSTEM_BLOCKS, extractJsonText, stripCodeFences } from "./generate";
+} from "./ocr.js";
+import {
+  SYSTEM_BLOCKS,
+  extractJsonText,
+  extractToolUseInput,
+  stripCodeFences,
+} from "./generate.js";
 import {
   COMMON_INSTRUCTIONS,
   buildSolutionPrompt,
   buildSolutionPromptBlocksAnthropic,
-} from "./prompts";
-import { SOLUTION_SCHEMA } from "./solutionsSchema";
-import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize";
-import type { GradeKey } from "./mathDefense";
-import type { OCRProblem } from "@app/stores/wizardStore";
-import { validateSolution, type SolutionWarning } from "@app/lib/solutionValidator";
+} from "./prompts.js";
+import { SOLUTION_SCHEMA } from "./solutionsSchema.js";
+import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize.js";
+import type { GradeKey } from "./mathDefense.js";
+import type { OCRProblem } from "../../stores/wizardStore.js";
+import { validateSolution, type SolutionWarning } from "../../lib/solutionValidator.js";
 
 export interface SolutionGenInput {
   /** The OCR'd problem to explain. Only `text` (and optionally `topic`) is used. */
@@ -130,6 +135,9 @@ const callAnthropic = async (
   // 같은 학년·prompt prefix 공유하므로 첫 호출 cache write, 나머지는 cache
   // read (90% 할인). Block 1 (~100~300 tokens) 은 호출마다 dynamic.
   const userBlocks = buildSolutionPromptBlocksAnthropic(input.problem, input.grade);
+  // tool_use 패턴 — Anthropic 권장. output_config.format.schema 의 strict
+  // validator 가 array schema 거부 (`maxItems is not supported`) 하는 문제 회피.
+  const TOOL_NAME = "emit_solution";
   const response = await anthropic.messages.create(
     {
       model,
@@ -144,19 +152,27 @@ const callAnthropic = async (
           content: userBlocks,
         },
       ],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: SOLUTION_SCHEMA as unknown as Record<string, unknown>,
+      tools: [
+        {
+          name: TOOL_NAME,
+          description:
+            "Emit the step-by-step solution + final answer JSON (solution / answer / warnings).",
+          input_schema: SOLUTION_SCHEMA as unknown as {
+            type: "object";
+            properties?: Record<string, unknown>;
+            required?: string[];
+          },
         },
-      },
+      ],
+      tool_choice: { type: "tool", name: TOOL_NAME },
     },
     input.signal ? { signal: input.signal } : undefined,
   );
 
   // DEV-only — cache hit 측정. 1 호출: creation > 0, read = 0. 2~30 호출:
   // read > 0, creation = 0. Production 빌드에선 dead-code elimination.
-  if (import.meta.env.DEV) {
+  // Vercel function (Node ESM) 에서는 import.meta.env 가 undefined → ?. 으로 안전 access.
+  if (import.meta.env?.DEV) {
     const usage = (response as { usage?: { cache_read_input_tokens?: number; cache_creation_input_tokens?: number; input_tokens?: number } }).usage;
     // eslint-disable-next-line no-console
     console.debug(
@@ -164,8 +180,9 @@ const callAnthropic = async (
     );
   }
 
-  const rawJson = stripCodeFences(extractJsonText(response));
-  return parseJsonOrThrow<RawSolutionResponse>(rawJson);
+  // tool_use 패턴: 응답 content 에서 emit_solution tool block 의 input (이미
+  // parsed JSON object) 추출. JSON.parse 불필요.
+  return extractToolUseInput<RawSolutionResponse>(response, TOOL_NAME);
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -351,7 +368,7 @@ const callOpenAI = async (
  * Default model: Claude Sonnet 4.6. The team will evaluate quality and may
  * promote to Opus 4.7 — when that happens just change the default here.
  */
-export const generateSolution = async (
+const generateSolutionDirect = async (
   input: SolutionGenInput,
 ): Promise<SolutionGenResult> => {
   if (input.signal?.aborted) {
@@ -386,7 +403,7 @@ export const generateSolution = async (
     problemText: input.problem.text ?? "",
     solutionText: cleanedSolution,
   });
-  if (warnings.length > 0 && import.meta.env.DEV) {
+  if (warnings.length > 0 && import.meta.env?.DEV) {
     // eslint-disable-next-line no-console
     console.warn(
       `[ai/solutions] 정확도 검증 위반 ${warnings.length}건 — ${warnings.map((w) => w.summary).join(" / ")}`,
@@ -400,3 +417,36 @@ export const generateSolution = async (
     warnings: warnings.length > 0 ? warnings : undefined,
   };
 };
+
+/**
+ * 클라이언트 프로덕션 빌드 — `/api/ai-solution` Vercel function 호출.
+ * dev (USE_API=false) 에서는 *direct SDK* 사용.
+ */
+const generateSolutionViaApi = async (
+  input: SolutionGenInput,
+): Promise<SolutionGenResult> => {
+  if (input.signal?.aborted) {
+    throw new DOMException("Aborted before request", "AbortError");
+  }
+  const { signal, ...body } = input;
+  const res = await fetch("/api/ai-solution", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
+
+const USE_API: boolean =
+  typeof window !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean(import.meta.env?.PROD || import.meta.env?.VITE_USE_API === "true");
+
+export const generateSolution: typeof generateSolutionDirect = USE_API
+  ? generateSolutionViaApi
+  : generateSolutionDirect;

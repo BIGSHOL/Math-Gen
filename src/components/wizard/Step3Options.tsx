@@ -16,6 +16,10 @@ import {
   type DifficultyShift,
   type WizardState,
 } from "@app/stores/wizardStore";
+import {
+  GOAL_LABEL_KO,
+  DIFFICULTY_LABEL_KO,
+} from "@app/lib/conversionLabels";
 
 /**
  * Wizard Step 3 — pick the global conversion options that apply across
@@ -40,17 +44,19 @@ interface GoalSpec {
   icon: string;
 }
 
+// title 은 lib/conversionLabels 의 GOAL_LABEL_KO 와 byte-identical 동기화 —
+// 변형 이력 카드 / Step3 카드 라벨이 한 source of truth.
 const GOALS: GoalSpec[] = [
-  { id: "digitize", title: "디지털화만", desc: "텍스트·수식으로 변환", icon: "text-aa" },
-  { id: "similar", title: "유사 문제 생성", desc: "같은 개념·다른 문제", icon: "approximately-equals" },
-  { id: "variant", title: "변형 시험지", desc: "난이도·유형 미세 조정", icon: "sparkle" },
-  { id: "targeted", title: "맞춤 보충", desc: "단원별 약점 강화", icon: "target" },
+  { id: "digitize", title: GOAL_LABEL_KO.digitize, desc: "텍스트·수식으로 변환", icon: "text-aa" },
+  { id: "similar", title: GOAL_LABEL_KO.similar, desc: "같은 개념·다른 문제", icon: "approximately-equals" },
+  { id: "variant", title: GOAL_LABEL_KO.variant, desc: "난이도·유형 미세 조정", icon: "sparkle" },
+  { id: "targeted", title: GOAL_LABEL_KO.targeted, desc: "단원별 약점 강화", icon: "target" },
 ];
 
 const DIFFICULTY_OPTIONS: { value: DifficultyShift; label: string; icon: string }[] = [
-  { value: "easier", label: "쉽게", icon: "arrow-down" },
-  { value: "same", label: "원본 유지", icon: "equals" },
-  { value: "harder", label: "어렵게", icon: "arrow-up" },
+  { value: "easier", label: DIFFICULTY_LABEL_KO.easier, icon: "arrow-down" },
+  { value: "same", label: DIFFICULTY_LABEL_KO.same, icon: "equals" },
+  { value: "harder", label: DIFFICULTY_LABEL_KO.harder, icon: "arrow-up" },
 ];
 
 interface ExtraSpec {

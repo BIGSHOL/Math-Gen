@@ -1,5 +1,6 @@
 import { Chip, Eyebrow, Icon } from "@app/components/ui";
 import type { TestPaper, TopicSlice } from "@app/types";
+import { formatVariantLabel } from "@app/lib/conversionLabels";
 
 export interface DetailMetaSidebarProps {
   test: TestPaper;
@@ -93,7 +94,7 @@ export const DetailMetaSidebar = ({ test }: DetailMetaSidebarProps) => {
             >
               <div className="min-w-0 flex-1">
                 <div className="text-small font-semibold text-text truncate">
-                  {v.label ?? `ver.${v.id} · ${v.count}개`}
+                  {formatVariantLabel(v.label) ?? `ver.${v.id} · ${v.count}개`}
                 </div>
                 <div className="text-caption text-muted truncate">{v.createdAt}</div>
               </div>

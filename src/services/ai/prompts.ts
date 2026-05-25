@@ -1,9 +1,9 @@
-import type { SelectionState } from "@app/types";
+import type { SelectionState } from "../../types/index.js";
 import type {
   ConversionGoal,
   DifficultyShift,
-} from "@app/stores/wizardStore";
-import { buildMathDefense, GRADE_LABELS, type GradeKey } from "./mathDefense";
+} from "../../stores/wizardStore.js";
+import { buildMathDefense, GRADE_LABELS, type GradeKey } from "./mathDefense.js";
 
 /**
  * COMMON_INSTRUCTIONS is the shared system prompt that goes through prompt

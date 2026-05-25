@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
+import { friendlyError } from "@app/lib/friendlyError";
 import { generateSolution } from "@app/services/ai/solutions";
 import { useWizardStore } from "@app/stores/wizardStore";
 
@@ -125,7 +126,7 @@ export const useSolutionGen = () => {
               err,
             );
             updateOCRItem(page.id, item.id, {
-              solutionError: (err as Error).message || "알 수 없는 오류",
+              solutionError: friendlyError(err),
               solutionGenerating: false,
               solutionStartedAt: undefined,
             });

@@ -1,13 +1,13 @@
-import type { GeneratedProblem, SelectionState } from "@app/types";
-import { anthropic, DEFAULT_MODEL } from "./client";
-import { PROBLEM_SCHEMA } from "./schema";
+import type { GeneratedProblem, SelectionState } from "../../types/index.js";
+import { anthropic, DEFAULT_MODEL } from "./client.js";
+import { PROBLEM_SCHEMA } from "./schema.js";
 import {
   COMMON_INSTRUCTIONS,
   buildCurriculumPrompt,
   buildExactExtractPrompt,
   buildImageVariantPrompt,
-} from "./prompts";
-import { parseDataUrl, sanitizeSvg, sanitizeText } from "./sanitize";
+} from "./prompts.js";
+import { parseDataUrl, sanitizeSvg, sanitizeText } from "./sanitize.js";
 
 /**
  * Main problem-generation entry point.
@@ -81,6 +81,38 @@ export const extractJsonText = (
     }
   }
   throw new Error("Model returned no text content.");
+};
+
+/**
+ * Anthropic tool-use 응답에서 *지정된 tool* 의 `input` (이미 parsed JSON
+ * object) 추출. tool_use 패턴은 schema 강제력이 강하고 Anthropic 권장 —
+ * `output_config.format.schema` 가 *server-side strict validator* 와 충돌하는
+ * 환경에서 안정적 대안.
+ *
+ * 사용 패턴:
+ * ```
+ * anthropic.messages.create({
+ *   tools: [{ name: "emit_variant", description, input_schema }],
+ *   tool_choice: { type: "tool", name: "emit_variant" },
+ *   ...
+ * });
+ * const raw = extractToolUseInput<RawVariantResponse>(response, "emit_variant");
+ * ```
+ *
+ * 반환값은 이미 *parsed object* — JSON.parse 불필요.
+ */
+export const extractToolUseInput = <T = unknown>(
+  response: Awaited<ReturnType<typeof anthropic.messages.create>>,
+  toolName: string,
+): T => {
+  if ("content" in response) {
+    for (const block of response.content) {
+      if (block.type === "tool_use" && block.name === toolName) {
+        return block.input as T;
+      }
+    }
+  }
+  throw new Error(`Model returned no tool_use block for "${toolName}".`);
 };
 
 export const stripCodeFences = (raw: string): string => {

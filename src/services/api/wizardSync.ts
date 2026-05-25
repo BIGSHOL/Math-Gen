@@ -6,6 +6,7 @@ import { upsertReviews, updateReview } from "./reviews";
 import { insertVariantBatch } from "./variantHistory";
 import { updateTest } from "./tests";
 import type { PageInsert, OcrProblemInsert, ReviewInsert } from "./mappers";
+import { buildVariantLabel } from "@app/lib/conversionLabels";
 
 /**
  * wizardStore → Supabase background sync.
@@ -80,7 +81,7 @@ export const installWizardSync = (): void => {
         void upsertReviews(testId, pairs);
         const intensity: 0 | 1 | 2 =
           state.goal === "digitize" ? 0 : state.goal === "similar" ? 1 : 2;
-        const label = `${state.goal} / ${state.difficulty}`;
+        const label = buildVariantLabel(state.goal, state.difficulty);
         void insertVariantBatch(testId, intensity, state.problems.length, label);
       } else {
         for (const newReview of state.problems) {

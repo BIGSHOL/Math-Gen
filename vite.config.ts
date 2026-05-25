@@ -153,7 +153,7 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
   },
 });
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ mode, command }) => {
   const fileEnv = readEnvLocal();
   const env = loadEnv(mode, process.cwd(), "");
   // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
@@ -202,19 +202,24 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [stubBrowserUnsafeAnthropicSdk(stubs), react()],
     define: {
-      // Anthropic key for client-side SDK (Phase 0.5 migration).
-      // NOTE: Exposing this in the client bundle is a *temporary* arrangement
-      // — Phase 5 will move all model calls behind a backend proxy. Do not
-      // ship a production build with this in place.
-      "process.env.ANTHROPIC_API_KEY": JSON.stringify(ANTHROPIC_API_KEY),
-      // Gemini key — optional, used as a 3rd-pass fallback for figures that
-      // even Claude Opus 4.7 fails to render correctly. Leave blank to skip.
-      "process.env.GEMINI_API_KEY": JSON.stringify(GEMINI_API_KEY),
-      // OpenAI key — optional, enables GPT-5 / 4.1 / 4o / o3 family in the
-      // OCR layer and bench. Leave blank to hide GPT options.
-      "process.env.OPENAI_API_KEY": JSON.stringify(OPENAI_API_KEY),
+      // AI provider keys — Phase 5a-6: **dev (vercel dev / npm run dev) 에서만**
+      // 클라이언트 번들에 inject. production 빌드에서는 *제거* — 모든 AI 호출이
+      // `/api/ai-*` Vercel function 경유로 변경 (Phase 5a-5). 키가 client bundle
+      // 에 박히는 보안 위험 회피.
+      //
+      // command === "serve" 가 *dev only* — `command === "build"` (production)
+      // 에서는 이 define 자체가 제거되어 client bundle 의 process.env.X 가
+      // undefined → src/services/ai/*.ts 의 USE_API=true 분기로 fetch path 사용.
+      ...(command === "serve"
+        ? {
+            "process.env.ANTHROPIC_API_KEY": JSON.stringify(ANTHROPIC_API_KEY),
+            "process.env.GEMINI_API_KEY": JSON.stringify(GEMINI_API_KEY),
+            "process.env.OPENAI_API_KEY": JSON.stringify(OPENAI_API_KEY),
+          }
+        : {}),
       // Supabase — Phase A 인프라 마이그레이션. VITE_ prefix 로 client 에서
       // `import.meta.env` 로 접근. ENABLED 가 "true" 일 때만 client 가 활성.
+      // anon key 는 *공개 OK* (RLS 가 보호) — production build 도 포함.
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(SUPABASE_URL),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(SUPABASE_ANON_KEY),
       "import.meta.env.VITE_SUPABASE_ENABLED": JSON.stringify(SUPABASE_ENABLED),

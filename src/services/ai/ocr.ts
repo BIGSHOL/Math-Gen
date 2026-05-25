@@ -24,7 +24,7 @@
  * result handling with one more aborted-check.
  */
 
-import type { OCRProblem } from "@app/stores/wizardStore";
+import type { OCRProblem } from "../../stores/wizardStore.js";
 import {
   anthropic,
   DEFAULT_MODEL,
@@ -32,7 +32,7 @@ import {
   OPUS_MODEL,
   SONNET_MODEL,
   type AnthropicModelId,
-} from "./client";
+} from "./client.js";
 import {
   getGeminiClient,
   GEMINI_2_5_FLASH,
@@ -43,7 +43,7 @@ import {
   GEMINI_3_5_FLASH,
   GEMINI_3_FLASH,
   type GeminiModel,
-} from "./gemini";
+} from "./gemini.js";
 import {
   getOpenAIClient,
   GPT_4_1,
@@ -59,11 +59,16 @@ import {
   O3,
   O4_MINI,
   type OpenAIModel,
-} from "./openai";
-import { SYSTEM_BLOCKS, extractJsonText, stripCodeFences } from "./generate";
-import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT } from "./prompts";
-import { OCR_PAGE_SCHEMA } from "./ocrSchema";
-import { parseDataUrl, sanitizeText } from "./sanitize";
+} from "./openai.js";
+import {
+  SYSTEM_BLOCKS,
+  extractJsonText,
+  extractToolUseInput,
+  stripCodeFences,
+} from "./generate.js";
+import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT } from "./prompts.js";
+import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
+import { parseDataUrl, sanitizeText } from "./sanitize.js";
 
 /** Unified union — every provider's vision-capable model the OCR layer accepts. */
 export type OCRModel = AnthropicModelId | GeminiModel | OpenAIModel;
@@ -466,6 +471,10 @@ const callAnthropic = async (
   //   `messages.stream()` → `await stream.finalMessage()` 로 최종 메시지를
   //   받으면 응답 shape 은 non-streaming `messages.create` 결과와 동일하므로
   //   기존 `extractJsonText` 후처리가 그대로 통한다.
+  // tool_use 패턴 — Anthropic 권장. output_config.format.schema 의 strict
+  // validator 가 array schema 거부 (`maxItems is not supported`) 문제 회피.
+  // streaming + tool_use 호환됨 (final 메시지 content 에 tool_use block 포함).
+  const TOOL_NAME = "emit_ocr_result";
   const stream = anthropic.messages.stream(
     {
       model,
@@ -484,19 +493,27 @@ const callAnthropic = async (
           ],
         },
       ],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: OCR_PAGE_SCHEMA as unknown as Record<string, unknown>,
+      tools: [
+        {
+          name: TOOL_NAME,
+          description:
+            "Emit the OCR result for this page as JSON — items array of problems with body/choices/images/etc.",
+          input_schema: OCR_PAGE_SCHEMA as unknown as {
+            type: "object";
+            properties?: Record<string, unknown>;
+            required?: string[];
+          },
         },
-      },
+      ],
+      tool_choice: { type: "tool", name: TOOL_NAME },
     },
     input.signal ? { signal: input.signal } : undefined,
   );
 
   const response = await stream.finalMessage();
-  const rawJson = stripCodeFences(extractJsonText(response));
-  return parseJsonOrThrow(rawJson);
+  // tool_use 패턴: 응답 content 에서 emit_ocr_result tool block 의 input
+  // (이미 parsed JSON object) 추출.
+  return extractToolUseInput(response, TOOL_NAME) as RawOcrResponse;
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -890,7 +907,7 @@ const callOpenAI = async (
 };
 
 // ─── Public entry point ───────────────────────────────────────────────
-export const extractPageProblems = async (
+const extractPageProblemsDirect = async (
   input: OCRPageInput,
 ): Promise<OCRPageResult> => {
   if (input.signal?.aborted) {
@@ -919,3 +936,44 @@ export const extractPageProblems = async (
 
   return { items: normalizeResponse(parsed) };
 };
+
+/**
+ * 클라이언트 프로덕션 빌드 — `/api/ai-ocr` Vercel function 호출. AI 키가
+ * 클라이언트 번들에 박히지 않음 (Phase 5a). dev 환경에서는 `USE_API=false`
+ * 라 *direct SDK* 사용.
+ */
+const extractPageProblemsViaApi = async (
+  input: OCRPageInput,
+): Promise<OCRPageResult> => {
+  if (input.signal?.aborted) {
+    throw new DOMException("Aborted before request", "AbortError");
+  }
+  const { signal, ...body } = input;
+  const res = await fetch("/api/ai-ocr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
+
+/**
+ * USE_API 결정 — 서버 (Vercel function) 에서는 *항상 false* (자기 자신 호출
+ * 무한 루프 방지). 브라우저에서는 PROD 또는 VITE_USE_API 환경에 따라.
+ *
+ * `import.meta.env` 는 Vite-only — Node ESM 런타임에서 *undefined* 라 .PROD
+ * 접근 시 TypeError. typeof guard + optional chaining 으로 우회.
+ */
+const USE_API: boolean =
+  typeof window !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean(import.meta.env?.PROD || import.meta.env?.VITE_USE_API === "true");
+
+export const extractPageProblems: typeof extractPageProblemsDirect = USE_API
+  ? extractPageProblemsViaApi
+  : extractPageProblemsDirect;

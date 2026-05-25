@@ -28,6 +28,9 @@ dist-ssr
 # Supabase CLI local state (project link, temp files — per-machine)
 supabase/.temp/
 
+# Vercel CLI local state — `vercel pull` 다운로드 + 빌드 산출물 + env 캐시
+.vercel/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
