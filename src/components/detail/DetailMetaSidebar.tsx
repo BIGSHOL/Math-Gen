@@ -4,7 +4,9 @@ import { formatVariantLabel } from "@app/lib/conversionLabels";
 
 export interface DetailMetaSidebarProps {
   test: TestPaper;
-  /** 액션 핸들러 — 사이드바 최상단에서 호출. */
+  /** *변형 만들기* — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */
+  onMakeVariant: () => void;
+  /** *이어서 작업* — 미완료 단계 자동 결정 (decideResumeStep). 끊긴 작업 재개. */
   onResume: () => void;
   onShare?: () => void;
   onPdf?: () => void;
@@ -64,6 +66,7 @@ const TopicBar = ({ slice }: { slice: TopicSlice }) => {
  */
 export const DetailMetaSidebar = ({
   test,
+  onMakeVariant,
   onResume,
   onShare,
   onPdf,
@@ -76,28 +79,39 @@ export const DetailMetaSidebar = ({
       {/* ── 액션 (최상단) ───────────────────────────────────────────────── */}
       <Eyebrow className="mb-3">액션</Eyebrow>
       <div className="flex flex-col gap-2 mb-7">
-        {/* 주요 CTA — 변형 만들기 (이전 하단 CtaBanner 의 동작과 동일 — handleResume).
-            현 단계는 *이어서 작업* 흐름으로 위자드 진입. 별도 "옵션부터 시작"
-            플로우는 후속. */}
-        <Btn
-          kind="accent"
-          icon="sparkle"
-          iconRight="arrow-right"
-          full
-          onClick={onResume}
-          disabled={resuming || loading}
-        >
-          변형 만들기
-        </Btn>
-        <Btn
-          kind="secondary"
-          icon="play"
-          full
-          onClick={onResume}
-          disabled={resuming || loading}
-        >
-          {resuming ? "불러오는 중…" : "이어서 작업"}
-        </Btn>
+        {/* 변형 만들기 — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */}
+        <div>
+          <Btn
+            kind="accent"
+            icon="sparkle"
+            iconRight="arrow-right"
+            full
+            onClick={onMakeVariant}
+            disabled={resuming || loading}
+            title="새 옵션으로 변형을 다시 만듭니다 — Step 3 (옵션) 부터 시작"
+          >
+            변형 만들기
+          </Btn>
+          <p className="mt-1 text-caption text-muted leading-tight">
+            새 옵션으로 변형 시험지 생성 (옵션 → 검토)
+          </p>
+        </div>
+        {/* 이어서 작업 — decideResumeStep 의 미완료 단계 자동 진입. */}
+        <div>
+          <Btn
+            kind="secondary"
+            icon="play"
+            full
+            onClick={onResume}
+            disabled={resuming || loading}
+            title="끊긴 작업의 미완료 단계부터 재개"
+          >
+            {resuming ? "불러오는 중…" : "이어서 작업"}
+          </Btn>
+          <p className="mt-1 text-caption text-muted leading-tight">
+            끊긴 작업의 미완료 단계부터 재개
+          </p>
+        </div>
         <div className="flex gap-2">
           <Btn
             kind="ghost"

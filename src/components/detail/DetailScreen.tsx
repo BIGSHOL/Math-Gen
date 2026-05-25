@@ -22,7 +22,11 @@ import { suspendWizardSync } from "@app/services/api/wizardSync";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { useWizardStore } from "@app/stores/wizardStore";
-import type { OCRProblem, ProblemReview } from "@app/stores/wizardStore";
+import type {
+  OCRProblem,
+  ProblemReview,
+  WizardStepIndex,
+} from "@app/stores/wizardStore";
 import type { TestStatus } from "@app/types";
 import { PageThumbnails } from "./PageThumbnails";
 import { HeroCard } from "./HeroCard";
@@ -58,12 +62,15 @@ export const DetailScreen = () => {
   const [resuming, setResuming] = useState(false);
 
   /**
-   * "이어서 작업" — 저장된 시험지를 위자드로 hydrate 해 미완료 단계부터 재개.
+   * 위자드 진입 — 저장된 시험지를 hydrate 후 step 결정:
+   *   - `forceStep` 명시: 해당 step 으로 강제 (변형 만들기 = Step 3 옵션)
+   *   - 미명시: `decideResumeStep` 자동 (이어서 작업 = 미완료 step)
+   *
    * `suspendWizardSync` 로 감싸 hydrate 의 set() 이 variant_history 를 오염시키지
    * 않게 하고, `justHydrated` 플래그(hydrateFromTest 가 set)로 위자드의 resume
    * 다이얼로그를 skip 한다.
    */
-  const handleResume = async () => {
+  const handleResume = async (forceStep?: WizardStepIndex) => {
     if (!selectedTestId || resuming) return;
     setResuming(true);
     try {
@@ -74,8 +81,15 @@ export const DetailScreen = () => {
       }
       // 로딩 중 사용자가 보관함으로 돌아갔으면 화면 전환 취소.
       if (useAppStore.getState().screen !== "detail") return;
-      suspendWizardSync(() => useWizardStore.getState().hydrateFromTest(snapshot));
-      startWizard(snapshot.testId);
+      // forceStep 명시 — snapshot.step override. *변형 만들기* 가 Step 3 으로
+      // 강제 진입할 때 사용. 단순 *이어서 작업* 은 undefined → snapshot 의
+      // decideResumeStep 결과 그대로.
+      const finalSnapshot =
+        forceStep !== undefined ? { ...snapshot, step: forceStep } : snapshot;
+      suspendWizardSync(() =>
+        useWizardStore.getState().hydrateFromTest(finalSnapshot),
+      );
+      startWizard(finalSnapshot.testId);
     } catch (err) {
       console.warn("[DetailScreen] 이어서 작업 실패:", err);
       window.alert("이어서 작업 진입에 실패했습니다.");
@@ -214,7 +228,8 @@ export const DetailScreen = () => {
 
         <DetailMetaSidebar
           test={enrichedTest}
-          onResume={handleResume}
+          onMakeVariant={() => handleResume(3)}
+          onResume={() => handleResume()}
           resuming={resuming}
           loading={detail.loading}
         />
