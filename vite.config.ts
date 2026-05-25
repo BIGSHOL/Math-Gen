@@ -159,17 +159,21 @@ export default defineConfig(async ({ mode, command }) => {
   // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
   // 3001, 3002... 로. dev 명령 출력의 "Local:" URL 이 실제 listen port 와 일치.
   const devPort = await findFreePort(3000);
-  // `.env.local` wins over `loadEnv`'s shell-merged values — see `readEnvLocal`.
-  const ANTHROPIC_API_KEY = fileEnv.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || "";
-  const GEMINI_API_KEY = fileEnv.GEMINI_API_KEY || env.GEMINI_API_KEY || "";
-  const OPENAI_API_KEY = fileEnv.OPENAI_API_KEY || env.OPENAI_API_KEY || "";
+  // **우선순위**: `env` (loadEnv — shell + Vercel env) 가 *최우선*. `fileEnv`
+  // (.env.example placeholder fallback) 는 *마지막 fallback*.
+  //
+  // 이전엔 fileEnv 가 우선이라 *Vercel build* 시 `.env.example` 의 placeholder
+  // URL (`https://XXXXXXXX.supabase.co`) 가 Vercel env 의 진짜 URL 을 덮어쓰는
+  // 버그. PLACEHOLDER_RE 가 *대문자 X 형식* 잡지 못해 fileEnv 에 그대로 남음 →
+  // 클라이언트 build 에 박힘 → 로그인 시 ERR_NAME_NOT_RESOLVED.
+  const ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY || fileEnv.ANTHROPIC_API_KEY || "";
+  const GEMINI_API_KEY = env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY || "";
+  const OPENAI_API_KEY = env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY || "";
   // Supabase — VITE_ prefix 사용 (vite 컨벤션). dev 단계엔 ENABLED=false 가능
-  // (기존 IndexedDB / sessionStorage 만). Phase A 이후 ENABLED=true 로 Cloud
-  // sync 활성. readEnvLocal 의 우선순위 (`.env.local` > `.env` > `.env.example`)
-  // 그대로 적용.
-  const SUPABASE_URL = fileEnv.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL || "";
-  const SUPABASE_ANON_KEY = fileEnv.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || "";
-  const SUPABASE_ENABLED = fileEnv.VITE_SUPABASE_ENABLED || env.VITE_SUPABASE_ENABLED || "false";
+  // (기존 IndexedDB / sessionStorage 만). Phase A 이후 ENABLED=true 로 Cloud sync 활성.
+  const SUPABASE_URL = env.VITE_SUPABASE_URL || fileEnv.VITE_SUPABASE_URL || "";
+  const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || fileEnv.VITE_SUPABASE_ANON_KEY || "";
+  const SUPABASE_ENABLED = env.VITE_SUPABASE_ENABLED || fileEnv.VITE_SUPABASE_ENABLED || "false";
   const stubs = {
     "fs-util.mjs": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
     "fs-util.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),

@@ -85,19 +85,20 @@ interface ForbiddenShellProps {
 }
 
 const ForbiddenShell = ({ heading, message, icon }: ForbiddenShellProps) => (
-  <div className="w-full h-screen flex items-center justify-center bg-bg text-text">
-    <div className="max-w-md text-center px-6">
-      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warn-soft mb-4">
+  <div className="w-full h-screen flex items-center justify-center bg-bg text-text px-4">
+    <div className="flex flex-col items-center text-center max-w-md w-full">
+      <div className="flex items-center justify-center w-16 h-16 rounded-full bg-warn-soft mb-4 mx-auto">
         <Icon name={icon} size={28} color="#F59E0B" weight="duotone" />
       </div>
-      <Heading level="h2" className="mb-2">
+      <Heading level="h2" className="mb-2 text-center">
         {heading}
       </Heading>
-      <p className="text-small text-muted">{message}</p>
+      <p className="text-small text-muted text-center leading-relaxed">{message}</p>
       <a
         href="/"
-        className="inline-block mt-6 px-4 py-2 rounded-r2 bg-surface2 text-text hover:bg-hover transition"
+        className="mt-6 inline-flex items-center gap-1.5 px-4 py-2 rounded-r2 bg-surface2 text-text hover:bg-hover transition text-small"
       >
+        <Icon name="arrow-left" size={14} />
         메인으로 돌아가기
       </a>
     </div>
