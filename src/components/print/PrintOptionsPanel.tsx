@@ -71,14 +71,6 @@ export const PrintOptionsPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportSource]);
 
-  // 세로 여백 슬라이더의 *드래그 중 표시값* — store 와 분리. drag 중엔 store
-  // update 안 함 (미리보기 reflow 무거움 ~0.5s) → thumb 가 마우스 따라옴.
-  // release 시에만 store commit. 외부 (예: reset) 변경은 sync.
-  const [spacingPreview, setSpacingPreview] = useState(printOptions.spacing);
-  useEffect(() => {
-    setSpacingPreview(printOptions.spacing);
-  }, [printOptions.spacing]);
-
   const isBoth = exportSource === "both";
 
   return (
@@ -180,24 +172,12 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 5. 세로 여백 — drag 중엔 local preview 만, release 시 store commit. */}
-        <Section title={`세로 여백 (${spacingPreview}px)`}>
-          <div className="flex items-center gap-3">
-            <RangeSlider
-              min={0}
-              max={150}
-              step={1}
-              value={printOptions.spacing}
-              onPreview={setSpacingPreview}
-              onChange={(v) => onChangePrintOptions({ spacing: v })}
-              className="flex-1 accent-accent h-1"
-              aria-label="세로 여백"
-            />
-            <span className="text-caption font-mono text-muted w-10 text-right">
-              {spacingPreview}px
-            </span>
-          </div>
-        </Section>
+        {/* 5. 세로 여백 — isolation 컴포넌트로 분리. drag 중 PrintOptionsPanel
+            본체 re-render 안 됨 (color/template/toggle 등 무거운 트리 제외). */}
+        <SpacingControl
+          value={printOptions.spacing}
+          onChange={(v) => onChangePrintOptions({ spacing: v })}
+        />
 
         {/* 6. 헤더/문항 옵션 토글 */}
         <Section title="표시 옵션">
@@ -284,5 +264,50 @@ const Section = ({ title, hint, children }: SectionProps) => (
     {children}
   </section>
 );
+
+/**
+ * 세로 여백 슬라이더 isolation 컴포넌트.
+ *
+ * **함정 (실측)**: PrintOptionsPanel 본체에 `useState(spacingPreview)` 두면
+ * drag 중 `setSpacingPreview` 마다 *PrintOptionsPanel 전체* re-render → 8개
+ * color 버튼 + 4개 template 버튼 + 7개 Toggle + 3개 Segmented 등 다 reconcile
+ * → ~1.2s 점유 → main thread 막혀서 thumb 도 멈춤. (Chrome MCP 실측:
+ * input → mutation 1239ms, drag 중 rAF tick 0회)
+ *
+ * **해결**: SpacingControl 안에서만 state. drag 중 *이 컴포넌트만* re-render
+ * → tree 가 작아 빠름. PrintOptionsPanel 본체는 props 변경 없으면 영향 X.
+ */
+interface SpacingControlProps {
+  value: number;
+  onChange: (v: number) => void;
+}
+
+const SpacingControl = ({ value, onChange }: SpacingControlProps) => {
+  const [preview, setPreview] = useState(value);
+  // 외부 reset 등 — 드래그 끝나고 props 가 바뀐 경우 sync.
+  useEffect(() => {
+    setPreview(value);
+  }, [value]);
+
+  return (
+    <Section title={`세로 여백 (${preview}px)`}>
+      <div className="flex items-center gap-3">
+        <RangeSlider
+          min={0}
+          max={150}
+          step={1}
+          value={value}
+          onPreview={setPreview}
+          onChange={onChange}
+          className="flex-1 accent-accent h-1"
+          aria-label="세로 여백"
+        />
+        <span className="text-caption font-mono text-muted w-10 text-right">
+          {preview}px
+        </span>
+      </div>
+    </Section>
+  );
+};
 
 export default PrintOptionsPanel;
