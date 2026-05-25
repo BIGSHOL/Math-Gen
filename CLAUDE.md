@@ -1333,6 +1333,55 @@ margin (mb-3 등) 이 부모 line-height 와 충돌해 *마진 적용 불안정*
 `src/lib/modelLabel.ts` 의 `modelShortName()` 헬퍼 — PageThumbColumn /
 OCRItem / SolutionItem 등 *모든 모델 chip* 이 공유.
 
+### 13-5. 문항 카드의 표시 순서 — *문제 → 정답 → 풀이* (CRITICAL)
+
+사용자 보고: 정답이 *문제 위* 에 있어 학습 흐름이 깨짐 — 문제 읽기도 전에
+선택지 ③ 등이 노출. 교과서 / 학습지의 자연스러운 흐름은:
+
+```
+1. 문제 본문 + 선택지 (학생이 *직접 풀어볼* 영역)
+2. 정답 (확인 직전 시점)
+3. 풀이 (펼침 — 정답이 왜 그런지)
+```
+
+**원칙 — *통합 카드 (문제+정답+풀이 한 카드)* 에 적용**:
+
+| 영역 | 적용 여부 | 이유 |
+|---|---|---|
+| `VariantItem` (Step 4 변형 카드) | ✅ 적용 | 통합 카드 — 문제/정답/풀이 모두 한 카드 |
+| `PrintQuestionBlock` (인쇄 문제지) | N/A | 문제만 — 정답 없음 |
+| `PrintAnswerKeyPage` (인쇄 정답지) | N/A | 정답 + 해설 묶음 — 별도 페이지 |
+| `SolutionItem` (Step 3 우측) | ❌ 예외 | 분리 카드 — 좌측 OCRItem 이 문제, 우측 SolutionItem 이 *정답 + 해설*. 우측 안에서 *정답 → 해설* 자연스러움. |
+| `OCRItem` (Step 2/3 의 문제 카드) | N/A | 문제만 |
+
+**구현 패턴** (VariantItem 예시):
+
+```tsx
+<Card>
+  <Header />
+  {/* 1. 문제 본문 */}
+  <MarkdownRenderer content={problem.question} />
+  {/* + 객관식이면 선택지 ①②③④⑤ */}
+
+  {/* 2. 정답 strip — 강조 (accent-soft) */}
+  <div className="mt-3 px-3 py-2 rounded-r2 bg-accent-soft border border-accent/30 ...">
+    <span>정답</span> {problem.answer}
+  </div>
+
+  {/* 3. 풀이 — <details> 펼침 토글 */}
+  <details>
+    <summary>풀이 보기</summary>
+    <MarkdownRenderer content={problem.solution} />
+  </details>
+</Card>
+```
+
+**새 통합 카드 추가 시 — 이 패턴 강제**. 분리 카드 (Step 3 좌우) 가 아닌
+*문제·정답·풀이 한 카드* 이면 *반드시 문제 → 정답 → 풀이* 순.
+
+**참고**: `src/components/wizard/VariantItem.tsx` L321-390. 사용자 보고
+(2026-05-26) 후 *정답 strip 을 문제 + 선택지 *아래* 로 이동*.
+
 ---
 
 ## 14. Plan mode 활용 패턴
