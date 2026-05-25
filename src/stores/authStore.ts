@@ -21,9 +21,21 @@ import { useWizardStore } from "./wizardStore";
 
 export type AuthStatus = "loading" | "ready";
 
+/** Phase A — public.profiles 행. AdminGate 가 role / status 검증. */
+export interface UserProfile {
+  id: string;
+  email: string | null;
+  role: "system_admin" | "tenant_admin" | "teacher";
+  status: "pending" | "active" | "suspended";
+  tenant_id: string | null;
+  display_name: string | null;
+}
+
 export interface AuthState {
   /** 로그인 사용자. 비로그인 / flag off 면 null. */
   user: User | null;
+  /** Phase A — profiles row (role / status / tenant_id). 비로그인 시 null. */
+  profile: UserProfile | null;
   /** "loading" = 초기 세션 확인 중 (AuthGate 가 splash). "ready" = 확정. */
   status: AuthStatus;
   /** signIn/signUp/signOut 진행 중 — 폼 버튼 disable 용. */
@@ -75,6 +87,7 @@ const authErrorToKorean = (error: { code?: string; message?: string }): string =
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
+  profile: null,
   status: "loading",
   actionPending: false,
   actionError: null,
@@ -110,6 +123,27 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       prevUserId = nextId;
       set({ user, status: "ready" });
+      // Phase A — profile row 조회 (role / tenant_id). user null 이면 profile null.
+      if (!user) {
+        set({ profile: null });
+        return;
+      }
+      void sb
+        .from("profiles")
+        .select("id, email, role, status, tenant_id, display_name")
+        .eq("id", user.id)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (error) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.warn(`[authStore] profile fetch failed: ${error.message}`);
+            }
+            set({ profile: null });
+            return;
+          }
+          set({ profile: (data as UserProfile | null) ?? null });
+        });
     };
 
     // 초기 세션 (localStorage). onAuthStateChange 도 INITIAL_SESSION 으로 같은

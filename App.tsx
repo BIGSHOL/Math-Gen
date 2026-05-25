@@ -10,6 +10,7 @@ import { LegacyScreen } from "@app/screens/LegacyScreen";
 import { ModelBenchScreen } from "@app/screens/ModelBenchScreen";
 import { KatexTestScreen } from "@app/screens/KatexTestScreen";
 import { CropTestScreen } from "@app/screens/CropTestScreen";
+import { AdminScreen } from "@app/screens/AdminScreen";
 import { useAppStore } from "@app/stores/appStore";
 
 /**
@@ -35,9 +36,10 @@ const App = () => {
     installGlobalErrorHandlers();
   }, []);
 
-  const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "croptest" | "app">(() => {
+  const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "croptest" | "admin" | "app">(() => {
     if (typeof window === "undefined") return "app";
     const search = window.location.search;
+    if (search.includes("admin")) return "admin";
     if (search.includes("katex")) return "katex";
     if (search.includes("croptest")) return "croptest";
     if (search.includes("ui")) return "ui";
@@ -48,6 +50,7 @@ const App = () => {
 
   const screen = useAppStore((s) => s.screen);
 
+  if (route === "admin") return <AdminScreen />;
   if (route === "katex") return <KatexTestScreen />;
   if (route === "croptest") return <CropTestScreen />;
   if (route === "ui") return <UIPlayground />;
