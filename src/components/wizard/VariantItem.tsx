@@ -318,31 +318,7 @@ export const VariantItem = ({
         </div>
       </div>
 
-      {/* Answer strip */}
-      <div
-        className={cn(
-          "mb-3 px-3 py-2 rounded-r2 bg-accent-soft border border-accent/30 flex items-baseline gap-2 flex-wrap",
-          editing ? "w-full" : "w-fit max-w-full",
-        )}
-      >
-        <span className="text-caption text-muted font-semibold">정답</span>
-        {editing ? (
-          <input
-            type="text"
-            value={draftA}
-            onChange={(e) => setDraftA(e.target.value)}
-            placeholder='예: "③ 5"'
-            className="flex-1 h-7 px-2 rounded-r1 border border-line-strong bg-surface text-body font-mono focus:outline-none focus:border-accent focus:shadow-accent-glow"
-            aria-label="정답"
-          />
-        ) : (
-          <span className="text-[15px] font-semibold text-accent-ink">
-            <MarkdownRenderer content={problem.variant.answer ?? ""} inline />
-          </span>
-        )}
-      </div>
-
-      {/* Question + (객관식이면) choices */}
+      {/* Question + (객관식이면) choices — 문제가 먼저 (자연스러운 학습 흐름) */}
       {editing ? (
         <textarea
           value={draftQ}
@@ -373,6 +349,30 @@ export const VariantItem = ({
           )}
         </div>
       )}
+
+      {/* Answer strip — 문제 *아래* / 풀이 *위* (사용자 보고: 풀이 직전이 자연스러움) */}
+      <div
+        className={cn(
+          "mt-3 px-3 py-2 rounded-r2 bg-accent-soft border border-accent/30 flex items-baseline gap-2 flex-wrap",
+          editing ? "w-full" : "w-fit max-w-full",
+        )}
+      >
+        <span className="text-caption text-muted font-semibold">정답</span>
+        {editing ? (
+          <input
+            type="text"
+            value={draftA}
+            onChange={(e) => setDraftA(e.target.value)}
+            placeholder='예: "③ 5"'
+            className="flex-1 h-7 px-2 rounded-r1 border border-line-strong bg-surface text-body font-mono focus:outline-none focus:border-accent focus:shadow-accent-glow"
+            aria-label="정답"
+          />
+        ) : (
+          <span className="text-[15px] font-semibold text-accent-ink">
+            <MarkdownRenderer content={problem.variant.answer ?? ""} inline />
+          </span>
+        )}
+      </div>
 
       {/* Solution (collapsible later — for now always show) */}
       {!editing && problem.variant.solution && (
