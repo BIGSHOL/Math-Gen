@@ -4,6 +4,7 @@ import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
+import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
 
 /**
  * 1 초 tick — `solutionStartedAt` 기준 경과 시간을 매 초 갱신. 카드가 *실제
@@ -353,6 +354,22 @@ export const SolutionItem = ({ pageId, item, onRegenerate, readonly }: SolutionI
       ) : (
         <div className={cn("text-body text-text")}>
           <MarkdownRenderer content={item.solution} />
+        </div>
+      )}
+
+      {/* Phase E — 피드백 UI. 완료된 해설에만 표시 (readonly 모드 또는 solution 존재). */}
+      {item.solution && !editing && (
+        <div className="mt-3 pt-3 border-t border-line">
+          <FeedbackBar
+            targetKind="solution"
+            targetId={item.id}
+            context={{
+              model: item.solutionModel ?? null,
+              topic: item.topic ?? null,
+              number: item.number,
+              text_snippet: (item.text ?? "").slice(0, 200),
+            }}
+          />
         </div>
       )}
     </Card>

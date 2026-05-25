@@ -4,6 +4,7 @@ import MarkdownRenderer, {
   type DiagramSvgItem,
 } from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
+import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
 import {
   logDiagramIssues,
   renderDiagram,
@@ -385,6 +386,21 @@ export const VariantItem = ({
           </div>
         </details>
       )}
+      {/* Phase E — 변형 결과에 대한 피드백. confirmed/review 상태 + 비편집 시 표시. */}
+      {!editing && problem.variant.question && problem.status !== "pending" && (
+        <div className="mt-3 pt-3 border-t border-line">
+          <FeedbackBar
+            targetKind="variant"
+            targetId={problem.id}
+            context={{
+              model: problem.genModel ?? null,
+              topic: problem.variant.topic ?? null,
+              text_snippet: (problem.variant.question ?? "").slice(0, 200),
+            }}
+          />
+        </div>
+      )}
+
       {editing && (
         <textarea
           value={draftS}
