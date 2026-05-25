@@ -32,14 +32,17 @@ export const AdminSidebar = () => {
   const section = useAdminStore((s) => s.section);
   const setSection = useAdminStore((s) => s.setSection);
 
+  const anomalyCount = useAdminStore((s) => s.anomalyCount);
+
   const items = useMemo<NavListItem<AdminSection>[]>(
     () =>
       SECTIONS.filter((s) => !s.systemAdminOnly || role === "system_admin").map((s) => ({
         id: s.id,
         label: s.label,
         icon: s.icon,
+        count: s.id === "monitoring" && anomalyCount > 0 ? anomalyCount : undefined,
       })),
-    [role],
+    [role, anomalyCount],
   );
 
   return (

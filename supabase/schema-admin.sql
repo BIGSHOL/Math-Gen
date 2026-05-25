@@ -377,6 +377,69 @@ CREATE POLICY feedback_select_role ON content_feedback
   );
 
 -- ============================================================================
--- 13. 검증 — 다음 query 가 무에러로 끝나면 schema-admin 적용 성공
+-- 13. admin_anomalies view (Phase D — 이상 감지)
+-- ----------------------------------------------------------------------------
+-- ai_usage 위에 3 가지 이상 패턴 통합:
+--   1. high_volume      : 1시간 누적 호출 > 100
+--   2. high_error_rate  : 24시간 누적 ≥ 50회 + 에러율 > 30%
+--   3. high_cost        : 24시간 누적 비용 > $20
+--
+-- RLS 는 *view 자체에 INHERIT* — underlying ai_usage 의 정책이 자동 적용.
+-- Admin UI 의 Monitoring 섹션이 30초 polling 으로 조회.
+-- ============================================================================
+DROP VIEW IF EXISTS admin_anomalies;
+CREATE VIEW admin_anomalies WITH (security_invoker = true) AS
+-- 1. high_volume — 1시간 누적 100회 초과
+SELECT
+  'high_volume'::TEXT       AS kind,
+  user_id,
+  tenant_id,
+  count(*)::NUMERIC         AS metric,           -- 호출 횟수
+  count(*)::NUMERIC         AS display_value,
+  max(created_at)           AS last_at,
+  '시간당 호출 ' || count(*) || '회' AS description
+FROM ai_usage
+WHERE created_at > now() - interval '1 hour'
+GROUP BY user_id, tenant_id
+HAVING count(*) > 100
+
+UNION ALL
+
+-- 2. high_error_rate — 24시간 누적 ≥ 50회 + 에러율 > 30%
+SELECT
+  'high_error_rate'::TEXT   AS kind,
+  user_id,
+  tenant_id,
+  (count(*) FILTER (WHERE error IS NOT NULL))::NUMERIC / count(*)::NUMERIC * 100  AS metric,
+  (count(*) FILTER (WHERE error IS NOT NULL))::NUMERIC AS display_value,
+  max(created_at)           AS last_at,
+  '에러율 ' || ROUND((count(*) FILTER (WHERE error IS NOT NULL))::NUMERIC / count(*)::NUMERIC * 100, 1) || '% (' || count(*) FILTER (WHERE error IS NOT NULL) || '/' || count(*) || ')' AS description
+FROM ai_usage
+WHERE created_at > now() - interval '24 hours'
+GROUP BY user_id, tenant_id
+HAVING count(*) >= 50
+   AND (count(*) FILTER (WHERE error IS NOT NULL))::NUMERIC / count(*)::NUMERIC > 0.3
+
+UNION ALL
+
+-- 3. high_cost — 24시간 누적 $20+
+SELECT
+  'high_cost'::TEXT         AS kind,
+  user_id,
+  tenant_id,
+  sum(cost_usd)::NUMERIC    AS metric,
+  sum(cost_usd)::NUMERIC    AS display_value,
+  max(created_at)           AS last_at,
+  '24시간 비용 $' || ROUND(sum(cost_usd)::NUMERIC, 2) AS description
+FROM ai_usage
+WHERE created_at > now() - interval '24 hours'
+GROUP BY user_id, tenant_id
+HAVING sum(cost_usd) > 20;
+
+COMMENT ON VIEW admin_anomalies IS
+  'AI 호출의 3가지 이상 패턴 — Phase D. RLS 는 ai_usage 의 정책 자동 상속.';
+
+-- ============================================================================
+-- 14. 검증 — 다음 query 가 무에러로 끝나면 schema-admin 적용 성공
 -- ============================================================================
 SELECT 'schema-admin.sql apply OK. 다음 단계: schema.sql 의 RLS 부분 재실행 (role-aware 갱신).' AS status;

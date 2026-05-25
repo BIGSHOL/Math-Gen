@@ -26,9 +26,14 @@ export type AdminSection =
 interface AdminStore {
   section: AdminSection;
   setSection: (s: AdminSection) => void;
+  /** Phase D — sidebar 의 모니터링 메뉴 badge count. AdminScreen 이 30초 polling. */
+  anomalyCount: number;
+  setAnomalyCount: (n: number) => void;
 }
 
 export const useAdminStore = create<AdminStore>((set) => ({
   section: "usage",
   setSection: (section) => set({ section }),
+  anomalyCount: 0,
+  setAnomalyCount: (anomalyCount) => set({ anomalyCount }),
 }));

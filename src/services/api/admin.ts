@@ -297,6 +297,41 @@ export interface ErrorLogRow {
   last_seen_at: string;
 }
 
+// ============================================================================
+// 6. admin_anomalies view (Monitoring — Phase D)
+// ============================================================================
+
+export type AnomalyKind = "high_volume" | "high_error_rate" | "high_cost";
+
+export interface AnomalyRow {
+  kind: AnomalyKind;
+  user_id: string | null;
+  tenant_id: string | null;
+  metric: number;
+  display_value: number;
+  last_at: string;
+  description: string;
+}
+
+/**
+ * admin_anomalies view 조회 — 3 kind 의 이상 패턴 통합. RLS 자동 적용.
+ * Monitoring 섹션이 30초 polling. count 0 시 빈 array.
+ */
+export const loadAnomalies = async (): Promise<AnomalyRow[]> => {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("admin_anomalies")
+    .select("kind, user_id, tenant_id, metric, display_value, last_at, description")
+    .order("last_at", { ascending: false })
+    .limit(100);
+  if (error || !data) return [];
+  return data as AnomalyRow[];
+};
+
+// ============================================================================
+// 7. error_logs (ErrorLogs)
+// ============================================================================
+
 export const loadErrors = async (
   severityFilter?: string,
   kindFilter?: string,
