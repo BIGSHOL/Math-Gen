@@ -69,6 +69,11 @@ import {
 import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT } from "./prompts.js";
 import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
 import { parseDataUrl, sanitizeText } from "./sanitize.js";
+import {
+  normalizeAnthropicUsage,
+  normalizeGeminiUsage,
+  normalizeOpenAIUsage,
+} from "../../lib/pricing.js";
 
 /** Unified union — every provider's vision-capable model the OCR layer accepts. */
 export type OCRModel = AnthropicModelId | GeminiModel | OpenAIModel;
@@ -298,6 +303,8 @@ interface RawOcrItem {
 
 interface RawOcrResponse {
   items: RawOcrItem[];
+  /** Phase B — Vercel function handler 가 ai_usage 기록 후 strip. */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
 export interface OCRPageInput {
@@ -317,6 +324,10 @@ export interface OCRPageInput {
 
 export interface OCRPageResult {
   items: OCRProblem[];
+  /** Phase B — Vercel function handler 가 ai_usage 기록 후 strip. */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
+  /** Phase B — 호출 시 사용된 model (handler 가 logUsage 에 사용). */
+  _modelUsed?: OCRModel;
 }
 
 const confidenceToStatus = (c: RawOcrItem["confidence"]): OCRProblem["status"] =>
@@ -513,7 +524,11 @@ const callAnthropic = async (
   const response = await stream.finalMessage();
   // tool_use 패턴: 응답 content 에서 emit_ocr_result tool block 의 input
   // (이미 parsed JSON object) 추출.
-  return extractToolUseInput(response, TOOL_NAME) as RawOcrResponse;
+  const raw = extractToolUseInput(response, TOOL_NAME) as RawOcrResponse;
+  raw._usage = normalizeAnthropicUsage(
+    (response as { usage?: Parameters<typeof normalizeAnthropicUsage>[0] }).usage,
+  );
+  return raw;
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -664,7 +679,12 @@ const callGemini = async (
       );
     }
 
-    return parseJsonOrThrow(stripCodeFences(rawJson));
+    const parsed = parseJsonOrThrow<RawOcrResponse>(stripCodeFences(rawJson));
+    parsed._usage = normalizeGeminiUsage(
+      (response as { usageMetadata?: Parameters<typeof normalizeGeminiUsage>[0] })
+        .usageMetadata,
+    );
+    return parsed;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);
@@ -827,7 +847,11 @@ const callOpenAIResponsesAPI = async (
     }
     throw new Error(`[ocr/openai] ${model} returned no output_text / output messages.`);
   }
-  return parseJsonOrThrow(stripCodeFences(rawJson));
+  const parsed = parseJsonOrThrow<RawOcrResponse>(stripCodeFences(rawJson));
+  parsed._usage = normalizeOpenAIUsage(
+    (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+  );
+  return parsed;
 };
 
 const callOpenAI = async (
@@ -895,7 +919,11 @@ const callOpenAI = async (
     if (!rawJson) {
       throw new Error("[ocr/openai] Empty response — no text content.");
     }
-    return parseJsonOrThrow(stripCodeFences(rawJson));
+    const parsed = parseJsonOrThrow<RawOcrResponse>(stripCodeFences(rawJson));
+    parsed._usage = normalizeOpenAIUsage(
+      (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+    );
+    return parsed;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);
@@ -934,7 +962,11 @@ const extractPageProblemsDirect = async (
     parsed = await callOpenAI(input, model as OpenAIModel);
   }
 
-  return { items: normalizeResponse(parsed) };
+  return {
+    items: normalizeResponse(parsed),
+    _usage: parsed._usage,
+    _modelUsed: model,
+  };
 };
 
 /**
@@ -949,9 +981,15 @@ const extractPageProblemsViaApi = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
   const { signal, ...body } = input;
+  // Phase B — Authorization Bearer 첨부 → server-side 가 user_id 추출 → ai_usage
+  // 에 정확한 user/tenant 기록. 로그인 안 됐으면 token null → anon 으로 진행.
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch("/api/ai-ocr", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     signal,
   });

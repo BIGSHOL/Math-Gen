@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
+import { reportError } from "@app/lib/errorReporter";
 import { generateVariant } from "@app/services/ai/variants";
 import { ocrToGenerated } from "@app/lib/problemAdapter";
 import {
@@ -155,6 +156,10 @@ export const useVariantGen = (): {
             `[useVariantGen] 문항 ${p.id} 변형 실패`,
             err,
           );
+          reportError(err, {
+            kind: "variant",
+            extra: { hook: "useVariantGen", problemId: p.id, goal, difficulty },
+          });
           updateProblem(p.id, {
             generating: false,
             generatingStartedAt: undefined,

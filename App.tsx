@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { AuthGate } from "@app/components/auth";
+import { installGlobalErrorHandlers } from "@app/lib/errorReporter";
 import { DetailScreen } from "@app/components/detail";
 import { LibraryScreen } from "@app/components/library";
 import { ModalLayer } from "@app/components/modal";
@@ -28,6 +29,12 @@ import { useAppStore } from "@app/stores/appStore";
  * own substate via Zustand selectors.
  */
 const App = () => {
+  // Phase B — 글로벌 에러 핸들러 1회 설치. window.onerror / unhandledrejection
+  // → reportError → error_logs upsert. 클라이언트의 *모든 uncaught* 자동 수집.
+  useEffect(() => {
+    installGlobalErrorHandlers();
+  }, []);
+
   const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "croptest" | "app">(() => {
     if (typeof window === "undefined") return "app";
     const search = window.location.search;

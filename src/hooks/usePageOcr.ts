@@ -5,6 +5,7 @@ import { applyRotation } from "@app/lib/pdfProcessor";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
+import { reportError } from "@app/lib/errorReporter";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
 import {
   GEMINI_3_1_FLASH_LITE,
@@ -311,7 +312,13 @@ export const usePageOcr = () => {
             // eslint-disable-next-line no-console
             console.error(`[usePageOcr] 페이지 ${page.id} 1차 실패 (전 체인)`, err);
             setPageOCR(page.id, {
-              ocrError: friendlyError(err),
+              ocrError: (() => {
+                reportError(err, {
+                  kind: "ocr",
+                  extra: { hook: "usePageOcr", pageId: page.id },
+                });
+                return friendlyError(err);
+              })(),
               ocrComplete: true,
             });
           } finally {

@@ -63,6 +63,11 @@ import { resolveMCAnswer, sanitizeAnswer, sanitizeText } from "./sanitize.js";
 import type { GradeKey } from "./mathDefense.js";
 import type { OCRProblem } from "../../stores/wizardStore.js";
 import { validateSolution, type SolutionWarning } from "../../lib/solutionValidator.js";
+import {
+  normalizeAnthropicUsage,
+  normalizeGeminiUsage,
+  normalizeOpenAIUsage,
+} from "../../lib/pricing.js";
 
 export interface SolutionGenInput {
   /** The OCR'd problem to explain. Only `text` (and optionally `topic`) is used. */
@@ -100,11 +105,19 @@ export interface SolutionGenResult {
    * surfacing. 답을 *무효화하지 않고* 사용자에게 *재생성 권장* 신호만.
    */
   warnings?: SolutionWarning[];
+  /**
+   * Phase B — Anthropic SDK 응답의 token usage. Vercel function handler 가
+   * `ai_usage` row 에 기록 후 *클라이언트 응답에서 strip*. 클라이언트 UI 는
+   * 사용하지 않음 (서버 only).
+   */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
 interface RawSolutionResponse {
   solution: string;
   answer: string;
+  /** Phase B — backend 함수가 SDK 응답에서 추출해 채움. */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
@@ -182,7 +195,12 @@ const callAnthropic = async (
 
   // tool_use 패턴: 응답 content 에서 emit_solution tool block 의 input (이미
   // parsed JSON object) 추출. JSON.parse 불필요.
-  return extractToolUseInput<RawSolutionResponse>(response, TOOL_NAME);
+  const raw = extractToolUseInput<RawSolutionResponse>(response, TOOL_NAME);
+  // Phase B — token usage 부착 (Vercel function handler 가 ai_usage 기록).
+  raw._usage = normalizeAnthropicUsage(
+    (response as { usage?: Parameters<typeof normalizeAnthropicUsage>[0] }).usage,
+  );
+  return raw;
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -233,13 +251,19 @@ const callGemini = async (
 
     const rawJson = typeof response.text === "string" ? response.text : "";
     if (!rawJson) throw new Error("[ai/gemini] Empty solution response.");
-    return parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+    const raw = parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+    // Phase B — token usage (Gemini 는 cache 무관).
+    raw._usage = normalizeGeminiUsage(
+      (response as { usageMetadata?: Parameters<typeof normalizeGeminiUsage>[0] })
+        .usageMetadata,
+    );
+    return raw;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    const raw = (err as Error).message ?? String(err);
-    const friendly = friendlyGeminiError(raw, model);
+    const rawErr = (err as Error).message ?? String(err);
+    const friendly = friendlyGeminiError(rawErr, model);
     const wrapped = new Error(friendly);
-    (wrapped as Error & { cause?: unknown }).cause = raw;
+    (wrapped as Error & { cause?: unknown }).cause = rawErr;
     throw wrapped;
   }
 };
@@ -304,7 +328,12 @@ const callOpenAIResponsesAPI = async (
     }
     throw new Error(`[ai/openai] ${model} returned no output_text / output messages.`);
   }
-  return parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+  const raw = parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+  // Phase B — token usage (OpenAI Responses API).
+  raw._usage = normalizeOpenAIUsage(
+    (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+  );
+  return raw;
 };
 
 const callOpenAI = async (
@@ -348,7 +377,12 @@ const callOpenAI = async (
 
     const rawJson = response.choices[0]?.message?.content ?? "";
     if (!rawJson) throw new Error("[ai/openai] Empty solution response.");
-    return parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+    const parsed = parseJsonOrThrow<RawSolutionResponse>(stripCodeFences(rawJson));
+    // Phase B — token usage (OpenAI Chat Completions API).
+    parsed._usage = normalizeOpenAIUsage(
+      (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+    );
+    return parsed;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);
@@ -415,6 +449,7 @@ const generateSolutionDirect = async (
     answer: finalAnswer,
     modelUsed: model,
     warnings: warnings.length > 0 ? warnings : undefined,
+    _usage: parsed._usage,
   };
 };
 
@@ -429,9 +464,14 @@ const generateSolutionViaApi = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
   const { signal, ...body } = input;
+  // Phase B — Authorization Bearer 첨부 → server-side 가 user_id 추출.
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch("/api/ai-solution", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     signal,
   });

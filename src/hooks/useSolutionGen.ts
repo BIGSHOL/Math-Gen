@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
+import { reportError } from "@app/lib/errorReporter";
 import { generateSolution } from "@app/services/ai/solutions";
 import { useWizardStore } from "@app/stores/wizardStore";
 
@@ -125,6 +126,10 @@ export const useSolutionGen = () => {
               `[useSolutionGen] 페이지 ${page.id} 문항 ${item.number} 해설 실패`,
               err,
             );
+            reportError(err, {
+              kind: "solution",
+              extra: { hook: "useSolutionGen", pageId: page.id, itemId: item.id, number: item.number },
+            });
             updateOCRItem(page.id, item.id, {
               solutionError: friendlyError(err),
               solutionGenerating: false,

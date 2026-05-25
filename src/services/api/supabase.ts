@@ -59,6 +59,16 @@ export const currentUserId = async (): Promise<string> => {
 };
 
 /**
+ * Vercel function 호출 시 Authorization Bearer 헤더 — server-side 가 user_id /
+ * tenant_id 해석에 사용. 로그인 안 됐으면 null (anon 으로 진행).
+ */
+export const currentAccessToken = async (): Promise<string | null> => {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+};
+
+/**
  * DEV 콘솔에서 *Supabase 활성 상태* 확인용. App 진입 시 한 번 호출.
  * 운영에선 호출하지 말 것 (key 노출 우려 — anon key 라 큰 문제 없지만 일관성).
  */

@@ -61,6 +61,11 @@ import type {
 } from "../../stores/wizardStore.js";
 import type { GeneratedProblem } from "../../types/index.js";
 import type { DiagramParams } from "../../lib/diagram/index.js";
+import {
+  normalizeAnthropicUsage,
+  normalizeGeminiUsage,
+  normalizeOpenAIUsage,
+} from "../../lib/pricing.js";
 
 export interface VariantGenInput {
   /** 원본 문제 (Step 2 의 OCRProblem → GeneratedProblem 어댑터 결과). */
@@ -96,6 +101,8 @@ export interface VariantGenResult {
   /** Vector 도형 spec — Phase E. AI emit → renderDiagram. */
   diagramParams: DiagramParams[] | null;
   modelUsed: OCRModel;
+  /** Phase B — Vercel function handler 가 ai_usage 기록 후 클라이언트 응답에서 strip. */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
 interface RawVariantResponse {
@@ -107,6 +114,8 @@ interface RawVariantResponse {
   difficulty: string;
   diagramSVG: string | null;
   diagramParams?: unknown;
+  /** Phase B. */
+  _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
@@ -189,7 +198,11 @@ const callAnthropic = async (
 
   // tool_use 패턴: 응답 content 에서 emit_variant tool block 의 input (이미
   // parsed JSON object) 추출. JSON.parse 불필요.
-  return extractToolUseInput<RawVariantResponse>(response, TOOL_NAME);
+  const raw = extractToolUseInput<RawVariantResponse>(response, TOOL_NAME);
+  raw._usage = normalizeAnthropicUsage(
+    (response as { usage?: Parameters<typeof normalizeAnthropicUsage>[0] }).usage,
+  );
+  return raw;
 };
 
 // ─── Gemini backend ───────────────────────────────────────────────────
@@ -242,13 +255,18 @@ const callGemini = async (
 
     const rawJson = typeof response.text === "string" ? response.text : "";
     if (!rawJson) throw new Error("[ai/gemini] Empty variant response.");
-    return parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+    const parsed = parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+    parsed._usage = normalizeGeminiUsage(
+      (response as { usageMetadata?: Parameters<typeof normalizeGeminiUsage>[0] })
+        .usageMetadata,
+    );
+    return parsed;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    const raw = (err as Error).message ?? String(err);
-    const friendly = friendlyGeminiError(raw, model);
+    const rawErr = (err as Error).message ?? String(err);
+    const friendly = friendlyGeminiError(rawErr, model);
     const wrapped = new Error(friendly);
-    (wrapped as Error & { cause?: unknown }).cause = raw;
+    (wrapped as Error & { cause?: unknown }).cause = rawErr;
     throw wrapped;
   }
 };
@@ -325,7 +343,11 @@ const callOpenAIResponsesAPI = async (
       `[ai/openai] ${model} returned no output_text / output messages.`,
     );
   }
-  return parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+  const raw = parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+  raw._usage = normalizeOpenAIUsage(
+    (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+  );
+  return raw;
 };
 
 const callOpenAI = async (
@@ -372,7 +394,11 @@ const callOpenAI = async (
 
     const rawJson = response.choices[0]?.message?.content ?? "";
     if (!rawJson) throw new Error("[ai/openai] Empty variant response.");
-    return parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+    const parsed = parseJsonOrThrow<RawVariantResponse>(stripCodeFences(rawJson));
+    parsed._usage = normalizeOpenAIUsage(
+      (response as { usage?: Parameters<typeof normalizeOpenAIUsage>[0] }).usage,
+    );
+    return parsed;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);
@@ -451,6 +477,7 @@ const generateVariantDirect = async (
     diagramSVG: null, // deprecated — diagramParams 가 우선
     diagramParams,
     modelUsed: model,
+    _usage: parsed._usage,
   };
 };
 
@@ -465,9 +492,14 @@ const generateVariantViaApi = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
   const { signal, ...body } = input;
+  // Phase B — Authorization Bearer 첨부 → server-side 가 user_id 추출.
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch("/api/ai-variant", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     signal,
   });

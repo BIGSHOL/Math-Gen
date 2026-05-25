@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from "./_types.js";
 import chromium from "@sparticuz/chromium-min";
 import puppeteer from "puppeteer-core";
+import { resolveAuth } from "./_jwt.js";
+import { logError, serverFingerprint } from "./_logUsage.js";
 
 /**
  * POST /api/export-pdf
@@ -107,6 +109,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.send(pdfBuffer);
   } catch (err) {
     const msg = (err as Error).message || "PDF generation failed";
+    // Phase B — error_logs 기록 (fire-and-forget). 비동기지만 응답 latency 영향 X.
+    void resolveAuth(req).then((auth) => {
+      logError({
+        userId: auth.userId,
+        tenantId: auth.tenantId,
+        kind: "export_pdf",
+        severity: "error",
+        message: msg,
+        stack: (err as Error).stack ?? null,
+        context: {
+          endpoint: "export-pdf",
+          title: input.title ?? null,
+          htmlLength: input.html?.length ?? 0,
+        },
+        userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+        fingerprint: serverFingerprint(msg, "export-pdf"),
+      });
+    });
     // eslint-disable-next-line no-console
     console.error("[api/export-pdf] error:", msg);
     return res.status(500).json({ error: msg });
