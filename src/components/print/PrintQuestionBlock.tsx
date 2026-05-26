@@ -10,6 +10,7 @@ import type {
 import type { GeneratedProblem } from "@app/types";
 import { resolveChoiceCols } from "@app/lib/printLayout";
 import { renderDiagram } from "@app/lib/diagram";
+import { DifficultyBadge } from "./DifficultyBadge";
 
 /**
  * Step 5 인쇄 시 한 문항을 표시하는 카드. mathlab `print/page.tsx` L516-573
@@ -66,16 +67,17 @@ export const PrintQuestionBlock = ({
         </div>
 
         <div className="flex-1 min-w-0 pt-0.5">
-          {/* 문항 메타 (chapter / difficulty 옵션) */}
+          {/* 문항 메타 (chapter / difficulty 옵션) — 난이도는 디자인된 chip 으로
+              분리해 *오타처럼 보이는 인라인 텍스트* 회피 (사용자 보고). */}
           {(options.showChapter || options.showDifficulty) && (
-            <div className="flex items-center gap-2 mb-2 text-[10px] uppercase font-bold text-slate-400">
+            <div className="flex items-center gap-2 mb-2">
               {options.showChapter && problem.variant.topic && (
-                <span className="border-r pr-2 border-slate-200">
+                <span className="text-[10px] uppercase font-bold text-slate-400 border-r pr-2 border-slate-200">
                   {problem.variant.topic}
                 </span>
               )}
               {options.showDifficulty && problem.variant.difficulty && (
-                <span className="text-slate-500">{problem.variant.difficulty}</span>
+                <DifficultyBadge difficulty={problem.variant.difficulty} />
               )}
             </div>
           )}
