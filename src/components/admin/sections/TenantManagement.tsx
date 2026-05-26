@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Btn, Card, Chip, Heading, Eyebrow, Input } from "@app/components/ui";
+import { Btn, Card, Chip, Heading, Eyebrow, Icon, Input } from "@app/components/ui";
 import {
   loadTenants,
   createTenant,
   deleteTenant,
+  regenerateInviteCode,
   type Tenant,
 } from "@app/services/api/admin";
 
@@ -26,6 +27,18 @@ export const TenantManagement = () => {
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  /** 방금 복사된 invite_code — 2초간 체크 아이콘 표시. */
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode((prev) => (prev === code ? null : prev)), 2000);
+    } catch {
+      // clipboard API 미지원 환경 — 조용히 무시 (HTTP 컨텍스트 등).
+    }
+  };
 
   const reload = async () => {
     setLoading(true);
@@ -51,6 +64,20 @@ export const TenantManagement = () => {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`학원 "${name}" 을 삭제합니다. 해당 학원의 사용자는 tenant_id 가 null 이 됩니다. 계속?`)) return;
     const ok = await deleteTenant(id);
+    if (ok) await reload();
+  };
+
+  const handleRegenerate = async (id: string, name: string, oldCode: string) => {
+    if (
+      !confirm(
+        `학원 "${name}" 의 초대 코드를 재발급합니다.\n\n` +
+          `기존 코드 (${oldCode}) 는 즉시 무효화됩니다. ` +
+          `이미 가입한 사용자는 영향 없으나, 새 가입 시도는 새 코드가 필요합니다. 계속?`,
+      )
+    )
+      return;
+    const newCode = generateInviteCode();
+    const ok = await regenerateInviteCode(id, newCode);
     if (ok) await reload();
   };
 
@@ -103,7 +130,23 @@ export const TenantManagement = () => {
               {tenants.map((t) => (
                 <tr key={t.id} className="border-b border-line/50 hover:bg-surface2">
                   <td className="p-3 font-semibold">{t.name}</td>
-                  <td className="p-3 font-mono text-caption">{t.invite_code}</td>
+                  <td className="p-3 font-mono text-caption">
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyCode(t.invite_code)}
+                      className="inline-flex items-center gap-1.5 hover:text-accent transition-colors"
+                      title="초대 코드 복사"
+                    >
+                      <span>{t.invite_code}</span>
+                      <Icon
+                        name={copiedCode === t.invite_code ? "check" : "copy"}
+                        size={12}
+                        className={
+                          copiedCode === t.invite_code ? "text-ok" : "text-muted"
+                        }
+                      />
+                    </button>
+                  </td>
                   <td className="p-3">
                     <Chip
                       tone={t.plan_tier === "enterprise" ? "warn" : t.plan_tier === "pro" ? "accent" : "soft"}
@@ -114,14 +157,25 @@ export const TenantManagement = () => {
                   </td>
                   <td className="p-3 text-muted">{new Date(t.created_at).toLocaleDateString("ko-KR")}</td>
                   <td className="p-3 text-right">
-                    <Btn
-                      kind="ghost"
-                      size="sm"
-                      icon="trash"
-                      onClick={() => handleDelete(t.id, t.name)}
-                    >
-                      삭제
-                    </Btn>
+                    <div className="inline-flex items-center gap-1">
+                      <Btn
+                        kind="ghost"
+                        size="sm"
+                        icon="arrow-clockwise"
+                        onClick={() => void handleRegenerate(t.id, t.name, t.invite_code)}
+                        title="초대 코드 재발급"
+                      >
+                        재발급
+                      </Btn>
+                      <Btn
+                        kind="ghost"
+                        size="sm"
+                        icon="trash"
+                        onClick={() => handleDelete(t.id, t.name)}
+                      >
+                        삭제
+                      </Btn>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -9,11 +9,11 @@
 --   2. SQL Editor 에 *이 파일 통째로* paste → Run.
 --   3. 마지막에 "Storage policies OK" 메시지 확인.
 --
--- 정책 패턴: `(storage.foldername(name))[1] = COALESCE(auth.uid()::text, DEV_USER_ID)`
+-- 정책 패턴: `(storage.foldername(name))[1] = COALESCE(auth.uid()::text, '0...'::text)`
 --   파일 경로의 첫 segment 가 `{user_id}/...` 형식일 때만 접근 → 본인 폴더만.
 --
--- dev 단계 anon 사용자 = DEV_USER_ID. Phase E auth 도입 후 auth.uid() 가
--- 자동 매처. 코드 변경 X — 정책이 자연 전환.
+-- production 사용자는 항상 auth.uid() 보유 (Phase G Auth 가동). zero UUID 폴백은
+-- auth 미설정 dev/anon 호출 보호용 — 클라이언트가 항상 auth 후 요청 보내면 무관.
 --
 -- 멱등성: `DROP POLICY IF EXISTS` 패턴이라 여러 번 실행 안전.
 -- ============================================================================

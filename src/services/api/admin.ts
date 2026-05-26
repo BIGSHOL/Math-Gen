@@ -248,6 +248,23 @@ export const deleteTenant = async (id: string): Promise<boolean> => {
   return !error;
 };
 
+/**
+ * 초대코드 재발급 — 누출/노출 시 회수 용도. tenant_id 기준으로 invite_code 만
+ * 갱신. 이전 코드로 이미 가입한 사용자는 영향 없음 (profile.tenant_id 는 그대로).
+ * 새 가입 시도부터 새 코드 필요.
+ */
+export const regenerateInviteCode = async (
+  id: string,
+  newCode: string,
+): Promise<boolean> => {
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from("tenants")
+    .update({ invite_code: newCode })
+    .eq("id", id);
+  return !error;
+};
+
 // ============================================================================
 // 4. tests 통계 (TestStats)
 // ============================================================================

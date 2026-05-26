@@ -10,7 +10,8 @@
 -- 여러 번 실행해도 안전. 단 컬럼 추가 / 정책 변경 시 별도 ALTER 필요.
 --
 -- 5 테이블: tests → pages → ocr_problems → problem_reviews → variant_history
--- 인증: dev 단계 anon role 도 dev_user_id 로 접근. Phase E 에 auth.uid() 로 자연 전환.
+-- 인증: 실 사용자는 auth.uid() (Phase G Auth 가동). 정책은 COALESCE 로 zero UUID
+-- 폴백 (auth 없는 dev/anon 호출 보호용 — production 사용자는 항상 auth.uid() 보유).
 -- ============================================================================
 
 -- pgcrypto 는 Supabase 기본 활성 (gen_random_uuid() 사용 가능).
@@ -131,16 +132,18 @@ CREATE TRIGGER tests_touch
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 -- ============================================================================
--- 7. RLS 정책 (dev anon + production authenticated + role-aware admin)
+-- 7. RLS 정책 (auth.uid() + role-aware admin)
 -- ----------------------------------------------------------------------------
 -- 정책 분기 (OR):
---   1. dev / 본인:       user_id = COALESCE(auth.uid(), DEV_USER_ID)
+--   1. 본인:             user_id = COALESCE(auth.uid(), '00000000-...'::UUID)
+--                        production 사용자는 항상 auth.uid() 보유; zero UUID 폴백은
+--                        auth 미설정 dev/anon 호출 보호용. 실 데이터의 user_id 는
+--                        gen_random_uuid() 라 zero 와 충돌 없음.
 --   2. tenant_admin:     tests.tenant_id = auth_tenant() (같은 학원 모든 row)
 --   3. system_admin:     전체 row
 --
 -- ⚠ 전제: schema-admin.sql 가 *먼저* 적용되어야 함 — auth_role() / auth_tenant()
 -- helper 함수가 정의돼 있어야 함. 멱등 안전 — 여러 번 실행 가능.
--- 두 단계가 *같은 정책* — Phase E 에 코드 변경 없이 자연 전환.
 -- ============================================================================
 
 ALTER TABLE tests ENABLE ROW LEVEL SECURITY;
