@@ -3,7 +3,7 @@
 // + MarkdownRenderer 실제 import.
 
 import MarkdownRenderer from "@app/components/math/MarkdownRenderer";
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -30,7 +30,7 @@ export function JaseupTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -53,7 +53,7 @@ export function JaseupTemplate({
             <div>
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 10,
                   fontWeight: 700,
                   color: accent,
@@ -65,7 +65,7 @@ export function JaseupTemplate({
               </div>
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.serifKR,
+                  fontFamily: "var(--paper-font-serif)",
                   fontSize: 24,
                   fontWeight: 800,
                   color: PAPER_COLORS.ink,
@@ -77,7 +77,7 @@ export function JaseupTemplate({
               {meta.todayGoal && (
                 <div
                   style={{
-                    fontFamily: PAPER_FONTS.sansKR,
+                    fontFamily: "var(--paper-font-sans)",
                     fontSize: 11,
                     color: PAPER_COLORS.ink70,
                     marginTop: 4,
@@ -90,7 +90,7 @@ export function JaseupTemplate({
             <div style={{ textAlign: "right" }}>
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 9.5,
                   color: PAPER_COLORS.ink50,
                   marginBottom: 2,
@@ -100,7 +100,7 @@ export function JaseupTemplate({
               </div>
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.serifKR,
+                  fontFamily: "var(--paper-font-serif)",
                   fontSize: 14,
                   fontWeight: 700,
                 }}
@@ -124,7 +124,7 @@ export function JaseupTemplate({
             >
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 10.5,
                   fontWeight: 800,
                   color: accent,
@@ -136,7 +136,7 @@ export function JaseupTemplate({
               </div>
               <div
                 style={{
-                  fontFamily: PAPER_FONTS.serifKR,
+                  fontFamily: "var(--paper-font-serif)",
                   fontSize: 12,
                   lineHeight: 1.7,
                   color: PAPER_COLORS.ink90,
@@ -182,7 +182,7 @@ export function JaseupTemplate({
                   {options.showChapter && p.variant.topic && (
                     <span
                       style={{
-                        fontFamily: PAPER_FONTS.sansKR,
+                        fontFamily: "var(--paper-font-sans)",
                         fontSize: 10,
                         color: PAPER_COLORS.ink50,
                         letterSpacing: "0.08em",
@@ -206,7 +206,7 @@ export function JaseupTemplate({
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    fontFamily: PAPER_FONTS.sansKR,
+                    fontFamily: "var(--paper-font-sans)",
                     fontSize: 11,
                   }}
                 >
@@ -248,7 +248,7 @@ export function JaseupTemplate({
                       position: "absolute",
                       top: 6,
                       right: 8,
-                      fontFamily: PAPER_FONTS.sansKR,
+                      fontFamily: "var(--paper-font-sans)",
                       fontSize: 9,
                       color: PAPER_COLORS.ink30,
                       letterSpacing: "0.12em",
@@ -269,7 +269,7 @@ export function JaseupTemplate({
           display: "flex",
           alignItems: "center",
           gap: 12,
-          fontFamily: PAPER_FONTS.sansKR,
+          fontFamily: "var(--paper-font-sans)",
           fontSize: 10,
           color: PAPER_COLORS.ink50,
           flexShrink: 0,

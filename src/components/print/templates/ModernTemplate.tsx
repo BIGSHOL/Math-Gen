@@ -2,7 +2,7 @@
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color
 // (Mathgen 의 PrintOptions 는 `color` 사용).
 
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -30,7 +30,7 @@ export function ModernTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -57,7 +57,7 @@ export function ModernTemplate({
                   fontWeight: 700,
                   color: accent,
                   letterSpacing: "0.32em",
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   marginBottom: 4,
                 }}
               >
@@ -68,7 +68,7 @@ export function ModernTemplate({
                   fontSize: 26,
                   fontWeight: 800,
                   color: PAPER_COLORS.ink,
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   letterSpacing: "-0.02em",
                 }}
               >
@@ -82,7 +82,7 @@ export function ModernTemplate({
                   marginTop: 4,
                   fontSize: 12,
                   color: PAPER_COLORS.ink70,
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                 }}
               >
                 {meta.examDate ?? "—"} · {meta.examDuration ?? "50분"} · {problems.length}
@@ -94,7 +94,7 @@ export function ModernTemplate({
                 padding: "8px 14px",
                 border: `2px solid ${accent}`,
                 color: accent,
-                fontFamily: PAPER_FONTS.sansKR,
+                fontFamily: "var(--paper-font-sans)",
                 fontWeight: 800,
                 fontSize: 14,
                 letterSpacing: "0.12em",
@@ -134,7 +134,7 @@ export function ModernTemplate({
                   padding: "10px 14px",
                   borderRight: i < 5 ? `1px solid ${PAPER_COLORS.ink15}` : undefined,
                   background: i === 5 ? PAPER_COLORS.ink04 : PAPER_COLORS.paper,
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                 }}
               >
                 <div
@@ -161,7 +161,7 @@ export function ModernTemplate({
               padding: "8px 0",
               fontSize: 10.5,
               color: PAPER_COLORS.ink70,
-              fontFamily: PAPER_FONTS.sansKR,
+              fontFamily: "var(--paper-font-sans)",
               letterSpacing: "0.02em",
               flexShrink: 0,
             }}
@@ -207,7 +207,7 @@ export function ModernTemplate({
                       fontSize: 10,
                       fontWeight: 700,
                       color: PAPER_COLORS.ink50,
-                      fontFamily: PAPER_FONTS.sansKR,
+                      fontFamily: "var(--paper-font-sans)",
                       letterSpacing: "0.08em",
                       textTransform: "uppercase",
                     }}
@@ -218,7 +218,7 @@ export function ModernTemplate({
                 <span style={{ flex: 1 }} />
                 <span
                   style={{
-                    fontFamily: PAPER_FONTS.sansKR,
+                    fontFamily: "var(--paper-font-sans)",
                     fontSize: 11,
                     fontWeight: 700,
                     color: accent,
@@ -244,7 +244,7 @@ export function ModernTemplate({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          fontFamily: PAPER_FONTS.sansKR,
+          fontFamily: "var(--paper-font-sans)",
           fontSize: 10,
           color: PAPER_COLORS.ink50,
           letterSpacing: "0.04em",

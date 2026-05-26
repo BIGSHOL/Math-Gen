@@ -1,7 +1,7 @@
 // WorkbookTemplate.tsx (T4) — 학원 워크북 (풀이공간 포함)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -28,7 +28,7 @@ export function WorkbookTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -57,7 +57,7 @@ export function WorkbookTemplate({
                   color: "white",
                   display: "grid",
                   placeItems: "center",
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontWeight: 900,
                   fontSize: 18,
                   letterSpacing: "-0.04em",
@@ -68,7 +68,7 @@ export function WorkbookTemplate({
               <div>
                 <div
                   style={{
-                    fontFamily: PAPER_FONTS.sansKR,
+                    fontFamily: "var(--paper-font-sans)",
                     fontWeight: 800,
                     fontSize: 17,
                     letterSpacing: "-0.01em",
@@ -78,7 +78,7 @@ export function WorkbookTemplate({
                 </div>
                 <div
                   style={{
-                    fontFamily: PAPER_FONTS.sansKR,
+                    fontFamily: "var(--paper-font-sans)",
                     fontSize: 10.5,
                     color: PAPER_COLORS.ink50,
                     letterSpacing: "0.04em",
@@ -90,7 +90,7 @@ export function WorkbookTemplate({
             </div>
             <div
               style={{
-                fontFamily: PAPER_FONTS.sansKR,
+                fontFamily: "var(--paper-font-sans)",
                 fontSize: 11,
                 color: PAPER_COLORS.ink70,
                 textAlign: "right",
@@ -122,7 +122,7 @@ export function WorkbookTemplate({
             <div style={{ flex: 1 }}>
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontWeight: 800,
                   fontSize: 14,
                   letterSpacing: "-0.01em",
@@ -133,7 +133,7 @@ export function WorkbookTemplate({
             </div>
             <div
               style={{
-                fontFamily: PAPER_FONTS.sansKR,
+                fontFamily: "var(--paper-font-sans)",
                 fontSize: 11,
                 display: "flex",
                 gap: 14,
@@ -191,7 +191,7 @@ export function WorkbookTemplate({
                   {options.showChapter && p.variant.topic && (
                     <span
                       style={{
-                        fontFamily: PAPER_FONTS.sansKR,
+                        fontFamily: "var(--paper-font-sans)",
                         fontSize: 10,
                         fontWeight: 700,
                         color: PAPER_COLORS.ink50,
@@ -228,7 +228,7 @@ export function WorkbookTemplate({
                       left: 12,
                       background: PAPER_COLORS.paper,
                       padding: "0 6px",
-                      fontFamily: PAPER_FONTS.sansKR,
+                      fontFamily: "var(--paper-font-sans)",
                       fontSize: 9.5,
                       fontWeight: 700,
                       color: accent,
@@ -251,7 +251,7 @@ export function WorkbookTemplate({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          fontFamily: PAPER_FONTS.sansKR,
+          fontFamily: "var(--paper-font-sans)",
           fontSize: 9.5,
           color: PAPER_COLORS.ink50,
           flexShrink: 0,

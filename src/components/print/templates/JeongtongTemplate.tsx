@@ -2,7 +2,7 @@
 // design_handoff 카피 + import path 조정 + ProblemBody import 교체.
 
 import type { CSSProperties } from "react";
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -15,7 +15,7 @@ const tdLabel = (w?: number): CSSProperties => ({
   fontWeight: 700,
   textAlign: "center",
   border: `1px solid ${PAPER_COLORS.ink}`,
-  fontFamily: PAPER_FONTS.serifKR,
+  fontFamily: "var(--paper-font-serif)",
 });
 
 const tdVal = (w?: number, last?: boolean): CSSProperties => ({
@@ -24,7 +24,7 @@ const tdVal = (w?: number, last?: boolean): CSSProperties => ({
   textAlign: "center",
   border: `1px solid ${PAPER_COLORS.ink}`,
   borderRight: last ? `1px solid ${PAPER_COLORS.ink}` : undefined,
-  fontFamily: PAPER_FONTS.serifKR,
+  fontFamily: "var(--paper-font-serif)",
 });
 
 export function JeongtongTemplate({
@@ -46,7 +46,7 @@ export function JeongtongTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -62,7 +62,7 @@ export function JeongtongTemplate({
               width: "100%",
               borderCollapse: "collapse",
               border: `2.5px solid ${PAPER_COLORS.ink}`,
-              fontFamily: PAPER_FONTS.serifKR,
+              fontFamily: "var(--paper-font-serif)",
               fontSize: 12,
               flexShrink: 0,
             }}
@@ -117,7 +117,7 @@ export function JeongtongTemplate({
                 borderCollapse: "collapse",
                 border: `2px solid ${PAPER_COLORS.ink}`,
                 fontSize: 12,
-                fontFamily: PAPER_FONTS.serifKR,
+                fontFamily: "var(--paper-font-serif)",
               }}
             >
               <tbody>
@@ -139,7 +139,7 @@ export function JeongtongTemplate({
                 borderCollapse: "collapse",
                 border: `2px solid ${PAPER_COLORS.ink}`,
                 fontSize: 12,
-                fontFamily: PAPER_FONTS.serifKR,
+                fontFamily: "var(--paper-font-serif)",
               }}
             >
               <tbody>
@@ -178,7 +178,7 @@ export function JeongtongTemplate({
               fontSize: 10.5,
               lineHeight: 1.55,
               color: PAPER_COLORS.ink70,
-              fontFamily: PAPER_FONTS.serifKR,
+              fontFamily: "var(--paper-font-serif)",
               flexShrink: 0,
             }}
           >
@@ -196,7 +196,7 @@ export function JeongtongTemplate({
           marginBottom: 8,
           fontSize: 13.5,
           lineHeight: 1.8,
-          fontFamily: PAPER_FONTS.serifKR,
+          fontFamily: "var(--paper-font-serif)",
         }}
       >
         {problems.map((p, i) => {
@@ -230,7 +230,7 @@ export function JeongtongTemplate({
         style={{
           textAlign: "center",
           fontSize: 11,
-          fontFamily: PAPER_FONTS.serifKR,
+          fontFamily: "var(--paper-font-serif)",
           fontWeight: 600,
           flexShrink: 0,
         }}

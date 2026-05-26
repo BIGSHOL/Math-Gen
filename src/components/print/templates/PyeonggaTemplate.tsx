@@ -2,7 +2,7 @@
 // design_handoff 의 동명 파일 그대로 + import path 조정 + ProblemBody placeholder
 // → 실제 import 로 교체.
 
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -26,7 +26,7 @@ export function PyeonggaTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -114,7 +114,7 @@ export function PyeonggaTemplate({
           }}
         >
           <span>수학 영역</span>
-          <span style={{ fontFamily: PAPER_FONTS.mono }}>{page}</span>
+          <span style={{ fontFamily: "var(--paper-font-mono)" }}>{page}</span>
         </div>
       )}
 
@@ -163,7 +163,7 @@ export function PyeonggaTemplate({
         }}
       >
         <span>수학 영역</span>
-        <span style={{ fontFamily: PAPER_FONTS.mono }}>{page}</span>
+        <span style={{ fontFamily: "var(--paper-font-mono)" }}>{page}</span>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Btn, Heading, Icon } from "@app/components/ui";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
@@ -26,6 +26,7 @@ import {
   YuhyungTemplate,
 } from "@app/components/print/templates";
 import type { PrintMeta, PrintTemplateProps } from "@app/components/print/types";
+import { getFontPack } from "@app/lib/printFontPacks";
 import { GRADE_LABELS } from "@app/services/ai/mathDefense";
 
 /**
@@ -391,22 +392,35 @@ const PageBody = ({
     options,
   };
 
-  switch (options.template) {
-    case "pyeongga":
-      return <PyeonggaTemplate {...props} />;
-    case "jeongtong":
-      return <JeongtongTemplate {...props} />;
-    case "modern":
-      return <ModernTemplate {...props} />;
-    case "workbook":
-      return <WorkbookTemplate {...props} />;
-    case "jaseup":
-      return <JaseupTemplate {...props} />;
-    case "yuhyung":
-      return <YuhyungTemplate {...props} />;
-    default:
-      return <JeongtongTemplate {...props} />;
-  }
+  // fontPack CSS variable 주입 — 6 template 의 inline `fontFamily: var(...)`
+  // 가 이 wrapper 의 변수를 참조. 사용자가 PrintOptionsPanel 의 폰트 옵션
+  // 변경 시 즉시 반영.
+  const fontPack = getFontPack(options.fontPack);
+  const fontVars = {
+    "--paper-font-serif": fontPack.serif,
+    "--paper-font-sans": fontPack.sans,
+  } as CSSProperties;
+
+  const templateNode = (() => {
+    switch (options.template) {
+      case "pyeongga":
+        return <PyeonggaTemplate {...props} />;
+      case "jeongtong":
+        return <JeongtongTemplate {...props} />;
+      case "modern":
+        return <ModernTemplate {...props} />;
+      case "workbook":
+        return <WorkbookTemplate {...props} />;
+      case "jaseup":
+        return <JaseupTemplate {...props} />;
+      case "yuhyung":
+        return <YuhyungTemplate {...props} />;
+      default:
+        return <JeongtongTemplate {...props} />;
+    }
+  })();
+
+  return <div style={fontVars}>{templateNode}</div>;
 };
 
 // exportSource 는 향후 ProblemBody 의 tag prop 으로 흐를 예정 (Phase 2 후속).

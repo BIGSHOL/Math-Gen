@@ -1,7 +1,7 @@
 // YuhyungTemplate.tsx (T6) — 유형 훈련지 (같은 유형 반복, 컴팩트)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
-import { PAPER_COLORS, PAPER_FONTS, A4_DIM } from "../tokens";
+import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
@@ -28,7 +28,7 @@ export function YuhyungTemplate({
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        fontFamily: PAPER_FONTS.serifKR,
+        fontFamily: "var(--paper-font-serif)",
         color: PAPER_COLORS.ink,
         fontSize: 13,
         lineHeight: 1.6,
@@ -54,7 +54,7 @@ export function YuhyungTemplate({
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 10,
                   fontWeight: 800,
                   letterSpacing: "0.32em",
@@ -65,7 +65,7 @@ export function YuhyungTemplate({
               </span>
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 17,
                   fontWeight: 800,
                   letterSpacing: "-0.01em",
@@ -76,7 +76,7 @@ export function YuhyungTemplate({
             </div>
             <div
               style={{
-                fontFamily: PAPER_FONTS.mono,
+                fontFamily: "var(--paper-font-mono)",
                 fontSize: 12,
                 fontWeight: 700,
                 letterSpacing: "0.06em",
@@ -103,7 +103,7 @@ export function YuhyungTemplate({
             >
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 10.5,
                   fontWeight: 700,
                   color: accent,
@@ -114,7 +114,7 @@ export function YuhyungTemplate({
               </span>
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.serifKR,
+                  fontFamily: "var(--paper-font-serif)",
                   fontSize: 11.5,
                   color: PAPER_COLORS.ink90,
                 }}
@@ -124,7 +124,7 @@ export function YuhyungTemplate({
               <span style={{ flex: 1 }} />
               <span
                 style={{
-                  fontFamily: PAPER_FONTS.sansKR,
+                  fontFamily: "var(--paper-font-sans)",
                   fontSize: 10,
                   color: PAPER_COLORS.ink50,
                 }}
@@ -161,7 +161,7 @@ export function YuhyungTemplate({
                 {options.showChapter && p.variant.topic && (
                   <span
                     style={{
-                      fontFamily: PAPER_FONTS.sansKR,
+                      fontFamily: "var(--paper-font-sans)",
                       fontSize: 9,
                       color: PAPER_COLORS.ink50,
                       letterSpacing: "0.08em",
@@ -187,7 +187,7 @@ export function YuhyungTemplate({
           display: "flex",
           alignItems: "center",
           gap: 12,
-          fontFamily: PAPER_FONTS.sansKR,
+          fontFamily: "var(--paper-font-sans)",
           fontSize: 9.5,
           color: PAPER_COLORS.ink50,
           flexShrink: 0,
@@ -220,7 +220,7 @@ export function YuhyungTemplate({
         </div>
         <span
           style={{
-            fontFamily: PAPER_FONTS.mono,
+            fontFamily: "var(--paper-font-mono)",
             fontWeight: 700,
             color: PAPER_COLORS.ink,
           }}

@@ -6,6 +6,7 @@ import {
   type PrintOptions,
   type PrintTemplate,
 } from "@app/stores/wizardStore";
+import { FONT_PACKS, type FontPackId } from "@app/lib/printFontPacks";
 
 /**
  * Step 5 좌측 옵션 사이드바. mathlab `print/page.tsx` L309-441 의 옵션 영역
@@ -174,6 +175,34 @@ export const PrintOptionsPanel = ({
               );
             })}
           </div>
+        </Section>
+
+        {/* 2.5 폰트 — 5 한글 폰트 팩 (Sans/Serif 쌍) */}
+        <Section title="폰트">
+          <div className="grid grid-cols-5 gap-1">
+            {FONT_PACKS.map((p) => {
+              const on = printOptions.fontPack === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onChangePrintOptions({ fontPack: p.id as FontPackId })}
+                  className={`h-10 rounded-r2 border text-[11px] font-medium transition-colors flex flex-col items-center justify-center px-0.5 ${
+                    on
+                      ? "bg-accent-soft border-accent text-accent-ink font-semibold"
+                      : "bg-surface border-line text-text2 hover:border-accent"
+                  }`}
+                  style={{ fontFamily: p.serif }}
+                  title={p.hint}
+                >
+                  <span className="leading-none">{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 text-caption text-muted leading-tight">
+            본문 (명조) + 헤더 (고딕) 쌍 — 모두 한글 무료 폰트
+          </p>
         </Section>
 
         {/* 3. 강조 색상 */}

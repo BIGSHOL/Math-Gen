@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { GeneratedProblem } from "@app/types";
 import type { GradeKey } from "@app/services/ai/mathDefense";
 import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
+import type { FontPackId } from "@app/lib/printFontPacks";
 
 /**
  * 5-step Wizard state.
@@ -69,6 +70,8 @@ export interface PrintOptions {
   showDifficulty: boolean;
   /** 2단 일 때 컬럼 사이 세로 구분선. 1단 이면 무시. */
   columnDivider: boolean;
+  /** 한글 폰트 팩 (sans/serif 한 쌍). FONT_PACKS 의 id. */
+  fontPack: FontPackId;
 }
 
 /**
@@ -87,6 +90,7 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   showChapter: true, // 6 신규 template 의 chapter chip 도 표시 default 권장
   showDifficulty: true,
   columnDivider: false,
+  fontPack: "system",
 };
 
 export interface WizardPage {
