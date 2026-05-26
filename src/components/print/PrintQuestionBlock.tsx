@@ -56,7 +56,7 @@ export const PrintQuestionBlock = ({
       className="break-inside-avoid print-break-inside-avoid"
       style={{ marginBottom: `${options.spacing}px` }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-4">
         {/* 문항 번호 (template 별 디자인) */}
         <div className="flex flex-col items-center shrink-0">
           <QuestionNumber

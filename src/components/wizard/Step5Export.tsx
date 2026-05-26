@@ -225,7 +225,7 @@ export const Step5Export = () => {
               <A4Page
                 key={`q-${pageIdx}`}
                 scale={scale}
-                paddingClass="px-10 py-8"
+                paddingClass="px-14 py-10"
               >
                 <PageBody
                   page={page}
@@ -245,7 +245,7 @@ export const Step5Export = () => {
               <A4Page
                 key={`a-${apIdx}`}
                 scale={scale}
-                paddingClass="px-10 py-8"
+                paddingClass="px-14 py-10"
               >
                 <PrintAnswerKeyPage
                   questionNumbers={ap.questionNumbers}
@@ -283,7 +283,7 @@ export const Step5Export = () => {
           <div
             key={`p-q-${pageIdx}`}
             data-print-page="true"
-            className="w-[210mm] h-[297mm] px-10 py-8 bg-white"
+            className="w-[210mm] h-[297mm] px-14 py-10 bg-white"
             style={{ pageBreakAfter: "always" }}
           >
             <PageBody
@@ -302,7 +302,7 @@ export const Step5Export = () => {
           <div
             key={`p-a-${apIdx}`}
             data-print-page="true"
-            className="w-[210mm] h-[297mm] px-10 py-8 bg-white"
+            className="w-[210mm] h-[297mm] px-14 py-10 bg-white"
             style={{
               pageBreakAfter:
                 apIdx === answerLayoutPages.length - 1 ? "auto" : "always",
@@ -370,7 +370,7 @@ const PageBody = ({
         {numberedColumns.map((col, colIdx) => (
           <div
             key={colIdx}
-            className={options.columns === 2 ? "flex-1 pl-4 first:pl-0" : "w-full"}
+            className={options.columns === 2 ? "flex-1 pl-8 first:pl-0" : "w-full"}
           >
             <div className="pb-4">
               {col.map(({ problem, num }) => (
