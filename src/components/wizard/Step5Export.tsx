@@ -384,12 +384,9 @@ const PageBody = ({
             }
           >
             {/* 컬럼 내부 — 첫 문항부터 차곡차곡 (한국 시험지 패턴).
-                여러 문항일 때 justify-between 으로 페이지 끝까지 *위/아래 정렬*. */}
-            <div
-              className={`h-full flex flex-col ${
-                col.length > 1 ? "justify-between" : "justify-start"
-              }`}
-            >
+                컬럼 균형은 paginate 알고리즘이 처리. justify-between 은 컬럼
+                안 문항 수가 적을 때 *비정상적으로 큰 gap* 생겨 제거. */}
+            <div className="flex flex-col">
               {col.map(({ problem, num }) => (
                 <PrintQuestionBlock
                   key={problem.id}

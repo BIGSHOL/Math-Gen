@@ -297,6 +297,20 @@ svg text {
   padding: 0.5em 0;
 }
 
+/* 인쇄 / PDF 미리보기 영역에서는 스크롤바가 *시각 노이즈* — 인쇄는 어차피
+   스크롤 못 함. visible 강제로 스크롤바 제거. 긴 식은 컨테이너 밖으로
+   튀어나오지만 사용자가 *문제 인식* 가능 (잘림 보이는 게 잘림 모르는 것
+   보다 안전). 향후 식 자동 줄바꿈은 별도 task. */
+.printable-root .katex-display,
+[data-print-page] .katex-display {
+  overflow: visible !important;
+}
+@media print {
+  .katex-display {
+    overflow: visible !important;
+  }
+}
+
 /* 세로셈(vertical operation) — 한글 교육과정 계산식 */
 .katex .arraycolsep {
   width: 0.2em !important;
