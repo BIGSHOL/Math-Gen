@@ -156,7 +156,7 @@ export const PrintOptionsPanel = ({
           </div>
         </Section>
 
-        {/* 4. 단 수 */}
+        {/* 4. 단 수 + 컬럼 구분선 */}
         <Section title="문항 분할">
           <Segmented
             value={String(printOptions.columns)}
@@ -169,6 +169,17 @@ export const PrintOptionsPanel = ({
           />
           {isBoth && (
             <p className="mt-2 text-caption text-muted">2단은 원본+변형 모드에서 사용 불가</p>
+          )}
+          {/* 2단 일 때만 컬럼 구분선 옵션 노출 — 1단 이면 무의미. */}
+          {printOptions.columns === 2 && (
+            <div className="mt-3">
+              <Toggle
+                size="sm"
+                value={printOptions.columnDivider}
+                onChange={(v) => onChangePrintOptions({ columnDivider: v })}
+                label={<span className="text-small">컬럼 사이 구분선</span>}
+              />
+            </div>
           )}
         </Section>
 

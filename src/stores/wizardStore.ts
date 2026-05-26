@@ -63,6 +63,8 @@ export interface PrintOptions {
   showDate: boolean;
   showChapter: boolean;
   showDifficulty: boolean;
+  /** 2단 일 때 컬럼 사이 세로 구분선. 1단 이면 무시. */
+  columnDivider: boolean;
 }
 
 /**
@@ -80,6 +82,7 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   showDate: true,
   showChapter: false,
   showDifficulty: true,
+  columnDivider: false,
 };
 
 export interface WizardPage {

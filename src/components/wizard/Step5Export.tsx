@@ -370,7 +370,18 @@ const PageBody = ({
         {numberedColumns.map((col, colIdx) => (
           <div
             key={colIdx}
-            className={options.columns === 2 ? "flex-1 pl-8 first:pl-0" : "w-full"}
+            className={
+              options.columns === 2
+                ? `flex-1 pl-8 first:pl-0 ${
+                    options.columnDivider ? "border-l border-slate-300 first:border-l-0" : ""
+                  }`
+                : "w-full"
+            }
+            style={
+              options.columns === 2 && options.columnDivider
+                ? { WebkitPrintColorAdjust: "exact" }
+                : undefined
+            }
           >
             <div className="pb-4">
               {col.map(({ problem, num }) => (
