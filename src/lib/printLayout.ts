@@ -20,7 +20,7 @@ import type { GeneratedProblem } from "@app/types";
  * className="prose">`) 이 mathlab 보다 살짝 크고, KaTeX heavy 문항의 추정
  * 오차 흡수. 한 페이지 11~12 문항 → 10~11 문항으로 자연 감소.
  */
-export const PAGE_CONTENT_HEIGHT = 820;
+export const PAGE_CONTENT_HEIGHT = 980;
 const ITEM_VERTICAL_PADDING_PX = 16;
 const NUMBER_META_PX = 45; // 문항 번호 + 메타 (chapter/difficulty) 라인
 const VARIANT_SEPARATOR_PX = 18; // "both" 일 때 원본↔변형 사이 dashed 구분선

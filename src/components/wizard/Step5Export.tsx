@@ -225,7 +225,7 @@ export const Step5Export = () => {
               <A4Page
                 key={`q-${pageIdx}`}
                 scale={scale}
-                paddingClass="px-14 py-10"
+                paddingClass="px-10 py-7"
               >
                 <PageBody
                   page={page}
@@ -245,7 +245,7 @@ export const Step5Export = () => {
               <A4Page
                 key={`a-${apIdx}`}
                 scale={scale}
-                paddingClass="px-14 py-10"
+                paddingClass="px-10 py-7"
               >
                 <PrintAnswerKeyPage
                   questionNumbers={ap.questionNumbers}
@@ -283,7 +283,7 @@ export const Step5Export = () => {
           <div
             key={`p-q-${pageIdx}`}
             data-print-page="true"
-            className="w-[210mm] h-[297mm] px-14 py-10 bg-white"
+            className="w-[210mm] h-[297mm] px-10 py-7 bg-white"
             style={{ pageBreakAfter: "always" }}
           >
             <PageBody
@@ -302,7 +302,7 @@ export const Step5Export = () => {
           <div
             key={`p-a-${apIdx}`}
             data-print-page="true"
-            className="w-[210mm] h-[297mm] px-14 py-10 bg-white"
+            className="w-[210mm] h-[297mm] px-10 py-7 bg-white"
             style={{
               pageBreakAfter:
                 apIdx === answerLayoutPages.length - 1 ? "auto" : "always",
@@ -366,13 +366,13 @@ const PageBody = ({
         showDate={options.showDate}
       />
 
-      <div className="flex-1 min-h-0 flex w-full gap-8 mt-2 relative overflow-hidden">
+      <div className="flex-1 min-h-0 flex w-full gap-6 mt-2 relative overflow-hidden">
         {numberedColumns.map((col, colIdx) => (
           <div
             key={colIdx}
             className={
               options.columns === 2
-                ? `flex-1 pl-8 first:pl-0 ${
+                ? `flex-1 pl-6 first:pl-0 ${
                     options.columnDivider ? "border-l border-slate-300 first:border-l-0" : ""
                   }`
                 : "w-full"
@@ -383,7 +383,13 @@ const PageBody = ({
                 : undefined
             }
           >
-            <div className="pb-4">
+            {/* 컬럼 내부 — 첫 문항부터 차곡차곡 (한국 시험지 패턴).
+                여러 문항일 때 justify-between 으로 페이지 끝까지 *위/아래 정렬*. */}
+            <div
+              className={`h-full flex flex-col ${
+                col.length > 1 ? "justify-between" : "justify-start"
+              }`}
+            >
               {col.map(({ problem, num }) => (
                 <PrintQuestionBlock
                   key={problem.id}
