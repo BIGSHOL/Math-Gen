@@ -2037,7 +2037,6 @@ return wrapped
 ### 19-3. UX / 출력
 - **DOCX 내보내기** (`docx` 라이브러리 또는 html-docx-js) — 교사 요청 잦음. SVG/KaTeX → PNG 변환 후 이미지 삽입 (Tier 2 패턴).
 - **HWP 내보내기** (한국 학교 표준, 라이브러리 부족 — 후순위)
-- **Step 5 mathlab 9 templates 풀 import** (large / csat / notebook / formal / bubble)
 - **인쇄 프리셋 localStorage** (mathlab `mathlab_print_preset` 패턴)
 - **워터마크 / 학원 로고** (인쇄 시 옅게)
 
@@ -2046,6 +2045,17 @@ return wrapped
 - **task #31 — 브라우저 verify (SVG 크기 + 표 줄바꿈)**
 - **Windows 콜론 파일명 처리** — `migrated_prompt_history/prompt_*T*Z.json` 같은 ISO timestamp 파일이 Windows 체크아웃 실패. `.gitattributes` 또는 *cross-platform safe naming* 으로 마이그레이션.
 - **Step 5 PDF 출력의 KaTeX 깨짐** — html2canvas → jsPDF 경로의 폰트 / SVG 누락. Puppeteer headless print 또는 react-pdf 검토.
+
+### 19-5. 인쇄 6 신규 template 후속 (commit `a127535` 후)
+- **PrintMeta 의 학교명 / instructorName / conceptNote / patternName / patternStrategy / examDate / examDuration / academyName UI 입력** — 현재 빈 string fallback. PrintOptionsPanel 의 *고급 옵션* accordion 으로 텍스트 필드 6~8 개. wizardStore 의 `printOptions` 에 직접 추가 또는 별도 `printMeta` 필드.
+- **template 별 폰트 크기 미세조정** — `estimateProblemHeight` 의 charsPerLine / lineH 가 6 신규 template 의 실제 폰트 크기 (pyeongga 13.2, jeongtong 13.5, modern 13.5, workbook 12.5/11.5, jaseup 12.5/11.5, yuhyung 12.5/11.5) 와 일치하도록.
+- **WorkbookTemplate / JaseupTemplate 의 풀이공간 dynamic sizing** — flex:1 stretch 만으로 부족 시 페이지당 문항 수 더 정밀 추정. 현재 `getPageContentHeight(workbook, 1단) = 720` 보수적.
+- **paper accent 색 (navy / red / gold / slate) 을 PrintOptionsPanel COLORS 에 추가** — 현재 mathg-gen 의 8 색만. 신규 6 template 의 `TEMPLATE_DEFAULT_ACCENT` 와 일치하는 4 색 추가.
+- **첫 페이지 헤더 영역 실제 DOM measure 로 동적 추정** — 현재 `getPageContentHeight(template, columns, isFirstPage)` 가 *고정 차감값* (jeongtong -240, modern -240, pyeongga -100, yuhyung -100, workbook/jaseup -120). 사용자가 PrintMeta 의 conceptNote 채우면 jaseup 의 헤더가 *더 길어짐* → 부정확. ResizeObserver 또는 ref.current.offsetHeight 로 실측.
+- **legacy 시험지 hydrate 회귀 자동 테스트** — `matchLegacyTemplate` 의 6 매핑 (exam/default/minimal/classic + mathlab 4) Vitest 또는 임시 스크립트.
+- **Puppeteer PDF 에서 Google Fonts 로딩 보장** — `page.waitForFunction(() => document.fonts.ready)` 호출 추가. 현재 시스템 폰트 fallback 으로 떨어질 가능성. `/api/export-pdf.ts` 수정.
+- **KoPub 폰트 self-host** — 시험지·교과서 표준이지만 Google Fonts 미지원. 한국출판인협회의 WOFF2 다운로드 → `public/fonts/kopub-batang.woff2` + `globals.css` `@font-face`. fontPack 추가.
+- **PrintableHeader.tsx / PrintQuestionBlock.tsx 파일 삭제 (실제 unlink)** — 이미 commit `a127535` 에서 *git rm* 완료. 향후 IDE 캐시 잔재 정리 시 grep 확인.
 
 ---
 
@@ -2097,3 +2107,304 @@ return wrapped
 해상도 무관 고정 가능.
 
 **참고**: `src/services/ai/cropDetect.ts` `estimateColumnSplit` / `padCropBox`.
+
+---
+
+## 21. 인쇄 6 신규 template 구현 함정 카탈로그 (commit `a127535`)
+
+`design_handoff_print_templates` (6 standalone 컴포넌트) 를 Mathgen 에 통합하면서
+부딪힌 함정 + 해결 패턴. 다음 *template 신규 추가* 또는 *PrintOptions 확장* 작업
+시 첫번째로 읽을 섹션.
+
+### 21-1. PrintTemplate union 교체 시 *cascade type error* 의 합리적 처리
+
+`wizardStore.PrintTemplate` 의 4 → 6 신규로 교체하면, 기존 `PrintableHeader` /
+`PrintQuestionBlock` / `PrintOptionsPanel` 의 `"exam"` / `"default"` 등 *legacy
+문자열 비교* 코드가 *7+ 곳* 동시 type error.
+
+**잘못된 접근**: Phase B (union 만) 끝나고 commit → CI build 깨짐 → bisect 어려움.
+
+**정답**: *한 PR 안에서 Phase A~D 묶음 commit*. 순서:
+1. Phase A — 신규 인프라 (tokens / types / 6 template) — 영향 0.
+2. Phase B — wizardStore union 교체 (Phase A 의 types.ts re-export).
+3. Phase C — PrintOptionsPanel TEMPLATE_OPTIONS 6 개 — legacy 문자열 제거.
+4. Phase D — Step5Export 의 PageBody dispatcher 화 — PrintableHeader /
+   PrintQuestionBlock import 제거. 둘 다 *`git rm`* (파일 삭제).
+
+Phase B 의 *중간 type error 7건* 는 정상. Phase D 끝나야 모두 clean. tsc 통과
+확인은 Phase D 후 1회.
+
+### 21-2. `declare const ProblemBody` placeholder 카피 패턴
+
+design_handoff 의 6 template 안에 `declare const ProblemBody: React.FC<{...}>;`
+placeholder. 카피 시 *각 파일에서* 다음 변환:
+- `declare const ProblemBody` 줄 삭제
+- 상단에 `import { ProblemBody } from "./ProblemBody";` 추가
+- 호출부 prop name 유지 (`<ProblemBody problem={p.variant} fontSize={N} />`) —
+  Mathgen 의 ProblemBody.tsx 의 시그니처도 `problem` 으로 통일
+
+**원칙**: 외부 design handoff 의 placeholder 가 있으면 *그 시그니처를 그대로
+유지* 한 새 컴포넌트 신설. design 코드를 *Mathgen 컨벤션에 맞춰 rename* 하면
+카피 비용 ↑.
+
+### 21-3. 순환 import — wizardStore ↔ types.ts (type-only OK)
+
+`types.ts` (print template 공통 타입) 가 `wizardStore` 의 `ProblemReview` /
+`PrintOptions` import. 동시에 `wizardStore` 가 `types.ts` 의 `PrintTemplate`
+import (re-export 패턴):
+```ts
+// wizardStore.ts
+export type { PrintTemplate } from "@app/components/print/types";
+import type { PrintTemplate } from "@app/components/print/types";
+```
+
+**핵심**: 양방향이지만 *모두 type-only import*. TypeScript 가 runtime
+dependency 없는 type 사이클 허용 → compile OK. runtime value import (예:
+`import { someValue }`) 면 ESM 순환 → undefined 또는 crash.
+
+**원칙**: type 만 정의하는 *types.ts* 파일은 *상태 (store) 와 양방향 type
+import OK*. 단 runtime helper / constant 는 *반대 방향만* 두라.
+
+### 21-4. CSS variable 의 React style inline 타입 cast
+
+폰트 팩 동적 적용 — `style={{ "--paper-font-serif": "..." }}` 가 React 의
+`CSSProperties` 와 mismatch (strict 에서). cast 필요:
+```tsx
+const fontVars = {
+  "--paper-font-serif": fontPack.serif,
+  "--paper-font-sans": fontPack.sans,
+} as CSSProperties;
+return <div style={fontVars}>...</div>;
+```
+
+`as CSSProperties` 가 CSS variable key (`--*`) 를 통과시킴. `as React.CSSProperties`
+도 가능하지만 named import (`import { type CSSProperties } from "react"`) 가
+더 깔끔.
+
+### 21-5. inline `fontFamily` → CSS variable 일괄 변환 (sed 패턴)
+
+6 template × 50+ 곳의 `fontFamily: PAPER_FONTS.serifKR` → `"var(--paper-font-serif)"`.
+sed 일괄:
+```bash
+for f in src/components/print/templates/{Pyeongga,...}Template.tsx; do
+  sed -i 's|fontFamily: PAPER_FONTS\.serifKR|fontFamily: "var(--paper-font-serif)"|g' "$f"
+  sed -i 's|fontFamily: PAPER_FONTS\.sansKR|fontFamily: "var(--paper-font-sans)"|g' "$f"
+  sed -i 's|fontFamily: PAPER_FONTS\.mono|fontFamily: "var(--paper-font-mono)"|g' "$f"
+done
+```
+
+**원칙**: 동일 패턴이 *5+ 파일에 반복* 되면 sed 가 Edit 보다 *훨씬 빠름*. 단
+sed 의 string match 가 *정확* 해야 — `PAPER_FONTS\.serifKR` 의 `\.` escape +
+`g` flag (global) 필수. sed 후 `grep -c` 로 변환 count 검증.
+
+추가로 *PAPER_FONTS unused import* 도 sed 로 정리:
+```bash
+sed -i 's|import { PAPER_COLORS, PAPER_FONTS, A4_DIM }|import { PAPER_COLORS, A4_DIM }|g'
+```
+
+### 21-6. 첫 페이지 vs 이후 페이지 *가용 높이 불일치* (CRITICAL)
+
+**증상** (사용자 보고): "5번 문항처럼 너무 하단처럼 내려온건 다음페이지로
+가야겠는데? 하단에 페이지번호가 안보일정도야."
+
+**원인**: `getPageContentHeight(template, columns)` 가 *단일값* (jeongtong
+980). 그러나 *첫 페이지* 는 헤더 영역 (시험 정보표 + 학생 정보표 + OMR 안내
+등 **~240px**) 이 추가로 차지. paginate 가 *그걸 모름* → 첫 페이지에 5번까지
+욱여넣어서 마지막 문항이 푸터 침범. 페이지번호 (`- 2 -`) 가 *시야 밖*.
+
+**해결**: `getPageContentHeight(template, columns, isFirstPage)` 분기:
+- jeongtong / modern: 첫 페이지 740, 이후 980 (헤더 -240)
+- pyeongga: 첫 페이지 900, 이후 1000 (박스 헤더 -100)
+- yuhyung: 첫 페이지 880, 이후 980 (배너 -100)
+- workbook / jaseup 1단: 첫 페이지 600, 이후 720 (학원/단원 헤더 -120)
+
+`paginateProblems` 가 첫 페이지 처리 후 *이후 페이지 가용 높이* 로 동적 전환:
+```ts
+let pageH = getPageContentHeight(template, columns, true);
+for (...) {
+  if (...overflow...) {
+    pages.push(...);
+    pageH = getPageContentHeight(template, columns, false); // 이후 페이지
+  }
+}
+```
+
+**원칙**: 페이지 분할 알고리즘은 *각 페이지의 가용 높이가 다를 수 있음* 을
+명시적으로 처리. 단일 상수는 *첫 페이지에 추가 헤더가 있는 디자인* 에 깨짐.
+
+후속 — *실제 DOM measure* (ResizeObserver 또는 ref.offsetHeight) 로 동적
+추정. PrintMeta 의 conceptNote (jaseup) 같은 *가변 길이 헤더* 에 정확.
+
+### 21-7. A4 page wrapper padding vs template 내부 padding 중복
+
+`A4Page.tsx` 가 `paddingClass="px-12 py-10"` 기본 적용. 6 신규 template 은
+*자체 padding* (pyeongga "42px 56px", workbook "32px 44px 20px" 등). 둘 다
+적용되면 *padding 두 번* — 컨텐츠 영역 너무 좁아짐.
+
+**해결**: `A4Page` 에 `bare?: boolean` prop 추가:
+```tsx
+const padding = bare ? "" : paddingClass;
+```
+
+Step5Export 의 *문제 페이지* (6 신규 template) 호출 시 `bare={true}`. *정답
+페이지* (PrintAnswerKeyPage) 는 *그대로* paddingClass 사용 (정답지는
+template-agnostic).
+
+hidden print DOM (인쇄 전용 div) 도 동일 — `className="... px-10 py-7 ..."`
+에서 *px-10 py-7 제거*.
+
+### 21-8. legacy template 값 마이그레이션 — 누락 시 hydrate crash
+
+Supabase / sessionStorage 의 기존 시험지의 `printOptions.template` 이
+`"exam"` 등 *옛 4 union* 값. wizardStore 의 hydrate 가 그대로 통과시키면
+신규 6 union 위반 → Step6 의 dispatcher 가 `default` case 로 fallback (만약
+default case 없으면 *null render* → crash).
+
+**해결**: `src/lib/printTemplateMigration.ts` 의 `matchLegacyTemplate(raw)`:
+- 신규 6 값이면 통과
+- 옛 값 매핑 (exam → pyeongga / default → jeongtong / minimal → yuhyung /
+  classic → modern)
+- mathlab 9 잠복 (large/csat/notebook/formal/bubble) 도 함께 매핑
+- 그 외 → fallback `"jeongtong"`
+
+호출 위치 — `wizardStore.onRehydrateStorage` 안에서:
+```ts
+state.printOptions.template = matchLegacyTemplate(state.printOptions.template);
+```
+
+mappers.ts (Supabase row hydrate) 에 추가 호출 없어도 OK — Supabase 의 시험지
+저장 시점에 `printOptions` 컬럼 없음 (wizardStore 의 sessionStorage 전용).
+
+**원칙**: union type 교체 시 *legacy hydrate 헬퍼* 가 *원자적 변환*. Default
+case 만 fallback 으로 두지 말고 *기존 데이터 보호* 의도 명시.
+
+### 21-9. PrintTemplateProps `options.color` vs `options.accentColor` 호환
+
+design_handoff 의 6 template 일부 (`ModernTemplate`, `WorkbookTemplate`,
+`JaseupTemplate`, `YuhyungTemplate`) 가 `options.accentColor` 호출. Mathgen 의
+`PrintOptions` 는 `color` 필드. 충돌.
+
+**해결**: 카피 시 *각 template 에서 `options.accentColor` → `options.color`
+일괄 변경*. PrintOptions 인터페이스는 *건드리지 않음* (영향 범위 최소화).
+
+sed 패턴:
+```bash
+sed -i 's|options\.accentColor|options.color|g' src/components/print/templates/*.tsx
+```
+
+**원칙**: 외부 코드 카피 시 *Mathgen 컨벤션이 이미 정해진 영역* (PrintOptions
+필드명) 은 그대로 유지 + *카피 코드만 adapter pattern* 으로 맞춤. 양쪽 다
+바꾸려 하면 영향 범위 폭발.
+
+### 21-10. Chrome MCP 미리보기 frozen — 인쇄 6 template 의 무거운 reflow
+
+증상: Step 6 미리보기 페이지 6+ 개 (4 문제 + 2 해설) 가 KaTeX 식 + 도형
++ 6 template 의 복잡 layout 모두 paint → main thread 점유 ~30s+. Chrome
+MCP `screenshot` / `scroll` timeout (30s).
+
+**대응**:
+1. 첫 1~2 페이지만 시각 확인 (Chrome MCP wait 5~10s + screenshot)
+2. 다른 4 template 은 *사용자 직접 dev 에서 클릭*
+3. Hard reload (Ctrl+Shift+R) 후 첫 페이지만 보기 — 무거운 reflow 회피
+
+**원칙**: 6+ 페이지 미리보기는 *Chrome MCP 자동화* 한계. 첫 1~2 페이지 +
+template switch (좌측 패널 클릭 → 첫 페이지 자동 갱신) 로 5 template 확인
+가능. 전체 시각 검증은 사용자 위임.
+
+### 21-11. Google Fonts CDN 의 `display=swap` 강제
+
+폰트 팩 5 개 중 4 개 (nanum / noto / gowun / pretendard) 는 Google Fonts /
+jsdelivr CDN. `index.html` 의 link 에 `&display=swap` 필수 — fallback 폰트로
+*먼저 paint* + 다운로드 후 *swap*. 없으면 다운로드 동안 빈 화면 (FOIT).
+
+```html
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet" />
+```
+
+**원칙**: 인쇄 미리보기는 *폰트 로딩 지연이 시각 깨짐* 으로 보임. `swap` 으로
+fallback 가시화 + 다운로드 완료 후 자연 swap.
+
+**후속**: Puppeteer PDF 에서 `page.waitForFunction(() => document.fonts.ready)`
+없으면 fallback 폰트로 PDF 굳어질 위험. `/api/export-pdf.ts` 에 추가 필요
+(§19-5).
+
+### 21-12. *GeneratedProblem 신규 optional 필드* 의 안전한 추가
+
+6 template 이 `p.variant.points ?? 3` 호출. 기존 `GeneratedProblem` 에
+`points` 필드 없음 → type error.
+
+**해결**: `src/types/index.ts` 의 `GeneratedProblem` 에 `points?: number`
+추가. *optional* 이라 supabase 의 기존 JSONB 데이터 (points 없음) 도 hydrate
+정상 — 모든 template 에서 `?? 3` fallback.
+
+**원칙**: AI 출력 schema 의 신규 필드 추가 시 *항상 optional* 로. 기존 row
+hydrate 시 undefined 가 자연스럽게 처리됨. required 추가하면 옛 데이터
+crash.
+
+### 21-13. `index.ts` barrel re-export — *6 template 한 import*
+
+`src/components/print/templates/index.ts` 가 6 template + ProblemBody +
+BodyContainer + ProblemMeta + types re-export. Step5Export 의 PageBody
+dispatcher:
+```ts
+import {
+  PyeonggaTemplate, JeongtongTemplate, ModernTemplate,
+  WorkbookTemplate, JaseupTemplate, YuhyungTemplate,
+} from "@app/components/print/templates";
+```
+
+barrel 없으면 6 줄 import. barrel 로 *한 import 그룹*. Tree-shaking 영향 거의
+없음 (Vite 가 ESM named import 따라 자동 prune).
+
+**원칙**: 동일 폴더의 *2+ 컴포넌트가 같은 곳에서 import 되면* index.ts
+barrel. 단 *순환 import 위험* — barrel 이 sibling 을 import 하지 않도록.
+
+---
+
+## 22. 다음 진행사항 체크 (라이브 — 2026-05-26 기준)
+
+### 22-1. *완료* 인쇄 6 신규 template 통합 (commits `a127535` ~ `24f9c41`)
+- ✅ Phase A: tokens / types / ProblemBody / BodyContainer / ProblemMeta / 6 template / index barrel
+- ✅ Phase B: wizardStore PrintTemplate 6 신규 union + matchLegacyTemplate + onRehydrateStorage
+- ✅ Phase C: PrintOptionsPanel TEMPLATE_OPTIONS 6 (grid-cols-3 + label+hint) + getPageContentHeight 분기
+- ✅ Phase D: Step5Export PageBody dispatcher + A4Page bare + PrintableHeader / PrintQuestionBlock 삭제
+- ✅ Phase E: tsc + build + Chrome MCP 시각 (jeongtong + pyeongga + yuhyung 확인) + commit
+- ✅ 추가: 한글 폰트 팩 5 개 (system / nanum / noto / gowun / pretendard) + Google Fonts CDN preload
+- ✅ 추가: 첫 페이지 vs 이후 페이지 가용 높이 분기 (5번 푸터 침범 fix)
+- ✅ 추가: DifficultyBadge chip (color-coded), 컬럼 구분선 옵션, 5 단계 세로여백 preset
+- ✅ 추가: katex-display 스크롤바 인쇄 영역에서 visible 강제 (사용자 보고 #17 fix)
+
+### 22-2. *진행 권장* — 6 template 사용성 보강
+- 🟡 PrintOptionsPanel *고급 옵션* accordion — academyName / instructorName /
+  conceptNote / patternName / patternStrategy / examDate / examDuration /
+  totalScore 텍스트 입력. (현재 빈 string fallback)
+- 🟡 paper accent 색 (navy / red / gold / slate) 4 색을 PrintOptionsPanel 의
+  COLORS picker 에 추가. 신규 template 의 TEMPLATE_DEFAULT_ACCENT 와 일치.
+- 🟡 첫 페이지 헤더 영역 *실제 DOM measure* — 현재 fixed 값. conceptNote
+  채우면 jaseup 헤더 가변 → ResizeObserver.
+- 🟡 Puppeteer PDF 의 `page.waitForFunction(() => document.fonts.ready)` 추가
+  — 현재 fontPack 가 PDF 에 반영되는지 보장 X.
+
+### 22-3. *후순위* — 폰트 / 디자인 미세조정
+- 🟢 KoPub 폰트 self-host (`public/fonts/kopub-batang.woff2` + `@font-face`)
+  → fontPack 에 `kopub` 추가
+- 🟢 template 별 폰트 크기 미세조정 — `estimateProblemHeight` 의
+  charsPerLine / lineH 가 각 template 실제 폰트 (12.5 / 13.2 / 13.5) 와 일치
+- 🟢 6 template 의 *2단 모드 디자인 일관성 검증* — Chrome MCP 시각 (사용자
+  검증 위임)
+- 🟢 워터마크 / 학원 로고 (인쇄 옅게) — 기존 watermark 인프라 (task #27~31)
+  와 통합. 6 신규 template 의 헤더 위치에 conditional render.
+
+### 22-4. *Production 진입 필수*
+- 🚨 Phase G (Supabase Auth — §19-1) — 이메일 / OAuth 로그인. 현재
+  `DEV_USER_ID` fallback.
+- 🚨 API key 3개 rotate (task #64) — `.env.example` 에 노출된 잔재.
+- 🚨 legacy 시험지 회귀 자동 테스트 — `matchLegacyTemplate` 의 4 매핑 (옛
+  exam / default / minimal / classic 시험지가 신규 6 union 으로 정상 변환)
+  Vitest 추가.
+
+### 22-5. *대기 중 (사용자 검증 후 우선순위 결정)*
+- 🟢 6 template 모두 시각 확인 (현재 jeongtong + pyeongga + yuhyung 만
+  Chrome MCP 확인. modern / workbook / jaseup 사용자 직접 검증 필요)
+- 🟢 6 template 의 PDF 다운로드 (`/api/export-pdf`) 결과 검증 — Puppeteer
+  로딩 시 폰트 / 색상 / layout 일관성
