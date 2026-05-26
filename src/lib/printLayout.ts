@@ -21,6 +21,29 @@ import type { GeneratedProblem } from "@app/types";
  * 오차 흡수. 한 페이지 11~12 문항 → 10~11 문항으로 자연 감소.
  */
 export const PAGE_CONTENT_HEIGHT = 980;
+
+/**
+ * Template 별 페이지 가용 컨텐츠 높이 (px). paginateProblems 가 한 페이지에
+ * 몇 문항을 넣을지 결정할 때 사용.
+ *
+ * - **workbook / jaseup 1단**: 풀이공간 카드가 flex:1 stretch 로 자동 확장 →
+ *   페이지당 문항 *3~4* 만 들어감. 720 으로 보수적.
+ * - **pyeongga 2단**: 컴팩트 폰트 (13.2px) → 약간 더 들어감. 1000.
+ * - **그 외**: 단일 PAGE_CONTENT_HEIGHT (980).
+ */
+export function getPageContentHeight(
+  template: PrintTemplate,
+  columns: 1 | 2,
+): number {
+  if ((template === "workbook" || template === "jaseup") && columns === 1) {
+    return 720;
+  }
+  if (template === "pyeongga" && columns === 2) {
+    return 1000;
+  }
+  return PAGE_CONTENT_HEIGHT;
+}
+
 const ITEM_VERTICAL_PADDING_PX = 16;
 const NUMBER_META_PX = 45; // 문항 번호 + 메타 (chapter/difficulty) 라인
 const VARIANT_SEPARATOR_PX = 18; // "both" 일 때 원본↔변형 사이 dashed 구분선
@@ -162,6 +185,9 @@ export function paginateProblems(input: PaginateInput): PaginatedPage[] {
   const { problems, exportSource, template, columns, spacing, diagramMap } = input;
   if (problems.length === 0) return [];
 
+  // template 별 가용 높이 — workbook/jaseup 1단은 풀이공간으로 줄어듬.
+  const pageH = getPageContentHeight(template, columns);
+
   const pages: PaginatedPage[] = [];
   let currentPage: ProblemReview[][] = Array.from({ length: columns }, () => []);
   let currentColumnIdx = 0;
@@ -179,7 +205,7 @@ export function paginateProblems(input: PaginateInput): PaginatedPage[] {
       hasOriginalDiagramCrop: diagramMap?.get(p.id) ?? false,
     });
 
-    if (currentPage[currentColumnIdx].length > 0 && currentH + qh > PAGE_CONTENT_HEIGHT) {
+    if (currentPage[currentColumnIdx].length > 0 && currentH + qh > pageH) {
       if (columns === 2 && currentColumnIdx === 0) {
         currentColumnIdx = 1;
         currentPage[1] = [p];

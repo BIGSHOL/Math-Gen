@@ -13,12 +13,19 @@ import {
 } from "@app/lib/printLayout";
 import { usePreviewScale, A4_HEIGHT_PX } from "@app/hooks/usePreviewScale";
 import { A4Page } from "@app/components/print/A4Page";
-import { PrintableHeader } from "@app/components/print/PrintableHeader";
-import { PrintQuestionBlock } from "@app/components/print/PrintQuestionBlock";
 import { PrintAnswerKeyPage } from "@app/components/print/PrintAnswerKeyPage";
 import { PrintOptionsPanel } from "@app/components/print/PrintOptionsPanel";
 import { PrintActionPanel } from "@app/components/print/PrintActionPanel";
 import { ZoomToolbar } from "@app/components/print/ZoomToolbar";
+import {
+  PyeonggaTemplate,
+  JeongtongTemplate,
+  ModernTemplate,
+  WorkbookTemplate,
+  JaseupTemplate,
+  YuhyungTemplate,
+} from "@app/components/print/templates";
+import type { PrintMeta, PrintTemplateProps } from "@app/components/print/types";
 import { GRADE_LABELS } from "@app/services/ai/mathDefense";
 
 /**
@@ -220,13 +227,9 @@ export const Step5Export = () => {
           style={{ minHeight: A4_HEIGHT_PX * 0.5 }}
         >
           <div className="flex flex-col items-center gap-8">
-            {/* 문제 페이지 */}
+            {/* 문제 페이지 — 6 신규 template 이 자체 padding 보유. bare. */}
             {layoutPages.map((page, pageIdx) => (
-              <A4Page
-                key={`q-${pageIdx}`}
-                scale={scale}
-                paddingClass="px-10 py-7"
-              >
+              <A4Page key={`q-${pageIdx}`} scale={scale} bare>
                 <PageBody
                   page={page}
                   pageIdx={pageIdx}
@@ -240,7 +243,7 @@ export const Step5Export = () => {
               </A4Page>
             ))}
 
-            {/* 정답 + 해설 페이지 */}
+            {/* 정답 + 해설 페이지 — 기존 padding 유지 (template-agnostic). */}
             {answerLayoutPages.map((ap, apIdx) => (
               <A4Page
                 key={`a-${apIdx}`}
@@ -283,7 +286,7 @@ export const Step5Export = () => {
           <div
             key={`p-q-${pageIdx}`}
             data-print-page="true"
-            className="w-[210mm] h-[297mm] px-10 py-7 bg-white"
+            className="w-[210mm] h-[297mm] bg-white overflow-hidden"
             style={{ pageBreakAfter: "always" }}
           >
             <PageBody
@@ -325,7 +328,14 @@ export const Step5Export = () => {
   );
 };
 
-// ── PageBody — 한 페이지의 헤더 + 문항 grid 렌더 ─────────────────────
+// ── PageBody — template dispatcher ──────────────────────────────────────
+//
+// 신규 6 template (design_handoff_print_templates) 의 standalone 컴포넌트가
+// 각자 헤더 + 본문 + 푸터를 자체 통합. PageBody 는 *template switch* + props
+// 합성 + 컴포넌트 호출 만 담당.
+//
+// `page.columns.flat()` 으로 평탄 배열 전달 — BodyContainer 안의
+// `React.Children.toArray + half split` 가 2단을 자체 분할.
 interface PageBodyProps {
   page: PaginatedPage;
   pageIdx: number;
@@ -334,6 +344,9 @@ interface PageBodyProps {
   gradeBadge?: string;
   options: ReturnType<typeof useWizardStore.getState>["printOptions"];
   exportSource: ReturnType<typeof useWizardStore.getState>["exportSource"];
+  // (deprecated, kept for prop drilling) 원본 도형 — 향후 ProblemBody 에
+  // diagrams prop 으로 흘림. 현재는 6 신규 template 내부 호출이 diagrams
+  // prop 안 받음 — Phase 2 후속에서 추가.
   originalDiagramMap: Map<string, Array<{ dataUrl: string; label: string }>>;
 }
 
@@ -345,64 +358,60 @@ const PageBody = ({
   gradeBadge,
   options,
   exportSource,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   originalDiagramMap,
 }: PageBodyProps) => {
-  // 컬럼별로 전역 번호 계산 — page.startingNumber 부터 시작해 col0 채우고 col1.
-  let runningNumber = page.startingNumber;
-  const numberedColumns = page.columns.map((col) => {
-    const numbered = col.map((p) => ({ problem: p, num: runningNumber++ }));
-    return numbered;
-  });
+  const meta: PrintMeta = {
+    title: testTitle,
+    schoolName: undefined,
+    grade: gradeBadge,
+    subject: "수학",
+    semester: undefined,
+    examDate: new Date().toISOString().slice(0, 10),
+    examDuration: undefined,
+    examiner: undefined,
+    totalScore: 100,
+    academyName: undefined,
+    instructorName: undefined,
+    conceptNote: undefined,
+    todayGoal: undefined,
+    patternName: undefined,
+    patternStrategy: undefined,
+  };
 
-  return (
-    <div className="flex flex-col h-full">
-      <PrintableHeader
-        title={testTitle}
-        gradeBadge={gradeBadge}
-        isFirstPage={pageIdx === 0}
-        variant={options.template}
-        accentColor={options.color}
-        pageInfo={`${pageIdx + 1} / ${totalPages}`}
-        showDate={options.showDate}
-      />
+  const flatProblems = page.columns.flat();
 
-      <div className="flex-1 min-h-0 flex w-full gap-6 mt-2 relative overflow-hidden">
-        {numberedColumns.map((col, colIdx) => (
-          <div
-            key={colIdx}
-            className={
-              options.columns === 2
-                ? `flex-1 pl-6 first:pl-0 ${
-                    options.columnDivider ? "border-l border-slate-300 first:border-l-0" : ""
-                  }`
-                : "w-full"
-            }
-            style={
-              options.columns === 2 && options.columnDivider
-                ? { WebkitPrintColorAdjust: "exact" }
-                : undefined
-            }
-          >
-            {/* 컬럼 내부 — 첫 문항부터 차곡차곡 (한국 시험지 패턴).
-                컬럼 균형은 paginate 알고리즘이 처리. justify-between 은 컬럼
-                안 문항 수가 적을 때 *비정상적으로 큰 gap* 생겨 제거. */}
-            <div className="flex flex-col">
-              {col.map(({ problem, num }) => (
-                <PrintQuestionBlock
-                  key={problem.id}
-                  problem={problem}
-                  questionNumber={num}
-                  options={options}
-                  exportSource={exportSource}
-                  originalDiagrams={originalDiagramMap.get(problem.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const props: PrintTemplateProps = {
+    page: pageIdx + 1,
+    totalPages,
+    columns: options.columns,
+    meta,
+    problems: flatProblems,
+    startingNumber: page.startingNumber,
+    options,
+  };
+
+  switch (options.template) {
+    case "pyeongga":
+      return <PyeonggaTemplate {...props} />;
+    case "jeongtong":
+      return <JeongtongTemplate {...props} />;
+    case "modern":
+      return <ModernTemplate {...props} />;
+    case "workbook":
+      return <WorkbookTemplate {...props} />;
+    case "jaseup":
+      return <JaseupTemplate {...props} />;
+    case "yuhyung":
+      return <YuhyungTemplate {...props} />;
+    default:
+      return <JeongtongTemplate {...props} />;
+  }
 };
+
+// exportSource 는 향후 ProblemBody 의 tag prop 으로 흐를 예정 (Phase 2 후속).
+// 현재 6 template 의 ProblemBody 호출은 `problem={p.variant}` 만 사용.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _exportSourceUnused = (_x: string) => _x;
 
 export default Step5Export;

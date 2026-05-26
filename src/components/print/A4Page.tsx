@@ -13,6 +13,11 @@ interface A4PageProps {
    * 미리보기에만 쓰이고 인쇄에서 제외 (드물게 사용).
    */
   pageBreak?: boolean;
+  /**
+   * `true` 면 paddingClass 무시. 6 신규 template (PyeonggaTemplate 등) 이
+   * 자체 padding 을 갖고 있으므로 A4Page 의 wrapper padding 0.
+   */
+  bare?: boolean;
 }
 
 /**
@@ -30,7 +35,9 @@ export const A4Page = ({
   children,
   paddingClass = "px-12 py-10",
   pageBreak = true,
+  bare,
 }: A4PageProps) => {
+  const padding = bare ? "" : paddingClass;
   return (
     <div
       className="shrink-0 transition-[width,height] duration-150 ease-out"
@@ -41,7 +48,7 @@ export const A4Page = ({
     >
       <div
         data-print-page={pageBreak ? "true" : undefined}
-        className={`bg-white shadow-lg border border-slate-200 rounded-sm w-[210mm] h-[297mm] ${paddingClass} origin-top-left transition-transform duration-150 ease-out`}
+        className={`bg-white shadow-lg border border-slate-200 rounded-sm w-[210mm] h-[297mm] ${padding} origin-top-left transition-transform duration-150 ease-out overflow-hidden`}
         style={{ transform: `scale(${scale})` }}
       >
         {children}

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>인쇄 템플릿 시안 · MathGen</title>
+<meta name="viewport" content="width=1400" />
+
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Serif+KR:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: #2A2D34; font-family: Pretendard, sans-serif; word-break: keep-all; }
+  body { overflow: auto; }
+  #root { width: 100vw; height: 100vh; }
+  .katex { font-size: 1em !important; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb { background: #555; border-radius: 6px; border: 2px solid #2A2D34; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="templates/design-canvas.jsx"></script>
+<script type="text/babel" src="templates/primitives.jsx"></script>
+<script type="text/babel" src="templates/T1-pyeongga.jsx"></script>
+<script type="text/babel" src="templates/T2-jeongtong.jsx"></script>
+<script type="text/babel" src="templates/T3-modern.jsx"></script>
+<script type="text/babel" src="templates/T4-workbook.jsx"></script>
+<script type="text/babel" src="templates/T5-jaseup.jsx"></script>
+<script type="text/babel" src="templates/T6-yuhyung.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+(() => {
+  const { DesignCanvas, DCSection, DCArtboard, T1, T2, T3, T4, T5, T6, A4 } = window;
+  const W = A4.w, H = A4.h;
+
+  function App() {
+    return (
+      <DesignCanvas
+        title="인쇄 템플릿 시안 6종 · 1단/2단 + Vertical Balance"
+        subtitle="모든 템플릿이 columns(1/2) + balanced(true/false) props 지원. 같은 데이터로 두 변형 나란히 비교."
+      >
+        <DCSection id="t1" title="T1 평가원 정밀형" subtitle="문항 개수로 페이지를 자연스럽게 채움. 빈공간은 그대로 둠.">
+          <DCArtboard id="t1-1c" label="T1 · 1단 · 6문항" width={W} height={H}>
+            <T1 columns={1} problemCount={6} />
+          </DCArtboard>
+          <DCArtboard id="t1-2c" label="T1 · 2단 · 14문항 (수능 기본)" width={W} height={H}>
+            <T1 columns={2} problemCount={14} />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="t2" title="T2 정통 내신형" subtitle="학교 시험지 표 양식 · 학년반번호이름표 + 점수란">
+          <DCArtboard id="t2-1c" label="T2 · 1단 · 6문항 (내신 기본)" width={W} height={H}>
+            <T2 columns={1} problemCount={6} />
+          </DCArtboard>
+          <DCArtboard id="t2-2c" label="T2 · 2단 · 14문항" width={W} height={H}>
+            <T2 columns={2} problemCount={14} />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="t3" title="T3 모던 내신형" subtitle="학교명 강조 · navy accent · 점수 chip">
+          <DCArtboard id="t3-1c" label="T3 · 1단 · 5문항" width={W} height={H}>
+            <T3 columns={1} problemCount={5} />
+          </DCArtboard>
+          <DCArtboard id="t3-2c" label="T3 · 2단 · 12문항" width={W} height={H}>
+            <T3 columns={2} problemCount={12} />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="t4" title="T4 학원 워크북형" subtitle="1단: 풀이공간 우측 (카드 stretch) · 2단: 풀이공간 제거 컴팩트">
+          <DCArtboard id="t4-1c" label="T4 · 1단 (풀이공간 자동 확장)" width={W} height={H}>
+            <T4 columns={1} problemCount={4} />
+          </DCArtboard>
+          <DCArtboard id="t4-2c" label="T4 · 2단 (풀이공간 없음, 8문항)" width={W} height={H}>
+            <T4 columns={2} problemCount={8} />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="t5" title="T5 자습 학습지" subtitle="1단: 모눈 풀이공간 (카드 stretch) · 2단: 컴팩트">
+          <DCArtboard id="t5-1c" label="T5 · 1단 (모눈 풀이공간 자동 확장)" width={W} height={H}>
+            <T5 columns={1} problemCount={3} />
+          </DCArtboard>
+          <DCArtboard id="t5-2c" label="T5 · 2단 · 10문항" width={W} height={H}>
+            <T5 columns={2} problemCount={10} />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="t6" title="T6 유형 훈련지" subtitle="유형 배너 + 컴팩트 본문">
+          <DCArtboard id="t6-1c" label="T6 · 1단 · 7문항" width={W} height={H}>
+            <T6 columns={1} problemCount={7} />
+          </DCArtboard>
+          <DCArtboard id="t6-2c" label="T6 · 2단 · 16문항 (기본)" width={W} height={H}>
+            <T6 columns={2} problemCount={16} />
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+})();
+</script>
+</body>
+</html>

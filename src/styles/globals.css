@@ -3,6 +3,30 @@
 @tailwind utilities;
 
 /* =========================================================
+   Paper design tokens — 인쇄 6 신규 template 공통.
+   src/components/print/tokens.ts 와 정합. 변경 시 양쪽 동시 갱신.
+   ========================================================= */
+:root {
+  --paper-ink: #0E0E10;
+  --paper-ink90: #1F1F23;
+  --paper-ink70: #3A3A40;
+  --paper-ink50: #6B6B72;
+  --paper-ink30: #A0A0A8;
+  --paper-ink15: #D4D4D8;
+  --paper-ink08: #E8E8EB;
+  --paper-ink04: #F4F4F6;
+  --paper-bg: #FFFFFF;
+  --paper-warm: #FCFCF8;
+  --paper-accent-navy: #1B2A4E;
+  --paper-accent-red: #8B1A1A;
+  --paper-accent-gold: #A57F00;
+  --paper-accent-slate: #475569;
+  --paper-font-serif: "KoPubBatang", "Nanum Myeongjo", "Noto Serif KR", "Batang", serif;
+  --paper-font-sans: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --paper-font-mono: "JetBrains Mono", "D2Coding", monospace;
+}
+
+/* =========================================================
    Base global styles
    ========================================================= */
 @layer base {

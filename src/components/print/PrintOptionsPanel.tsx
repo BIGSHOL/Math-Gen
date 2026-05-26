@@ -37,11 +37,13 @@ const COLORS: Array<{ name: string; value: string }> = [
   { name: "회색", value: "#64748b" },
 ];
 
-const TEMPLATE_OPTIONS: Array<{ value: PrintTemplate; label: string }> = [
-  { value: "exam", label: "모의고사" },
-  { value: "default", label: "기본형" },
-  { value: "minimal", label: "미니멀" },
-  { value: "classic", label: "클래식" },
+const TEMPLATE_OPTIONS: Array<{ value: PrintTemplate; label: string; hint: string }> = [
+  { value: "pyeongga", label: "평가원", hint: "수능·모평" },
+  { value: "jeongtong", label: "정통", hint: "학교 시험지" },
+  { value: "modern", label: "모던", hint: "학교 마케팅" },
+  { value: "workbook", label: "워크북", hint: "풀이공간" },
+  { value: "jaseup", label: "자습", hint: "개념+모눈" },
+  { value: "yuhyung", label: "유형", hint: "유형 컴팩트" },
 ];
 
 const EXPORT_SOURCE_OPTIONS: Array<{ value: ExportSource; label: string; icon?: string }> = [
@@ -146,9 +148,10 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 2. 템플릿 */}
+        {/* 2. 템플릿 — 6 신규 디자인 (design_handoff_print_templates 기반).
+            2행 3열 grid. label + hint 2단 (라벨 / 작은 설명). */}
         <Section title="템플릿">
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             {TEMPLATE_OPTIONS.map((t) => {
               const on = printOptions.template === t.value;
               return (
@@ -156,13 +159,17 @@ export const PrintOptionsPanel = ({
                   key={t.value}
                   type="button"
                   onClick={() => onChangePrintOptions({ template: t.value })}
-                  className={`h-9 rounded-r2 border text-small font-medium transition-colors ${
+                  className={`h-12 rounded-r2 border text-small font-medium transition-colors flex flex-col items-center justify-center px-1 ${
                     on
                       ? "bg-accent-soft border-accent text-accent-ink font-semibold"
                       : "bg-surface border-line text-text2 hover:border-accent"
                   }`}
+                  title={t.hint}
                 >
-                  {t.label}
+                  <span>{t.label}</span>
+                  <span className="text-caption text-text2/60 font-normal leading-none mt-0.5">
+                    {t.hint}
+                  </span>
                 </button>
               );
             })}

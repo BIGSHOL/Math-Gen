@@ -46,6 +46,8 @@ export interface GeneratedProblem {
   solution: string;
   topic: string;
   difficulty: string;
+  /** 배점. 기본 3 (template 별 default). 인쇄 6 신규 template 의 PointsLabel 에서 사용. */
+  points?: number;
   /** @deprecated Phase E 이후 — `diagramParams` 우선. supabase JSONB 의 기존 데이터 호환용. */
   diagramSVG?: string | null;
   /**

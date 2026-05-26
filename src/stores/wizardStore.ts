@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { GeneratedProblem } from "@app/types";
 import type { GradeKey } from "@app/services/ai/mathDefense";
+import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
 
 /**
  * 5-step Wizard state.
@@ -32,10 +33,13 @@ export type ExamCategory = "MIDTERM" | "FINAL" | "MOCK" | "OTHER";
 /**
  * Step 5 (PDF 내보내기 + 인쇄) 의 layout 템플릿.
  *
- * mathlab 의 9 templates 중 *4 개* 만 채택 — wizard 사용자 인지 부담 ↓.
- * large/csat/notebook/formal/bubble 은 후속 phase 에서 단계적 도입.
+ * design_handoff_print_templates 의 6 신규 디자인 (pyeongga / jeongtong /
+ * modern / workbook / jaseup / yuhyung) 으로 *완전 교체*. 기존 4 (exam /
+ * default / minimal / classic) 는 `matchLegacyTemplate` 헬퍼가 가까운 값으로
+ * 자동 매핑. 정의 source: `@app/components/print/types`.
  */
-export type PrintTemplate = "default" | "exam" | "minimal" | "classic";
+export type { PrintTemplate } from "@app/components/print/types";
+import type { PrintTemplate } from "@app/components/print/types";
 
 /**
  * Step 5 의 출력 대상. 라디오 선택:
@@ -73,14 +77,14 @@ export interface PrintOptions {
  * 거의 비어 있어 노이즈).
  */
 export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
-  template: "exam",
-  color: "#0EA5E9",
-  columns: 2,
-  spacing: 32,
+  template: "jeongtong", // 한국 학교 시험지 표 양식 — 가장 일반적
+  color: "#1B2A4E", // navy — jeongtong / modern 의 default accent
+  columns: 1, // jeongtong 기본 1단
+  spacing: 18,
   showAnswers: false,
   quickAnswerOnly: false,
   showDate: true,
-  showChapter: false,
+  showChapter: true, // 6 신규 template 의 chapter chip 도 표시 default 권장
   showDifficulty: true,
   columnDivider: false,
 };
@@ -512,6 +516,9 @@ export const useWizardStore = create<WizardState>()(
         } else {
           state.printOptions = { ...DEFAULT_PRINT_OPTIONS, ...state.printOptions };
         }
+        // legacy template 값 정상화 (exam → pyeongga, default → jeongtong 등).
+        // VALID 6 union 에 없으면 fallback "jeongtong".
+        state.printOptions.template = matchLegacyTemplate(state.printOptions.template);
         if (!state.exportSource) {
           state.exportSource = "variant";
         }

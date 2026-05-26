@@ -5,7 +5,6 @@ import type {
   PrintOptions,
   ProblemReview,
 } from "@app/stores/wizardStore";
-import { PrintableHeader } from "./PrintableHeader";
 
 /**
  * Step 5 의 정답+해설 페이지. mathlab `print/page.tsx` L584-700 패턴 차용.
@@ -47,15 +46,29 @@ export const PrintAnswerKeyPage = ({
 }: PrintAnswerKeyPageProps) => {
   return (
     <div className="flex flex-col h-full">
-      <PrintableHeader
-        title={testTitle}
-        subtitle={isFirstAnswerPage ? "Answer Key" : ""}
-        gradeBadge={gradeBadge}
-        isFirstPage={false}
-        variant={options.template}
-        accentColor={options.color}
-        pageInfo={pageInfo}
-      />
+      {/* 정답지 헤더 — template-agnostic inline. PrintableHeader 폐기 후 단순화. */}
+      <header
+        className="flex items-baseline justify-between pb-2 mb-3"
+        style={{ borderBottom: `2px solid ${options.color}` }}
+      >
+        <div>
+          <h1
+            className="text-[18px] font-extrabold tracking-tight"
+            style={{ color: options.color }}
+          >
+            {testTitle}
+            <span className="ml-2 text-[12px] font-bold text-slate-500">
+              {isFirstAnswerPage ? "Answer Key · 정답 및 해설" : "Answer Key"}
+            </span>
+          </h1>
+          {gradeBadge && (
+            <div className="text-[11px] text-slate-500 mt-0.5">{gradeBadge}</div>
+          )}
+        </div>
+        {pageInfo && (
+          <span className="text-[11px] font-mono text-slate-500">{pageInfo}</span>
+        )}
+      </header>
 
       {/* 빠른 정답 그리드 — 첫 정답 페이지에만 */}
       {isFirstAnswerPage && (
