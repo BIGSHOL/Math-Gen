@@ -2396,8 +2396,8 @@ barrel. 단 *순환 import 위험* — barrel 이 sibling 을 import 하지 않�
   와 통합. 6 신규 template 의 헤더 위치에 conditional render.
 
 ### 22-4. *Production 진입 필수*
-- 🚨 Phase G (Supabase Auth — §19-1) — 이메일 / OAuth 로그인. 현재
-  `DEV_USER_ID` fallback.
+- ✅ Phase G (Supabase Auth) **— 완료** (`3fb6b60`, 2026-05-26 세션). 자세한 사항 §23.
+- ✅ Phase H (Vercel async backend) **— 코드 완성 + Vercel preview E2E 검증 완료** (2026-05-26 세션). §23.
 - 🚨 API key 3개 rotate (task #64) — `.env.example` 에 노출된 잔재.
 - 🚨 legacy 시험지 회귀 자동 테스트 — `matchLegacyTemplate` 의 4 매핑 (옛
   exam / default / minimal / classic 시험지가 신규 6 union 으로 정상 변환)
@@ -2408,3 +2408,237 @@ barrel. 단 *순환 import 위험* — barrel 이 sibling 을 import 하지 않�
   Chrome MCP 확인. modern / workbook / jaseup 사용자 직접 검증 필요)
 - 🟢 6 template 의 PDF 다운로드 (`/api/export-pdf`) 결과 검증 — Puppeteer
   로딩 시 폰트 / 색상 / layout 일관성
+
+---
+
+## 23. ClassDay 흡수 + Phase G/H/I 진행 + handoff (2026-05-26 세션)
+
+### 23-0. 세션 개요 — 3 commits
+
+| commit | 영역 | 변경 |
+|---|---|---|
+| `3fb6b60` | chore(auth) | schema 코멘트 정리 + Tenant 초대코드 복사·재발급 UX |
+| `687d921` | chore(infra) | .gitignore — Vercel CLI 자동 + migrate-storage.mjs 보안 차단 |
+| `26c4b6f` | feat(wizard) | Phase I-1: wizardStore foundation (CropBox + Step 1.5 액션) |
+
+세션 결과물:
+- **로드맵 doc**: `C:\Users\user\.claude\plans\logical-mapping-aho.md` (per-user plan 파일; G/H/I/J/K/L/M 전체 phase 전략)
+- **Phase G/H 완료** — Auth 가동 + Vercel async backend E2E 검증
+- **Phase I 시작** — I-1 (store foundation) 완료, I-2~9 남음
+
+### 23-1. ClassDay (class.day) 5-stage pipeline — 핵심 architectural 인사이트
+
+ClassDay 의 *시험지 출처 분석* 기능을 실 계정 + 실 시험지(`[대구일중][1][수학][23-1-중간].pdf`)로 조사. 발견한 5-stage:
+
+```
+업로드 → DB화 진행중 → 검수중 (human edit) → 검수 완료 → 완료 DB
+        ↑ 자동 crop      ↑ 박스 편집 UI       ↑ user 트리거    ↑ 임베딩 매칭 후
+        ~5분            (드래그 4 도구)                      → 8쪽 PDF 보고서
+```
+
+**4 가지 결정적 architectural 패턴** — mathg-gen 흡수 대상:
+
+1. **Pipeline 5-stage with human-in-the-loop** — 100% 자동 X. 검수 단계 미설치 시
+   박스 누락 = 분석 누락 (대구일중 22문제 → 13개만, 41% 손실 직접 측정). cropDetect
+   의 한계 = 사용자 보정 필수.
+2. **드래그-편집 박스 UI** — 4 도구 (생성/조절/이동/삭제) + 3-class (문제/그림/표)
+   색상 분류. WYSIWYG. Phase I-3~5 의 직접 모방 대상.
+3. **백엔드 비동기 큐** — `fileConversionTaskId=21026`, 5분+ 처리, **`진행률: 51%`**
+   progress 노출. 브라우저 직접 호출 불가. Phase H 가 같은 아키텍처.
+4. **출처 매칭 + threshold + 카테고리** — exact / [유사] 분류, 80% 미만 컷오프,
+   학년 hard-filter 누락 시 *완전 다른 단원·학년* 오매칭 발생 (중1 부등식 → 중2(하)
+   순열과 조합 82% 매칭 사례 직접 관찰). Phase L 의 prereq.
+
+자세한 매칭 표·오매칭 사례·8쪽 PDF 보고서 구조는 §20 참고. §20-1~20-2 의 크롭
+경계 규칙·여백 보정 + 본 §23-1 합쳐서 ClassDay 흡수 전체 그림.
+
+### 23-2. Phase G (Auth) ✅ 완료
+
+3fb6b60 커밋. 사전 95% 완성된 상태 (`authStore` + `AdminGate` + `UserMenu` + RLS
+정책 가동). 정리 작업:
+
+- **schema.sql / schema-storage.sql** — dev_user_id 스테일 코멘트 정리. 실제 RLS
+  정책 SQL 은 무변경 (COALESCE 패턴 유지 — auth.uid() null 시 zero UUID 폴백,
+  anon/dev 진입 보호용; production 사용자는 항상 auth.uid() 보유).
+- **TenantManagement.tsx** + **admin.ts** — 초대코드 복사 버튼 (clipboard API +
+  2초 ✓ 피드백) + 재발급 버튼 (confirm 다이얼로그) + `regenerateInviteCode(id, newCode)`
+  서비스 함수 신규.
+
+남은 작업 (코드 X, runtime test 만):
+- PasswordResetFlow E2E — `requestPasswordReset` / `updatePassword` 코드 모두
+  authStore.ts 194-215. UI 는 PasswordChangeModal / NewPasswordScreen / AuthScreen
+  / AuthGate 5 파일에 분산. Chrome MCP 또는 사용자 직접 테스트 필요.
+
+### 23-3. Phase H (Vercel async backend) ✅ **코드 완성 + E2E 검증 완료**
+
+**중요한 meta-lesson**: Explore agent 의 1차 보고가 부정확했음 — "훅이 fetch 안
+함" 이라 했지만 실제로는 USE_API 분기가 *세 파일 모두* (ocr.ts:1015, solutions.ts:490,
+variants.ts:518) 완성되어 있고 훅은 switched export 를 호출. 즉 production 빌드에서는
+자동 fetch 경로로 전환. Phase H "3-4주 작업" 추정은 wildly off — 실제는 ~1주 검증.
+
+**완성된 것**:
+- 3 fetch wrappers (`extractPageProblemsViaApi`, `generateSolutionViaApi`, `generateVariantViaApi`)
+  — Bearer auth (`currentAccessToken` from api/supabase.ts:65) + AbortSignal + 에러 처리
+- USE_API switch — `import.meta.env.PROD || VITE_USE_API==="true"` 일 때 fetch 경로
+- vercel.json `api/*.ts` 60초 timeout
+- 핸들러 (api/ai-{ocr,solution,variant}.ts) — JWT 검증 (api/_jwt.ts) + usage 로깅
+  (api/_logUsage.ts) + `_usage` 스트립 후 client 응답
+
+**E2E 검증 절차** (재현 가능):
+```
+1. vercel link --project math-gen --scope bigshols-projects --yes  (이미 됨)
+2. vercel env pull .env.local --environment production --yes  (필요 시)
+3. vercel deploy --yes  (preview, ~1분)
+4. preview URL 확보 (예: math-lo7pu1806-bigshols-projects.vercel.app)
+5. Chrome MCP navigate → /api/ai-ocr 가 reachable 한지 확인
+6. javascript_tool 로 직접 fetch:
+   fetch("/api/ai-ocr", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" })
+   → HTTP 400 + {"error":"pageBase64 field required"} = stack 전체 정상
+```
+
+검증된 stack: Vercel routing → 함수 로드 (import 성공) → JSON 파싱 → 필드 검증 →
+에러 응답 → 브라우저 도달 → CORS 통과. **production path 완전 검증.**
+
+남은 의사 결정 (코드 X):
+- **Vercel Pro 결제** ($20/월) — `api/*.ts` 60초 → 300초 timeout. Phase I 의
+  cropped Pass 2 가 GPT-5.5 5분+ 호출 가능 → Pro 필요. Phase I 본구현 시점 재결정.
+- **Progress polling endpoint** — ClassDay 51% 패턴 모방. 5분 직접 함수가 가능하면
+  polling 없이 OK. **후순위**.
+
+### 23-4. ⚠️ `vercel dev` + Vite 호환 이슈 — Vercel preview 가 정답
+
+E2E 검증을 위해 `vercel dev` (로컬 Vite + api/ 동시 serving) 를 먼저 시도했으나
+**index.html 을 Vite import-analysis 파이프라인으로 잘못 라우팅** → React 마운트 실패.
+에러: `Failed to parse source for import analysis because the content contains invalid
+JS syntax. ... index.html:8:4`.
+
+알려진 vercel-dev + Vite 결합 이슈. `assetsInclude: ["**/*.html"]` 패치 가능성도
+있으나 검증 안 했음.
+
+**원칙**: 로컬에서 `/api/*` E2E 검증 필요할 때 — **vercel dev 시도 X**. 대신
+**Vercel preview 배포** (`vercel deploy --yes`) + Chrome MCP. preview URL 받아
+직접 fetch / 정상 navigate / 함수 응답 확인. 30초~1분.
+
+### 23-5. Phase I — cropped Pass 2 + 검수 UI
+
+**I-1 완료** (`26c4b6f`). **I-2~9 남음, 4-6주 추정.** 상세 plan: §logical-mapping-aho.md.
+
+**I-1 변경 (purely additive — UI 무영향, persist v2 유지)**:
+- `WizardStepIndex` 0|...|5 → 0|...|6 (next() clamp 는 5 유지 — I-6 시점 6 으로)
+- `CropBox` interface 신설 — id (UUID) / class (problem|figure|table) / bbox
+  / verified / source (ai|user|edited) / number
+- `WizardPage` 에 cropBoxes? / cropInspected? / cropDetectInflight? / cropDetectError?
+  4 optional 필드 추가
+- 8 신규 액션: setPageCropBoxes / addCropBox / updateCropBox (bbox·class 편집 시
+  source ai→edited 자동 전환) / deleteCropBox / markCropInspected / markAllCropInspected
+  / setCropDetectInflight / setCropDetectError
+- partialize 에서 cropDetectInflight strip (휘발성)
+- persist v2 유지 — v3 + migrate (+1 step shift) 는 I-6 (WizardScreen 갱신) 과
+  함께 ship
+
+**남은 sub-task 순서**:
+
+| sub | 파일 | ~줄 | 의존 |
+|---|---|---|---|
+| I-2 | `src/hooks/useCropDetect.ts` (NEW) | 140 | I-1 |
+| I-3 | `src/components/wizard/Step1_5CropInspect.tsx` (NEW) | 280 | I-2, I-4, I-5 |
+| I-4 | `src/components/wizard/EditableCropBox.tsx` (NEW) | 220 | — |
+| I-5 | `src/components/wizard/CropEditTools.tsx` (NEW) | 80 | — |
+| I-6 | `src/components/wizard/WizardScreen.tsx` + persist v3 migrate | 30 | I-1, I-3 |
+| I-7 | `src/hooks/usePageOcr.ts` (cropped Pass 2 refactor) | 200 | I-1 |
+| I-8 | `src/hooks/usePageImageDataUrl.ts` (NEW, refactor) | 40 | — |
+| I-9 | Toast 시스템 — `src/components/ui/Toast.tsx` + `src/stores/toastStore.ts` (NEW) | 150 | — |
+
+### 23-6. 다음 세션 시작 — Phase I-2 (useCropDetect 훅)
+
+**최우선 작업**: `src/hooks/useCropDetect.ts` 생성. ~140줄.
+
+**패턴**: `usePageOcr.ts` 와 동일 fan-out — `dispatched` Set membership 만으로
+cancel 신호 (CLAUDE.md §1-6-b — AbortController 금지).
+
+**골격** (plan agent 결과 발췌):
+
+```ts
+export const useCropDetect = () => {
+  const pages = useWizardStore((s) => s.pages);
+  const setPageCropBoxes = useWizardStore((s) => s.setPageCropBoxes);
+  const setCropDetectInflight = useWizardStore((s) => s.setCropDetectInflight);
+  const setCropDetectError = useWizardStore((s) => s.setCropDetectError);
+
+  const limit = useMemo(() => pLimit(2), []);  // Gemini 3 Flash, ~2-3s/page
+  const dispatched = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const isCancelled = (id: string) => !dispatched.current.has(id);
+    pages.forEach((page) => {
+      if (page.cropBoxes !== undefined) return;
+      if (page.cropDetectError) return;
+      if (!page.isProblemPage && !page.forceOcr) {
+        setPageCropBoxes(page.id, []);  // 비-문항 페이지 = 빈 박스로 즉시 통과
+        return;
+      }
+      if (dispatched.current.has(page.id)) return;
+      dispatched.current.add(page.id);
+      setCropDetectInflight(page.id, true);
+
+      void limit(async () => {
+        try {
+          // 1. 페이지 이미지 (getPageImage → ensurePageImage fallback)
+          // 2. applyRotation
+          // 3. detectCropBoxes(rotatedDataUrl)
+          // 4. DetectedCrop[] → CropBox[] 매핑 (id=UUID, class="problem", source="ai")
+          // 5. setPageCropBoxes
+        } catch (err) {
+          if (isCancelled(page.id)) return;
+          setCropDetectError(page.id, friendlyError(err));
+        } finally {
+          setCropDetectInflight(page.id, false);
+          dispatched.current.delete(page.id);
+        }
+      });
+    });
+  }, [pages, ...]);
+
+  return { resetDispatch: (id) => dispatched.current.delete(id) };
+};
+```
+
+**재사용할 기존 함수**:
+- `getPageImage(imageRef)` from `@app/lib/imageStore`
+- `ensurePageImage(page, storagePath)` from `@app/lib/imageRestore`
+- `getPageStoragePath(pageId)` from `@app/services/api/wizardHydrate`
+- `applyRotation(dataUrl, rotation)` from `@app/lib/pdfProcessor`
+- `detectCropBoxes(pageBase64)` from `@app/services/ai/cropDetect`
+- `friendlyError(err)` from `@app/lib/friendlyError`
+- `pLimit(n)` from `@app/lib/concurrency`
+
+**검증**:
+- `npx tsc --noEmit` exit 0
+- 훅을 *어디서도 호출 안 하는 상태* 라 UI 영향 없음. I-3 (Step1_5CropInspect)
+  에서 mount → 검출 시작.
+
+### 23-7. 의사 결정 기록 (사용자 확정)
+
+| # | 결정 | 답 | 이유 |
+|---|---|---|---|
+| 1 | Phase L (출제분석) 포함 | **포함, 자체 학원 자료만** | 외부 DB 비현실, 학원별 use case 는 가치 있음 |
+| 2 | Phase I 검수 강제 vs 선택 | **선택 (건너뛰기 가능)** | 빠른 작업 흐름 보존 |
+| 3 | Phase 순서 H 와 I | **H 먼저 → I** | I 의 5분+ GPT-5.5 호출이 async 위에서만 안정 |
+| ⚠️ | Phase M 우선순위 | **보류** | 시장 피드백 후 |
+| ⚠️ | Vercel Pro 결제 | **보류** | Phase I 시점 재결정 |
+
+### 23-8. Meta-lesson — Explore agent 보고 검증 필수
+
+Phase H 검증 시 1차 Explore agent 가 "훅이 fetch 안 함" 으로 잘못 보고. 실제 코드
+재확인 결과 USE_API 분기 + fetch wrapper 가 *세 파일 모두* 이미 완성되어 있었음.
+**agent 의 negative finding (X 가 없다) 는 항상 직접 grep 으로 재검증**. False
+negative 가 큰 시간 손실 (이 경우 3-4주 추정 → 실제 1주).
+
+특히 코드가 "scaffolded but not wired" 같은 미묘한 상태일 때 agent 가 표면만 보고
+오판할 가능성 높음. *실제 동작 경로* (PROD 빌드에서 어느 함수가 실행되는가?) 를
+파일 단위로 grep 으로 추적.
+
+**참고**: §23-3 절의 USE_API 분기 패턴 — `export const X: typeof XDirect = USE_API
+? XViaApi : XDirect` — 이 한 줄이 마이그레이션의 핵심. import 측은 무변경, 실제
+호출이 빌드 환경에 따라 자동 전환. *훅이 fetch 를 직접 안 부른다*는 표면 관찰이
+정확하지만 결론 (마이그레이션 미완) 은 틀림.
