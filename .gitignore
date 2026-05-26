@@ -41,3 +41,8 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*.local
+
+# 보안 — service_role 키 사용하는 일회성 마이그레이션 스크립트. 절대 배포·커밋 X.
+migrate-storage.mjs
