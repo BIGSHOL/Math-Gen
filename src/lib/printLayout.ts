@@ -26,20 +26,34 @@ export const PAGE_CONTENT_HEIGHT = 980;
  * Template 별 페이지 가용 컨텐츠 높이 (px). paginateProblems 가 한 페이지에
  * 몇 문항을 넣을지 결정할 때 사용.
  *
- * - **workbook / jaseup 1단**: 풀이공간 카드가 flex:1 stretch 로 자동 확장 →
- *   페이지당 문항 *3~4* 만 들어감. 720 으로 보수적.
- * - **pyeongga 2단**: 컴팩트 폰트 (13.2px) → 약간 더 들어감. 1000.
- * - **그 외**: 단일 PAGE_CONTENT_HEIGHT (980).
+ * **첫 페이지 vs 이후 페이지** 분기 — 첫 페이지는 헤더 (시험 정보표 + 학생
+ * 정보표 + OMR 안내 등) 가 ~200~300px 추가 차지. 사용자 보고 (5번 문항이
+ * 페이지 하단 침범) → 첫 페이지 가용 높이 보수화.
+ *
+ * - **workbook / jaseup 1단**: 풀이공간 카드 flex:1 → 페이지당 3~4 문항.
+ * - **pyeongga**: 박스 헤더만, OMR 표 없음 → 첫 페이지도 충분히 들어감.
+ * - **jeongtong / modern**: 시험 정보표 + 학생 정보표 + OMR 안내 → 첫 페이지 -240.
+ * - **yuhyung**: 검정 배너 + 핵심 전략 → 첫 페이지 -100.
  */
 export function getPageContentHeight(
   template: PrintTemplate,
   columns: 1 | 2,
+  isFirstPage = false,
 ): number {
   if ((template === "workbook" || template === "jaseup") && columns === 1) {
-    return 720;
+    // workbook/jaseup 1단 — 풀이공간 stretch 로 페이지당 3~4 문항.
+    return isFirstPage ? 600 : 720;
   }
   if (template === "pyeongga" && columns === 2) {
-    return 1000;
+    return isFirstPage ? 900 : 1000;
+  }
+  if ((template === "jeongtong" || template === "modern") && isFirstPage) {
+    // 첫 페이지에 시험 정보표 + 학생 정보표 + OMR 안내 (~240px).
+    return 740;
+  }
+  if (template === "yuhyung" && isFirstPage) {
+    // 검정 배너 + 핵심 전략 (~100px).
+    return 880;
   }
   return PAGE_CONTENT_HEIGHT;
 }
@@ -185,15 +199,14 @@ export function paginateProblems(input: PaginateInput): PaginatedPage[] {
   const { problems, exportSource, template, columns, spacing, diagramMap } = input;
   if (problems.length === 0) return [];
 
-  // template 별 가용 높이 — workbook/jaseup 1단은 풀이공간으로 줄어듬.
-  const pageH = getPageContentHeight(template, columns);
-
   const pages: PaginatedPage[] = [];
   let currentPage: ProblemReview[][] = Array.from({ length: columns }, () => []);
   let currentColumnIdx = 0;
   let currentH = 0;
   let startingNumber = 1;
   let runningNumber = 1;
+  // template 별 가용 높이 — 첫 페이지 vs 이후 페이지 분기.
+  let pageH = getPageContentHeight(template, columns, /* isFirstPage */ true);
 
   for (const p of problems) {
     const qh = estimateProblemHeight({
@@ -217,6 +230,8 @@ export function paginateProblems(input: PaginateInput): PaginatedPage[] {
         currentColumnIdx = 0;
         currentPage[0].push(p);
         currentH = qh;
+        // 이후 페이지 — 헤더 없음 → 가용 높이 증가.
+        pageH = getPageContentHeight(template, columns, /* isFirstPage */ false);
       }
     } else {
       currentPage[currentColumnIdx].push(p);
