@@ -76,7 +76,7 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   template: "exam",
   color: "#0EA5E9",
   columns: 2,
-  spacing: 40,
+  spacing: 32,
   showAnswers: false,
   quickAnswerOnly: false,
   showDate: true,

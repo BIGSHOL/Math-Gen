@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Heading, Icon, Segmented, Toggle, Chip, RangeSlider } from "@app/components/ui";
+import { useEffect } from "react";
+import { Heading, Icon, Segmented, Toggle, Chip } from "@app/components/ui";
 import {
   DEFAULT_PRINT_OPTIONS,
   type ExportSource,
@@ -54,6 +54,44 @@ const COLUMNS_OPTIONS: Array<{ value: string; label: string; icon: string }> = [
   { value: "1", label: "1단", icon: "rectangle" },
   { value: "2", label: "2단", icon: "columns" },
 ];
+
+/**
+ * 세로 여백 5 단계 preset. 자유 슬라이더 (drag 느림 + 결정 부담) 대신
+ * 한국 시험지 관행 기반의 *5 단계* — Segmented 로 빠르게 선택.
+ *
+ * 각 단계의 px 값은 `PrintQuestionBlock` 의 marginBottom 으로 적용되며,
+ * `flex justify-between` 컬럼 안에서 *최소 여백* 으로 작동 (페이지 가득
+ * 채울 때 자동으로 더 늘어남).
+ */
+const SPACING_PRESETS = [
+  { value: "min", label: "최소", spacing: 4 },
+  { value: "tight", label: "좁게", spacing: 16 },
+  { value: "normal", label: "보통", spacing: 32 },
+  { value: "loose", label: "넓게", spacing: 56 },
+  { value: "max", label: "최대", spacing: 88 },
+] as const;
+
+type SpacingPresetValue = (typeof SPACING_PRESETS)[number]["value"];
+
+const SPACING_OPTIONS: Array<{ value: SpacingPresetValue; label: string }> =
+  SPACING_PRESETS.map((p) => ({ value: p.value, label: p.label }));
+
+/**
+ * 현재 spacing 값에 가장 가까운 preset 의 `value` 반환. *legacy* 시험지
+ * (이전 자유 슬라이더 값) 도 자연스럽게 5 단계 중 하나에 매핑.
+ */
+const matchSpacingPreset = (spacing: number): SpacingPresetValue => {
+  let closestValue: SpacingPresetValue = SPACING_PRESETS[0].value;
+  let minDiff = Math.abs(spacing - SPACING_PRESETS[0].spacing);
+  for (const p of SPACING_PRESETS) {
+    const diff = Math.abs(spacing - p.spacing);
+    if (diff < minDiff) {
+      closestValue = p.value;
+      minDiff = diff;
+    }
+  }
+  return closestValue;
+};
 
 export const PrintOptionsPanel = ({
   printOptions,
@@ -183,12 +221,21 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 5. 세로 여백 — isolation 컴포넌트로 분리. drag 중 PrintOptionsPanel
-            본체 re-render 안 됨 (color/template/toggle 등 무거운 트리 제외). */}
-        <SpacingControl
-          value={printOptions.spacing}
-          onChange={(v) => onChangePrintOptions({ spacing: v })}
-        />
+        {/* 5. 세로 여백 — 5 단계 preset. (자유 슬라이더는 drag 느림 + 결정
+            부담. flex justify-between 컬럼 패턴에서 spacing 은 *최소 여백*
+            의미라 5 단계로 충분.) */}
+        <Section title="세로 여백">
+          <Segmented<SpacingPresetValue>
+            value={matchSpacingPreset(printOptions.spacing)}
+            onChange={(v) => {
+              const preset = SPACING_PRESETS.find((p) => p.value === v);
+              if (preset) onChangePrintOptions({ spacing: preset.spacing });
+            }}
+            options={SPACING_OPTIONS}
+            size="sm"
+            full
+          />
+        </Section>
 
         {/* 6. 헤더/문항 옵션 토글 */}
         <Section title="표시 옵션">
@@ -275,50 +322,5 @@ const Section = ({ title, hint, children }: SectionProps) => (
     {children}
   </section>
 );
-
-/**
- * 세로 여백 슬라이더 isolation 컴포넌트.
- *
- * **함정 (실측)**: PrintOptionsPanel 본체에 `useState(spacingPreview)` 두면
- * drag 중 `setSpacingPreview` 마다 *PrintOptionsPanel 전체* re-render → 8개
- * color 버튼 + 4개 template 버튼 + 7개 Toggle + 3개 Segmented 등 다 reconcile
- * → ~1.2s 점유 → main thread 막혀서 thumb 도 멈춤. (Chrome MCP 실측:
- * input → mutation 1239ms, drag 중 rAF tick 0회)
- *
- * **해결**: SpacingControl 안에서만 state. drag 중 *이 컴포넌트만* re-render
- * → tree 가 작아 빠름. PrintOptionsPanel 본체는 props 변경 없으면 영향 X.
- */
-interface SpacingControlProps {
-  value: number;
-  onChange: (v: number) => void;
-}
-
-const SpacingControl = ({ value, onChange }: SpacingControlProps) => {
-  const [preview, setPreview] = useState(value);
-  // 외부 reset 등 — 드래그 끝나고 props 가 바뀐 경우 sync.
-  useEffect(() => {
-    setPreview(value);
-  }, [value]);
-
-  return (
-    <Section title={`세로 여백 (${preview}px)`}>
-      <div className="flex items-center gap-3">
-        <RangeSlider
-          min={0}
-          max={150}
-          step={1}
-          value={value}
-          onPreview={setPreview}
-          onChange={onChange}
-          className="flex-1 accent-accent h-1"
-          aria-label="세로 여백"
-        />
-        <span className="text-caption font-mono text-muted w-10 text-right">
-          {preview}px
-        </span>
-      </div>
-    </Section>
-  );
-};
 
 export default PrintOptionsPanel;
