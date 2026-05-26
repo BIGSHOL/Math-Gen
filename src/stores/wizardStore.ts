@@ -19,7 +19,7 @@ import type { FontPackId } from "@app/lib/printFontPacks";
  * from a prior session) show a "이어하기 / 새로 시작" dialog.
  */
 
-export type WizardStepIndex = 0 | 1 | 2 | 3 | 4 | 5;
+export type WizardStepIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type ConversionGoal = "digitize" | "similar" | "variant" | "targeted";
 export type DifficultyShift = "easier" | "same" | "harder";
 export type ExportFormat = "pdf" | "hwp" | "docx" | "online";
@@ -93,6 +93,31 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   fontPack: "system",
 };
 
+/**
+ * Step 1.5 검수 단계의 크롭 박스. ?croptest 의 cropDetect 가 자동 검출 →
+ * 사용자가 Step 1.5 에서 검토/편집 → Step 2 의 cropped Pass 2 가 이 박스만
+ * 잘라 GPT-5.5 재OCR.
+ *
+ *  - id      : crypto.randomUUID(). React stable key.
+ *  - class   : 시각 분류 (색상 코딩) + Pass 2 트리거 판정. "problem" 만 Pass 2
+ *              대상; "figure"/"table" 은 시각 참조용 메모 (후속 Phase K 에서 활용).
+ *  - bbox    : [yMin, xMin, yMax, xMax] 0–1000 그리드 (cropDetect.ts 와 동일 contract).
+ *  - verified: 사용자 명시적 OK 표시. Phase I 에서는 markAllCropInspected 가
+ *              페이지 단위로 cropInspected=true 로 일괄 처리 — 박스별 verified
+ *              플래그는 향후 per-box 워크플로 확장용 reserved.
+ *  - source  : "ai" = cropDetect 결과 / "user" = 사용자가 새로 그림 / "edited" =
+ *              AI 결과를 편집 (bbox 또는 class 변경 시 "ai"→"edited" 자동 전환).
+ *  - number  : 인쇄된 문항 번호 — Pass 2 결과 merge 시 OCRProblem.number 매칭 key.
+ */
+export interface CropBox {
+  id: string;
+  class: "problem" | "figure" | "table";
+  bbox: [number, number, number, number];
+  verified: boolean;
+  source: "ai" | "user" | "edited";
+  number?: number;
+}
+
 export interface WizardPage {
   id: string;
   /** IndexedDB ref id for the hi-res image (pageImages store). */
@@ -145,6 +170,21 @@ export interface WizardPage {
    * set, unset 직후에 unset. `partialize` 에서 *제외* (휘발성).
    */
   ocrStartedAt?: number;
+  /**
+   * Phase I — Step 1.5 검수 단계의 박스 결과. undefined = 아직 cropDetect
+   * 안 돈 상태 (useCropDetect 가 mount 시 트리거). 빈 배열 = 검출 시도했으나
+   * 0박스 (사용자 수동 추가 필요).
+   */
+  cropBoxes?: CropBox[];
+  /**
+   * Step 1.5 통과 표시 — 사용자가 "다음 단계" 또는 "건너뛰기" 클릭 시 true.
+   * Pass 2 (cropped) 트리거 조건: cropInspected && cropBoxes.length > 0.
+   */
+  cropInspected?: boolean;
+  /** useCropDetect in-flight 플래그. `partialize` 에서 *제외* (휘발성). */
+  cropDetectInflight?: boolean;
+  /** cropDetect 호출 실패 메시지 — Step 1.5 재시도 배너용. */
+  cropDetectError?: string;
 }
 
 export interface OCRImage {
@@ -366,6 +406,18 @@ export interface WizardState {
       Pick<WizardState, "format" | "bundle" | "filename" | "printOptions" | "exportSource">
     >,
   ) => void;
+
+  // Step 1.5 — Crop inspect (Phase I)
+  /** boxes=undefined → cropDetect 재트리거 (useCropDetect 가 undefined 보고 재실행). */
+  setPageCropBoxes: (pageId: string, boxes: CropBox[] | undefined) => void;
+  addCropBox: (pageId: string, box: Omit<CropBox, "id">) => void;
+  updateCropBox: (pageId: string, boxId: string, patch: Partial<CropBox>) => void;
+  deleteCropBox: (pageId: string, boxId: string) => void;
+  markCropInspected: (pageId: string) => void;
+  markAllCropInspected: () => void;
+  setCropDetectInflight: (pageId: string, value: boolean) => void;
+  setCropDetectError: (pageId: string, error: string | undefined) => void;
+
   startWizard: (testId: string) => void;
   /** "이어서 작업" — 저장된 시험지 스냅샷으로 위자드 state 재구성. */
   hydrateFromTest: (snapshot: WizardHydrateSnapshot) => void;
@@ -403,6 +455,8 @@ export const useWizardStore = create<WizardState>()(
       setStep: (step) => set({ step }),
       next: () => {
         const s = get().step;
+        // I-1 시점에는 5 까지 유지 (기존 6 step UI). I-6 (WizardScreen 갱신)
+        // 와 함께 6 으로 확장 + persist v3 마이그레이션 같이 ship.
         if (s < 5) set({ step: (s + 1) as WizardStepIndex });
       },
       prev: () => {
@@ -448,6 +502,86 @@ export const useWizardStore = create<WizardState>()(
           ),
         })),
 
+      // ── Step 1.5 — Crop inspect (Phase I) ─────────────────────────────────
+      setPageCropBoxes: (pageId, boxes) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId
+              ? { ...p, cropBoxes: boxes, cropDetectError: undefined }
+              : p,
+          ),
+        })),
+      addCropBox: (pageId, box) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId
+              ? {
+                  ...p,
+                  cropBoxes: [
+                    ...(p.cropBoxes ?? []),
+                    { ...box, id: crypto.randomUUID() },
+                  ],
+                }
+              : p,
+          ),
+        })),
+      updateCropBox: (pageId, boxId, patch) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id !== pageId
+              ? p
+              : {
+                  ...p,
+                  cropBoxes: (p.cropBoxes ?? []).map((b) =>
+                    b.id !== boxId
+                      ? b
+                      : {
+                          ...b,
+                          ...patch,
+                          // bbox/class 편집 시 source 자동 전환 (ai → edited).
+                          source:
+                            b.source === "ai" && (patch.bbox || patch.class)
+                              ? "edited"
+                              : (patch.source ?? b.source),
+                        },
+                  ),
+                },
+          ),
+        })),
+      deleteCropBox: (pageId, boxId) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId
+              ? {
+                  ...p,
+                  cropBoxes: (p.cropBoxes ?? []).filter((b) => b.id !== boxId),
+                }
+              : p,
+          ),
+        })),
+      markCropInspected: (pageId) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId ? { ...p, cropInspected: true } : p,
+          ),
+        })),
+      markAllCropInspected: () =>
+        set((state) => ({
+          pages: state.pages.map((p) => ({ ...p, cropInspected: true })),
+        })),
+      setCropDetectInflight: (pageId, value) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId ? { ...p, cropDetectInflight: value } : p,
+          ),
+        })),
+      setCropDetectError: (pageId, error) =>
+        set((state) => ({
+          pages: state.pages.map((p) =>
+            p.id === pageId ? { ...p, cropDetectError: error } : p,
+          ),
+        })),
+
       setOptions: (patch) => set((state) => ({ ...state, ...patch })),
 
       setProblems: (problems) => set({ problems }),
@@ -468,6 +602,9 @@ export const useWizardStore = create<WizardState>()(
       // 로 바뀌어 기존 session 의 `pg-1` 같은 id 는 Supabase 의 pages.id (UUID)
       // FK 와 호환 안 됨. v2 로 bump 해서 stale session 자동 폐기.
       name: "mathgen-wizard-v2",
+      // I-1 시점에는 v2 유지 — Step 1.5 가 wizard UI 에 등장하는 I-6 시점에
+      // v3 + migrate (+1 step shift) 같이 ship. CropBox / cropInspected 등 새
+      // 필드는 기존 v2 session 에서 undefined 로 hydrate 돼 자연 fallback.
       storage: createJSONStorage(() => sessionStorage),
       // Skip large fields and transient UI state.
       partialize: (s) => ({
@@ -485,6 +622,7 @@ export const useWizardStore = create<WizardState>()(
           ocrInflightModel: undefined,
           ocrStartedAt: undefined,
           upgrading: false,
+          cropDetectInflight: false,
           ocrResult: p.ocrResult.map((item) => ({
             ...item,
             solutionGenerating: false,
