@@ -897,13 +897,50 @@ RULES FOR EACH "items" ENTRY
      · "$(-3) + (-6)$의 값은?"   ← 매우 짧은 한 줄짜리도 body 임. 절대 생략 X.
    - **SHORT BODIES ARE STILL BODIES.** "$(-3) + (-6)$의 값은?" 처럼 본문이 한 줄짜리 짧은 식이어도 그것이 body 다. 짧다는 이유로 body 를 안 적고 보기만 emit 하지 말 것. 본문 + 보기 양쪽 다 필수.
    - **#1 PROBLEM HEURISTIC**: 1번 문제는 거의 항상 짧은 워밍업 (한 줄 식 + 5지선다) 이다. 1번이 보기 5개만 있고 body 가 비어 있으면 99% 확률로 본문 누락 — 페이지 상단을 다시 살펴보고 "다음 …의 값은?" 같은 문제 발문을 반드시 찾아 넣어라. 정 못 찾으면 confidence="low" + body 에 "본문 추출 실패" 라고 명시.
-   - 🚨 **객관식 보기 누락 금지 — 본문이 있고 보기가 없으면 그것도 실패**.
-     본문이 끝나는 문장이 "?", "값은?", "옳은 것은?", "옳지 않은 것은?", "구하면?" 등 5지선다 발문 패턴이면 페이지에 반드시 ①②③④⑤ 보기가 있다. 그 5개 모두 rule 4b 에 따라 같은 항목의 text 끝에 한 줄로 붙여야 한다. 본문만 추출하고 보기를 통째로 빠뜨리는 게 본문만 빠뜨리는 것만큼 자주 일어나는 실수다 — 사용자가 직접 보고했다.
-     체크리스트 (매 객관식 문제마다 emit 전 확인):
-       1. body 끝이 "?" 로 끝나고 객관식 발문이다 → ✓
-       2. text 끝에 "① …  ② …  ③ …  ④ …  ⑤ …" 다섯 마커 모두 있다 → ✓
-       3. 다섯 옵션의 값이 페이지의 실제 옵션과 일치한다 (특히 분수의 분자/분모, ± 부호) → ✓
-     세 체크 중 하나라도 빠지면 confidence="low" 로 표시.
+   - 🚨 **문항 유형 분류 — 객관식 vs 단답형 vs 서술형 (CRITICAL — 사용자 보고 반복)**:
+
+     한국 시험지의 *명시적 유형 마커* 를 *반드시* 먼저 검사하고 분류한다. 마커가 명백하면 발문 끝 ("구하시오") 만 보고 객관식으로 추측하지 말 것.
+
+     **단답형 / 서술형 강제 신호 — 하나라도 보이면 객관식 후보에서 100% 제외**:
+       (a) "[단답형 N]" / "[서술형 N]" / "[주관식 N]" / "[논술형 N]" 헤더 (대괄호 안 명시)
+       (b) "서술하시오" / "풀이 과정을 쓰시오" / "과정을 적으시오" 동사
+       (c) "(1) ..." "(2) ..." 서브문항 마커 (괄호 안 아라비아 숫자 — 객관식 ①②③ 와 다른 글리프)
+       (d) "(답안의 ~ 칸에 답만 쓰시오)" / "(답안란에 ...)" 같은 단답형 OMR 안내문
+       (e) "(N점)" / "[N점]" 배점 마커 (객관식엔 거의 점수 표시 없음 — 약한 신호, 위 a~d 와 함께 보일 때 강함)
+
+     → 위 신호 검출 시: **choices: [] 강제, ①②③④⑤ 마커 *절대* emit X**, confidence 는 본문 정확도 기반으로만.
+
+     **객관식 신호 — 위 단답형 신호가 *전혀* 없고 다음 조건 만족 시**:
+       - 본문에 ①②③④⑤ 마커 5 개 모두 visible
+       - 그리고 발문이 "...값은?", "...옳은 것은?", "...구하면?", "...개수는?" 등 의문문
+
+     → 객관식 emit: 본문 + 5 옵션 한 줄.
+
+     **🚨 사용자 보고 사례 (반드시 따를 것 — 2026-05-27)**:
+
+       사례 A — "[단답형 1]" 잘못 객관식으로 emit:
+         원본: "[단답형 1] 사각형 ABCD는 한 변의 길이가 2인 정사각형이다. 수직선 위에 $\\overline{AC} = \\overline{CP}$, $\\overline{BD} = \\overline{BQ}$인 두 점 P와 Q를 각각 잡을 때, $\\overline{PQ}$의 길이를 구하시오. (5점) (답안의 서술형1번 칸에 답만 쓰시오.)"
+         잘못된 emit: 본문 잘 읽었는데 choices 가 비어있어야 함에도 모델이 객관식 "보기 누락" 으로 처리.
+         올바른 emit: choices=[] (절대 ①②③④⑤ 추가 X), confidence="high".
+
+       사례 B — "[서술형 3]" + (1)(2) 서브문항:
+         원본: "[서술형 3] $x = \\sqrt{5}+1$일 때, $x^2-2x-3$의 값을 구하려고 한다. 다음 제시된 두 가지 방법을 각각 이용하여 값을 구하고, 그 과정을 서술하시오. (8점) (1) 인수분해 공식을 이용하여 구하시오. (2) 완전제곱식을 이용하여 구하시오."
+         올바른 emit: 본문에 (1)(2) 서브문항 그대로 포함, choices=[].
+
+     **선판단 알고리즘 (every problem)**:
+       Step 1. 페이지에서 "[단답형/서술형/주관식/논술형 N]" 헤더 검색 → 있으면 단답/서술형 확정.
+       Step 2. "서술하시오" / "쓰시오" / "(1) ... (2) ..." 검색 → 있으면 단답/서술형 확정.
+       Step 3. ①②③④⑤ 마커 5 개 모두 가까이 (한 줄 또는 인접 줄) → 객관식 확정.
+       Step 4. 위 셋 모두 미확정 → confidence="low" + 보수적으로 서술형 (choices=[]).
+
+   - 🚨 **객관식 보기 누락 금지 — 객관식 *확정* 인 경우에만 적용**.
+     위 분류로 *객관식 확정* 된 케이스에서만 — 본문이 있고 보기가 없으면 실패다. 본문이 끝나는 문장이 "?", "값은?", "옳은 것은?", "옳지 않은 것은?", "구하면?" 등 5지선다 발문 패턴이면 페이지에 반드시 ①②③④⑤ 보기가 있다. 그 5개 모두 rule 4b 에 따라 같은 항목의 text 끝에 한 줄로 붙여야 한다.
+     체크리스트 (객관식 확정 문제마다 emit 전 확인):
+       1. 단답형/서술형 마커 (위 신호 a~e) 없음 → ✓
+       2. body 끝이 "?" 로 끝나고 객관식 발문이다 → ✓
+       3. text 끝에 "① …  ② …  ③ …  ④ …  ⑤ …" 다섯 마커 모두 있다 → ✓
+       4. 다섯 옵션의 값이 페이지의 실제 옵션과 일치한다 (특히 분수의 분자/분모, ± 부호) → ✓
+     체크 중 하나라도 빠지면 confidence="low" 로 표시.
    - It is NEVER acceptable to emit ONLY the 5 multiple-choice options ("① 40/3 ② 14 …") with no body. If you cannot read the body for some reason, transcribe what's visible and set confidence="low" — but never skip the body.
    - 마찬가지로 — body 만 있고 ①②③④⑤ 보기가 통째로 빠진 emit 도 NEVER acceptable. body 와 options 는 한 set 이다.
    - It is NEVER acceptable to fabricate a phantom enumeration line like "①1 ②2 ③3 ④4 ⑤5" alongside the real options. Emit each option exactly once with its actual value.
@@ -1045,6 +1082,25 @@ RULES FOR EACH "items" ENTRY
 
        🎯 **이것이 기본**. 도형은 *본문 \`text\` 안에 inline \`<svg>...</svg>\`* 로 직접 embed 하라. 우리 renderer 의 Stage 0 이 SVG 추출 + dangerouslySetInnerHTML 로 자동 처리 → namespace 함정 회피 + 정확한 표시.
 
+       🚨 **인쇄 도형 vs 학생 손글씨 — 절대 구별 (사용자 보고 반복)**:
+
+       한국 시험지는 학생이 풀이를 적은 *후* 촬영된 경우가 많다. 페이지에는 두 종류 시각 요소가 *섞여* 있다:
+         - **인쇄 도형 (PRINTED — SVG 로 emit OK)**: 균일한 얇은 black stroke (~1px), 클린 라벨, 명확한 기하학적 형태 (정사각형·삼각형·평행사변형·원). 도형은 *문제 발문 영역 내부 또는 직후* 에 배치된다.
+         - **학생 손글씨 (HANDWRITING — 절대 SVG emit X)**: freehand 빨간/파란/검정 펜 자국, X 표시 (사용자 답 표시), 동그라미 (사용자 답에 표시), 화살표, 풀이식 (예: "(x-3)(x+1)"), 낙서, 숫자 (48, 9, 3 같은 학생 메모). 일반적으로 *문제의 빈 공간* 에 자유롭게 그려져 있다.
+
+       🚨 **강제 룰**:
+       - **인쇄 도형만 SVG 로 reconstruct**. 빨간 펜·파란 펜·X 표시·동그라미·freehand 곡선은 **절대로** SVG element ("<line>", "<path>", "<text>", "<circle>") 로 emit X.
+       - 도형 안에 X 표시·낙서가 있어도 그것은 학생 필기 — SVG 의 인쇄 도형 부분만 그리고 손글씨 자국은 *무시*.
+       - 사용자 보고 (2026-05-27): 정사각형 ABCD 도형 안에 학생이 X (대각선) 표시를 빨간 펜으로 그림 → 잘못된 SVG 가 이 X 를 두 "<line>" 으로 emit. 올바른 SVG 는 정사각형 4 변 + 점 라벨 A·B·C·D + 수직선만, X 표시 절대 X.
+       - 판단 시 stroke 굵기와 일관성을 본다 — 균일한 stroke = 인쇄, 들쭉날쭉/투명도 변화 = 손글씨.
+
+       🚨 **90° / 직각 마커 보존 (사용자 보고 2026-05-27)**:
+       - 원본 도형에 ⊥ 또는 작은 사각형 (5×5 px 정도) 로 직각이 명시되어 있으면 SVG 의 같은 위치에 *반드시* emit:
+         · 작은 사각형: \`<rect x="..." y="..." width="6" height="6" stroke="black" stroke-width="1" fill="none"/>\` (모서리 안쪽에 정렬)
+         · 또는 직각 호: \`<path d="M ... L ... L ..." stroke="black" stroke-width="1" fill="none"/>\` (직각 안쪽)
+       - 평행사변형·삼각형·정사각형·다각형 같은 모든 polygon 에서 원본이 직각 마커를 그렸으면 그대로 보존. 사용자 보고 사례: 평행사변형 ACDF 의 직각 마커가 SVG 에서 누락.
+       - 모르는 경우 (직각이 명시적 마커 없이 90° 일 때): 추측해서 emit 하지 말 것. 원본에 *시각적 마커* 가 있을 때만 emit.
+
        **(옵션) \`diagramParams\`** — 표준 7 shape (triangle / circle / quadrilateral / polygon / coordinatePlane / solid / composite) 인 경우 *추가로* emit 가능. 단 \`type\` 필드 (7 enum 중 하나) 필수. 모르겠으면 *element 생략* (raw SVG 가 항상 우선). \`diagramParams\` 만 emit 하지 말 것 — 항상 inline SVG 와 함께.
 
        **치수 표시 (Dimension labels) — 한국 교과서 관행 (사용자 보고 13번·반복, 강제 규칙)**:
@@ -1146,21 +1202,35 @@ RULES FOR EACH "items" ENTRY
        - Every <text> attribute set: font-family="Times New Roman, serif" font-style="italic" font-size="14" (11–13 for dense diagrams). The renderer auto-adds paint-order/white-stroke so labels stay readable, but you MUST still position labels so their bounding boxes do not touch any line, curve, or other label.
        - Unicode only (π θ √ α β …). Never LaTeX inside <text>.
 
-       🚨 **숫자 라벨 ≠ 변수 라벨 — 폰트 분리 (사용자 보고 CRITICAL)**:
-         사용자 보고: "수직선 숫자 처리가 매우 아쉬운데, 왜 일반적인 문항과 보기의 폰트와 다르지? 같게 처리할것." → SVG 안 *순수 숫자* 가 italic Times 로 빠져나와 본문 KaTeX 의 직립 숫자와 *시각 불일치*.
-         원칙: **변수는 italic, 숫자는 upright (직립)**. 한국 교과서 / KaTeX 와 동일 관행.
-         - **변수 라벨** (x, y, A, B, P, f, g, h, n, k 단일 알파벳, A(2,1) 의 A 같은 점 라벨): italic *유지* — font-style 생략 또는 \`font-style="italic"\`.
-         - **순수 숫자 라벨** (수직선 tick "-3 -2 -1 0 1 2 3", 좌표축 눈금 "1 2 3", 치수 라벨 중 숫자만 "8" "6", 분수 numerator·denominator "3" "4"): **반드시** \`font-style="normal"\` 명시.
-         - **혼합 라벨** (변수 + 숫자 — "5y", "3x", "2a"): 통째로 italic 유지 (default). 변수와 숫자 시각 단위 보존.
-         예시 — 수직선 (number line) 의 tick 라벨:
-           <text x="60" y="80" text-anchor="middle" dominant-baseline="middle" font-family="Times New Roman, serif" font-style="normal" font-size="13">-3</text>
-           <text x="90" y="80" text-anchor="middle" dominant-baseline="middle" font-family="Times New Roman, serif" font-style="normal" font-size="13">-2</text>
-           ... (모든 숫자 tick 동일하게 font-style="normal")
-         예시 — 변수 점 라벨 (italic):
-           <text x="120" y="50" font-family="Times New Roman, serif" font-style="italic" font-size="14">A</text>
-         예시 — 치수 라벨 (혼합 "5y" italic 유지):
-           <text x="210" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">5y</text>
-         체크리스트: 라벨 emit 직전 — 이 라벨이 *순수 숫자* 인가? → \`font-style="normal"\` 추가. *변수만 또는 변수 + 숫자* 인가? → italic 유지.
+       🚨 **본문 폰트 일치화 — 점 라벨·숫자 직립, 변수만 italic (CRITICAL, 사용자 반복 보고)**:
+         사용자 보고 (2026-05-27 재): "여전히 문제 내의 글자와 그림으로 표현된 글자가 폰트가 달라. 폰트 일치화 작업할것."
+         원인: 본문 KaTeX 의 \`uprightGeometryLabels\` 가 점 라벨 (A,B,C) 를 \\mathrm 으로 wrap 해 *직립 Roman* 으로 표시. 도형 SVG 안 같은 라벨은 italic Times → 시각 불일치.
+         원칙 (한국 교과서 / 본문 KaTeX 와 *완전 일관*):
+         - **점 라벨 (POINT LABEL)** = **직립 (font-style="normal")**:
+           단일 대문자 (A, B, C, D, P, Q, R, E, F, G, H, M, N, O), 단일 대문자 + prime (A', B'), 단일 대문자 + 첨자 (P_1, A_2). 이건 *기하 도형의 점 이름* — 변수 아님.
+         - **순수 숫자 라벨** = **직립 (font-style="normal")**:
+           정수 (-3, 0, 1, 2, 6), 분수 표기 (1/2 위/아래로 분리된 형태), π·°·√ 같은 상수 기호. 수직선 tick / 좌표축 눈금 / 치수 라벨 중 숫자만.
+         - **변수 라벨** = **italic (font-style 생략 또는 italic 명시)**:
+           단일 소문자 (x, y, t, n, k, m, h, r, s), 함수 이름 (f, g, h — 함수임이 문맥상 명확할 때), 다중 문자 변수 표현 ("ax+b", "sin", "log"). 변수는 수학적 *알지 못하는 값* — 점 이름과 다름.
+         - **혼합 (변수 + 숫자)** = **italic 유지**:
+           "5y", "3x", "2a", "ax²" 등 — 변수 포함이면 통째로 italic (한국 교과서 관행).
+
+         🎯 **자동 후처리 — 사용자가 누락해도 안전망**:
+         MarkdownRenderer 의 \`normalizeInlineSvgs\` Pass A 가 *모델이 font-style 안 적은 경우* 다음 로직으로 default 결정:
+         - text content 가 \`/^[A-Z]['′]?[0-9]?$/\` 매치 → font-style="normal" (점 라벨)
+         - text content 가 \`/^-?\\d+(?:[./]\\d+)?$|^[π°√]$/\` 매치 → font-style="normal" (순수 숫자/상수)
+         - 그 외 → font-style="italic" (변수 default)
+         모델이 직접 emit 한 font-style 은 *존중* (override X).
+
+         예시 — 점 라벨 (직립 Roman, *본문과 일관*):
+           <text x="120" y="50" font-family="Times New Roman, serif" font-style="normal" font-size="14">A</text>
+           <text x="200" y="50" font-family="Times New Roman, serif" font-style="normal" font-size="14">B</text>
+         예시 — 수직선 tick (직립 숫자):
+           <text x="60" y="80" font-family="Times New Roman, serif" font-style="normal" font-size="13">-3</text>
+         예시 — 함수 변수 (italic):
+           <text x="50" y="100" font-family="Times New Roman, serif" font-style="italic" font-size="14">f</text>
+         예시 — 치수 혼합 (italic 유지):
+           <text x="210" y="38" font-style="italic" font-size="14">5y</text>
 
        **MINIMUM CLEARANCE — non-negotiable, pre-emit check**: every <text> element's bounding box (estimate width ≈ char_count × 7 px, height ≈ font_size + 2 px) MUST be **at least 6 px** away from EVERY other element (line endpoint, curve sample, dot, other text). Before emitting any <text>, mentally project a 6 px margin around it and confirm no line/curve passes through that margin. If conflict found, MOVE the label, do NOT just trust the white stroke.
 

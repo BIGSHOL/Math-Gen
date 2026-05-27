@@ -344,6 +344,35 @@ const MULTIPLE_CHOICE_PROMPT = /(\?\s*$|값은\??|옳은\s*것은\??|옳지\s*�
 const HAS_CHOICE_MARKERS = /[①②③④⑤]/;
 
 /**
+ * **명시적 서술형/단답형 신호** — 사용자 보고 (2026-05-27): `[단답형 N]` /
+ * `[서술형 N]` 명시 마커가 있는데도 객관식으로 오분류돼 "보기 누락" 경고.
+ *
+ * 원인: MULTIPLE_CHOICE_PROMPT 의 `구하시오\.?` / `길이는\??` 가 단답형도
+ * 매치. 위 정규식만으로는 단답형/서술형 vs 객관식 구분 불가능.
+ *
+ * 한국 시험지는 단답형/서술형/주관식에 *명확한 마커* 가 있다:
+ *   1. `[단답형 N]` / `[서술형 N]` / `[주관식 N]` 헤더
+ *   2. "서술하시오" / "쓰시오" 동사 (= 주관식의 답 작성 안내)
+ *   3. "그 과정을 서술" / "풀이 과정"
+ *   4. "(1)" / "(2)" 서브문항 마커 (객관식엔 ①②③ 사용 — 괄호 ≠ 원숫자)
+ *   5. "답안의 ~ 칸에 답만" (단답형 OMR 안내문)
+ *
+ * 이 중 *하나라도* 검출되면 객관식 가능성 0 → choicesMissing false 강제.
+ */
+const EXPLICIT_SUBJECTIVE_MARKERS = [
+  /\[\s*(단답형|서술형|주관식|논술형)\s*\d*/,       // [단답형 1] / [서술형 3]
+  /서술\s*하시오/,                                    // "그 과정을 서술하시오"
+  /(풀이|과정)\s*을?\s*(쓰|적|서술)/,                // "풀이 과정을 쓰시오" / "과정을 적으시오"
+  /\(\s*답안의?[^)]{1,30}답만\s*쓰/,                  // "(답안의 ~ 칸에 답만 쓰시오)"
+  /\(\s*[1-9]\s*\)\s*[가-힣]/,                        // "(1) 인수분해" "(2) 완전제곱식" — 서브문항
+];
+
+const isExplicitlySubjective = (text: string): boolean => {
+  if (!text) return false;
+  return EXPLICIT_SUBJECTIVE_MARKERS.some((re) => re.test(text));
+};
+
+/**
  * 모델이 본문(body) 추출에 실패해 옵션만 emit하는 케이스를 감지.
  *
  * Flash-Lite 같이 약한 비전 모델이 한 페이지에 여러 문제 + 5지선다가
@@ -382,6 +411,10 @@ const isBodyTooShort = (text: string): boolean => {
 const isChoicesMissing = (text: string): boolean => {
   if (!text) return false;
   if (HAS_CHOICE_MARKERS.test(text)) return false;
+  // 사용자 보고 (2026-05-27): [단답형 1] / [서술형 3] 같은 명시 마커가 있는데
+  // "구하시오" 가 MULTIPLE_CHOICE_PROMPT 매치 → 객관식으로 오인 → "보기 누락"
+  // 경고. 명시적 서술형 신호가 *하나라도* 있으면 객관식 가능성 0.
+  if (isExplicitlySubjective(text)) return false;
   return MULTIPLE_CHOICE_PROMPT.test(text);
 };
 

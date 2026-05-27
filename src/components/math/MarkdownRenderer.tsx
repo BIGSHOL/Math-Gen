@@ -372,17 +372,48 @@ const prerenderAllKatex = (
   return { content: out, katexMap: map };
 };
 
+/**
+ * Phase #10: SVG <text> content 분석 후 font-style 자동 결정.
+ * 본문 KaTeX 의 uprightGeometryLabels 와 *완전 일관*:
+ *  - 점 라벨 (단일 대문자, A', P_1, A2 등) → 직립 (font-style="normal")
+ *  - 순수 숫자·상수 (-3, 1/2, π, °) → 직립
+ *  - 변수 (소문자, 다중 문자, 혼합) → italic (default)
+ *
+ * 사용자 보고 (2026-05-27): "여전히 문제 내의 글자와 그림으로 표현된 글자가
+ * 폰트가 달라. 폰트 일치화 작업할것."
+ */
+const POINT_LABEL_RE = /^[A-Z][′'′]?[0-9]?$/;
+const PURE_NUMERIC_RE = /^-?\d+(?:[./]\d+)?$|^[π°√±∞∅]$/;
+
+const defaultFontStyleForText = (textContent: string): "normal" | "italic" => {
+  const t = textContent.trim();
+  if (!t) return "italic";
+  if (POINT_LABEL_RE.test(t)) return "normal"; // 점 라벨 = 직립
+  if (PURE_NUMERIC_RE.test(t)) return "normal"; // 순수 숫자·상수 = 직립
+  return "italic"; // 변수 / 다중 문자 / 혼합 = italic
+};
+
 const normalizeInlineSvgs = (html: string): string => {
-  // Pass A — inject Times-italic defaults onto every <text> element that
-  // doesn't already specify them. Using a permissive `<text(\s[^>]*)?` so
-  // we catch both `<text>` and `<text x="…">` cases. (No risk of matching
-  // `<textarea>` because that token doesn't appear in our markdown.)
-  let out = html.replace(/<text(\s[^>]*)?>/g, (_, attrs: string | undefined) => {
-    let a = attrs ?? "";
-    if (!/\bfont-family\s*=/i.test(a)) a += ' font-family="Times New Roman, serif"';
-    if (!/\bfont-style\s*=/i.test(a)) a += ' font-style="italic"';
-    return `<text${a}>`;
-  });
+  // Pass A — <text> element 마다 font-family / font-style default 주입.
+  // 사용자 보고 (2026-05-27): 도형 안 점 라벨이 italic 인데 본문은 직립 →
+  // 시각 불일치. content 분석해 점/숫자 = normal, 변수 = italic 으로 분기.
+  // 모델이 직접 명시한 font-style/font-family 는 *그대로 존중* (override X).
+  let out = html.replace(
+    /<text(\s[^>]*)?>([\s\S]*?)<\/text>/g,
+    (_match, attrs: string | undefined, content: string) => {
+      let a = attrs ?? "";
+      if (!/\bfont-family\s*=/i.test(a)) {
+        a += ' font-family="Times New Roman, serif"';
+      }
+      if (!/\bfont-style\s*=/i.test(a)) {
+        // text content 의 내부 markup (예: <tspan>) 제거 후 분석
+        const plainText = content.replace(/<[^>]+>/g, "");
+        const style = defaultFontStyleForText(plainText);
+        a += ` font-style="${style}"`;
+      }
+      return `<text${a}>${content}</text>`;
+    },
+  );
 
   // Pass B — clamp small-dot radii so labels aren't overwhelmed.
   out = out.replace(/<circle\b([^>]*?)\br\s*=\s*"(\d+(?:\.\d+)?)"/g, (m, pre: string, rStr: string) => {
