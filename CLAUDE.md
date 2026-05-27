@@ -3633,3 +3633,103 @@ Tier 1 측정 후 사용자 보고:
 - "괜찮아짐" → Tier 1 으로 stable, Tier 3 (UX) 검토
 - "케이스별로 다름" → confidence-based 자동 재시도 추가
 
+---
+
+## 29. 2026-05-27 세션 종합 요약 + 다음 세션 roadmap
+
+### 29-1. 이번 세션 commits (8 개, 시간순)
+
+| # | Commit | 영역 | 핵심 변경 |
+|---|---|---|---|
+| 1 | `fbaa3dc` | artwork class + 손글씨 폰트 방어 | CropBox.class 4-way, OCR_PAGE_PROMPT Tier 4 강화, cropDetect schema/prompt |
+| 2 | `eba282f` | 인접 박스 prompt 룰 | OCR_PAGE_PROMPT 4d-2 룰 (`\boxed{ABCD}` → 칸당 분리) |
+| 3 | `25d2cc1` | runtime auto-split harness | `splitMultiLetterBoxed` 자동 분리 + CLAUDE.md §26-6~8 |
+| 4 | `e0f9671` | GPT-5.5 complexity routing | DetectedCrop.complexity + `refineCropBoxesWithGpt55` + §27 |
+| 5 | `dc12ac4` | UI 3 fixes | DALL-E 비용 표시 제거 + 박스크기 px + [그림N] inline 이미지 |
+| 6 | `4c2eaf7` | 이미지 전처리 + §28 | `imagePreprocess.ts` (removeColorInk + contrast + 2x) + 인식률 카탈로그 |
+| 7 | (이번 세션 마무리 commit) | fresh detection + §29 | GPT-5.5 Gemini bias 제거 + 세션 요약 |
+
+### 29-2. 미완 작업 — 다음 세션 우선순위
+
+**Tier 1 인식률 향상 (§28-1 사용자 결정 "전체 적용")** — 1/4 완료:
+
+```
+[Step 1] 이미지 전처리 (removeColorInk + contrast + upscale)  ✅ 완료 (4c2eaf7)
+[Step 2] Pre-handwriting mask (red/blue 영역 위치 prompt 에 inject)  ⏳ 다음
+[Step 3] PDF text layer cross-check (OCR vs PDF 임베디드 비교)  ⏳ 다음
+[Step 4] Per-type specialized prompt (객관식 / 서술형 / 도형)  ⏳ 다음
+```
+
+**Tier 2 (측정 후 결정)** — §28-2:
+- Sonnet 4.6 vision Pass 1 전환 ($0.015/page, 5x)
+- Multi-model ensemble (Gemini + Sonnet vote)
+
+**진행 권장**: Tier 1 전체 4 항목 완료 → 사용자 실 시험지 측정 → "여전히 별로" 면 Tier 2 진입.
+
+### 29-3. 이번 세션 사용자 결정 카탈로그
+
+| 카테고리 | 결정 | 출처 |
+|---|---|---|
+| Artwork 처리 | "별도 'artwork' class 신설" — 4-way (problem/figure/table/artwork) | AskUserQuestion 1차 |
+| 손글씨 방어 | "글자체 / 폰트 일반적이지 않을테니 그걸 기준으로 방어로직" → 글자체·획 특성 카탈로그 | AskUserQuestion 1차 |
+| Triage 시점 | "처음에 업로드하면 문항을 크롭하잖아. 크롭하면서 분류하면 안되나?" | AskUserQuestion 2차 |
+| Dispatch 단위 | 문항 단위 (페이지 안 혼합 OK) | AskUserQuestion 2차 |
+| GPT-5.5 prompt | 페이지 이미지 + complex 문항 번호 명시 (**fresh, no Gemini bias**) | AskUserQuestion 2차 |
+| UI 비용 표시 | "사용자에게 예상 비용까지 보여줄 필요는 없고, 필요한 정보만" | 직접 보고 |
+| [그림N] 처리 | "크롭된 그림이 있는데 [그림1] 본문 잔류 X" → SVG 또는 image inline | 직접 보고 |
+| 박스크기 표시 | "% 말고 픽셀 크기" | 직접 보고 |
+| 인식률 Tier 1 | "전체 다 적용" (4 방법 모두) | AskUserQuestion 3차 |
+| 인식률 Tier 2 | "Sonnet 전환 + ensemble" (측정 후) | AskUserQuestion 3차 |
+| CLAUDE.md 문서화 | "§28 으로 추가" (장기 보존) | AskUserQuestion 3차 |
+
+### 29-4. 다음 세션 시작 시 추천 sequence
+
+다음 세션 (또는 새 사용자 보고 시):
+
+```
+1. git log --oneline -10  → 최근 commits 확인
+2. §29 (이번 세션) + §28 (인식률 카탈로그) + §27 (GPT-5.5 routing) 읽기
+3. 사용자 측정 보고 듣기 — Tier 1 (이미지 전처리) 적용 후 정확도 어떤가?
+4. 분기:
+   (a) "여전히 별로" → Tier 1 나머지 3 항목 (§28-5 Step 2-4) 즉시 진행
+   (b) "괜찮아짐" → Tier 1 stable, Tier 3 UX overhaul 검토
+   (c) "특정 케이스만 문제" → 해당 케이스 root cause 분석 + 새 prompt 룰
+```
+
+### 29-5. 다음 세션이 빠르게 컨텍스트 잡을 핵심 인사이트
+
+**이 5 가지를 우선 이해할 것**:
+
+1. **Triage architecture** (§27-2): cropDetect (Gemini Flash) 가 *bbox + complexity 동시 분류* → complex 문항만 GPT-5.5 *fresh detection* (no Gemini bias). 사용자 결정에 따라 GPT-5.5 prompt 는 페이지 이미지 + 문항 번호만 받음.
+
+2. **4-class CropBox** (§26-2): problem/figure/table/artwork. 99% 는 problem. artwork = vectorize 불가능 실사 reference.
+
+3. **이중 방어선 패턴** (§26-6): 시각 패턴 분리는 *prompt + runtime* 양쪽. prompt 가 대다수 차단 + runtime 이 leak 케이스 안전망. (예: `\boxed{ABCD}` → 4d-2 룰 + `splitMultiLetterBoxed`).
+
+4. **DB schema 변경 최소화 정책**: `cropBoxes JSONB`, `ai_usage.endpoint TEXT` 등이 backward-compatible. 새 필드 추가 시 *graceful fallback* (PGRST204 retry, §25-2).
+
+5. **사용자 보고 사례 인용 패턴** (§7-5, §7-6): 일반 룰보다 *사용자 실제 보고 케이스* 를 prompt 에 그대로 박는 게 효과적. 이번 세션 추가된 사례: 서술형 4 (반 고흐 + 작도), 인접 박스 행 [A][B][C][D].
+
+### 29-6. 검증 — 다음 세션 시작 전
+
+```bash
+cd D:\mathg-gen
+npx tsc --noEmit 2>&1 | grep -v "export-pdf"  # exit 0 확인
+git log --oneline -10                          # 최근 commits 확인
+git status --short                             # 클린 확인
+```
+
+dev 서버 띄우려면:
+```bash
+npm run dev -- --port 3001 --strictPort
+```
+
+(Windows 3000 port 충돌 — 다른 프로젝트 MathLAB 이 점유 가능성, §18-1.)
+
+### 29-7. 알려진 함정 / 제약 (다음 세션 회피용)
+
+- **dev 환경 API 키 미노출** (§24-7): `vite.config.ts` 의 보안 조치로 dev 빌드는 SDK 호출 시 401. 실제 검증은 Vercel preview (`vercel deploy --yes`).
+- **`vercel dev` 불가** (§23-4): Vite + vercel-dev 호환 안 됨. preview 배포로 우회.
+- **백틱 함정** (§4-6, §25-4): `prompts.ts` 같은 큰 template literal 안 한국어 본문에 backtick 사용 시 parse error. 큰따옴표 또는 escape.
+- **api/export-pdf.ts pre-existing error**: Puppeteer deps 미설치. 이번 세션 관여 X — 무시.
+

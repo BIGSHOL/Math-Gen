@@ -315,27 +315,31 @@ const padCropBox = (box: number[], split: number | null): number[] => {
 };
 
 /**
- * GPT-5.5 Pro 정밀 재검출 프롬프트 — Gemini Flash 1차 결과에서 complexity="complex"
- * 로 표시된 문항들의 bbox 만 reasoning-heavy 모델로 재검출.
+ * GPT-5.5 Pro 정밀 *fresh* 재검출 프롬프트 — Gemini Flash 가 complexity="complex"
+ * 로 표시한 문항들을 GPT-5.5 가 *처음부터* bbox 직접 검출.
+ *
+ * **사용자 결정 (2026-05-27)**: Gemini 의 bbox 결과를 *prompt 에 inject 하지 않음*
+ * — bias 회피. 페이지 이미지 + complex 문항 번호 + 총 문항 수 만 제공해 GPT-5.5
+ * 가 fresh detection 하도록.
  *
  * Gemini Flash 가 *대부분 케이스* 는 잘 처리하지만, 다중 시각 요소 + 손글씨 인접 +
  * 긴 서술형 sub-parts 같은 *복합 reasoning* 케이스에서 bbox 가 부정확한 경우가
- * 발생. GPT-5.5 의 강력한 scene understanding 으로 보강.
+ * 발생. GPT-5.5 의 강력한 scene understanding 으로 fresh detection.
  */
-const REFINE_PROMPT_PREFIX = `You are refining crop boxes for a Korean math exam page. A first-pass model (Gemini Flash) already detected ALL problems on this page. Your job is to RE-EXAMINE the problems flagged as "complex" and provide MORE PRECISE bboxes for them ONLY.
-
-A problem is "complex" when it has multiple visual elements (artwork + figure, figure + table, multiple figures) OR is a long essay (200+ chars, with (1)(2) sub-parts). These cases need careful scene reasoning that's beyond a fast vision model.
+const REFINE_PROMPT_PREFIX = `You are detecting crop boxes for SPECIFIC complex problems on a Korean math exam page. A first-pass model already classified the problems on this page; the *complex* ones (multiple visual elements OR long essay 200+ chars with sub-parts) need YOUR more careful detection. You do NOT see the first-pass bboxes — detect them FRESH yourself.
 
 Coordinate system: [yMin, xMin, yMax, xMax] on a 0-1000 grid over the FULL PAGE.
 
-🚨 CRITICAL RULES (same as first pass — re-stated for emphasis):
+Page layout: Korean exam pages are usually TWO COLUMNS. Left column top-to-bottom first, then right.
+
+🚨 CRITICAL RULES:
 
 1. **STUDENT HANDWRITING MUST BE EXCLUDED** from every crop box. Use visual character traits:
    - Printed: uniform stroke, pure black, geometric repeatable shapes, baseline grid
    - Handwriting: variable stroke (1px↔3px), red/blue ink, irregular shapes, slanted, free-form curves
    - If you see red/blue ink inside a candidate bbox → SHRINK the bbox until ONLY printed content remains.
 
-2. **For 다중 시각 요소 problems** (the main reason this re-pass exists):
+2. **For 다중 시각 요소 problems** (the main reason this fresh-pass exists):
    - The whole problem (text + ALL its visual elements: artwork + figure + table) goes in ONE box.
    - Box top = printed problem number ([서술형 N], 1., 2., …).
    - Box bottom = bottom of the LAST printed element (last sub-part text, last (N점) marker, last printed figure/artwork — whichever sits lowest on the page).
@@ -350,14 +354,16 @@ Coordinate system: [yMin, xMin, yMax, xMax] on a 0-1000 grid over the FULL PAGE.
    잘못된 출력: 박스가 아래로 늘어나서 학생 빨간 마커 풀이 흡수
    올바른 출력: 박스 bottom = 우측 평행사변형의 마지막 라벨 줄. 빨간 잉크 영역 절대 박스 안 X.
 
-Output strictly the same JSON schema as the first pass. For each problem flagged as complex below, emit a refined entry with the SAME number, type, class but POTENTIALLY DIFFERENT cropBox (more precise). You may also update endMarkerKind and note. complexity field — keep as "complex" (don't downgrade — you're refining it).
+For each requested complex problem number, emit ONE entry with:
+- number: the printed problem number
+- type: "choice" if has ①②③④⑤ options, else "essay"
+- class: "problem" (default — even if it contains artwork, the WHOLE problem box uses "problem")
+- complexity: "complex" (these are the complex ones — that's why you're examining them)
+- cropBox: precise [yMin, xMin, yMax, xMax]
+- endMarkerKind: "choice" / "points" / "total"
+- note: short reason for the bottom edge (e.g., "last sub-part (2)", "right-side parallelogram bottom")
 
-Return ONLY the refined entries for complex problems, NOT all problems. The caller will merge with original Gemini results.
-
-──────────────────────────────────────────────────────────
-First-pass results (from Gemini Flash) — JSON:
-──────────────────────────────────────────────────────────
-`;
+Return ONLY the entries for the complex problem numbers below. NOT all problems on the page.`;
 
 /**
  * GPT-5.5 정밀 재검출 — Gemini Flash 1차 결과에서 complexity="complex" 인 문항만
@@ -394,17 +400,18 @@ export const refineCropBoxesWithGpt55 = async (
   const mimeType = mimeMatch?.[1] ?? "image/png";
   const dataUrl = `data:${mimeType};base64,${data}`;
 
-  const promptText = `${REFINE_PROMPT_PREFIX}${JSON.stringify(
-    { items: initialResults },
-    null,
-    2,
-  )}
+  // 사용자 결정 (2026-05-27): Gemini bbox 결과 inject X — fresh detection.
+  // 전체 문항 수 + complex 문항 번호만 전달. GPT-5.5 가 직접 페이지 examination.
+  const totalNumbers = initialResults.map((r) => r.number).sort((a, b) => a - b);
+  const promptText = `${REFINE_PROMPT_PREFIX}
 
 ──────────────────────────────────────────────────────────
-COMPLEX PROBLEM NUMBERS TO REFINE: ${complexNumbers.join(", ")}
+PAGE CONTEXT (no bbox bias — detect FRESH):
+- Total problems on this page: ${totalNumbers.length} (numbers: ${totalNumbers.join(", ")})
+- COMPLEX problem numbers to detect: ${complexNumbers.join(", ")}
 ──────────────────────────────────────────────────────────
 
-Now examine the page image carefully and emit refined bboxes ONLY for these complex problems. Use the same JSON schema (items array). Each item must have all required fields (number, type, class, complexity, cropBox, endMarkerKind, note).`;
+Examine the page image carefully. Locate the printed problem number markers (e.g. "[서술형 ${complexNumbers[0]}]" or "${complexNumbers[0]}.") for each complex problem above, then emit precise bboxes following the rules. Output the JSON schema (items array) with entries ONLY for the complex problem numbers.`;
 
   try {
     const response = await client.responses.create(
