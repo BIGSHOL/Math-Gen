@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
-import { applyRotation } from "@app/lib/pdfProcessor";
+import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
@@ -94,15 +94,19 @@ const pageHasFigures = (items: OCRProblem[]): boolean =>
  *
  * **Two-pass model strategy** (multi-round benchmarking 으로 굳어진 라우팅):
  *
- *   1. First pass — 모든 문제 페이지를 **Gemini 3.5 Flash** 로 처리.
+ *   1. First pass — 모든 문제 페이지를 **Gemini 3 Flash / 3.5 Flash** 로 처리.
  *      정식 출시된 가장 똑똑한 Gemini Flash. Multi-problem 페이지 본문
  *      추출이 안정적이고 Sonnet 대비 비용도 낮음.
- *   2. Second pass — 1차 결과에 도형이 있으면 (inline `<svg>` 또는
- *      `images[]` bbox 존재) 같은 페이지를 **Gemini 3.1 Pro (Preview)** 로
- *      재추출하고 항목을 REPLACE. 텍스트만 있는 페이지는 2차 skip.
+ *   2. Second pass (**Phase I-7b: cropped per-box**) — 1차 결과에 도형이 있는
+ *      *각 문항 box* (Step 1.5 에서 사용자가 검증한 `cropBoxes`) 별로 *cropped
+ *      image* 만 **GPT-5.5 / Gemini 3.1 Pro** 에 보내고 number 기준 merge.
+ *      전체 페이지 image 를 보내던 옛 방식 대비 vision token 30~50% 절감 +
+ *      검수 박스와 OCR 결과의 1:1 매칭 보장. 도형 없는 item 은 호출 자체 X.
  *
  *   Pass 2 skip-conditions:
  *     - 페이지에 도형 없음 — 1차로 충분.
+ *     - `cropInspected !== true` — 사용자가 박스 검토 미완료 (legacy v2 세션은
+ *       cropInspected === undefined 로 자동 통과).
  *     - 사용자가 이미 어느 항목이라도 reviewed=true 로 만짐 — 사용자 편집
  *       유지 위해 2차 중단.
  *     - 페이지가 이미 Pro 결과 (`ocrModel === pass2Model`) — 무한 루프 방지.
@@ -331,14 +335,22 @@ export const usePageOcr = () => {
         return;
       }
 
-      // ── Pass 2: 도형 페이지 정밀 분석 (GPT-5.5 → Gemini 3.1 Pro 폴백) ──
-      // 1차가 깔끔히 끝났고 도형이 있는 페이지만 트리거. 이미 도형 체인의
-      // 어떤 모델로라도 처리된 페이지는 skip (무한 루프 방지).
+      // ── Pass 2: cropped 도형 박스 *per-box* OCR ──
+      // Phase I-7b (사용자 결정 — 비용 절감 + 검수 일관성): Pass 2 가 더 이상
+      // 전체 페이지 image 를 보내지 않는다. 대신 사용자가 Step 1.5 에서 검증한
+      // *문항 박스* (class="problem", verified=true) 마다 *cropped image* 만
+      // Pass 2 모델 (GPT-5.5 / Gemini 3.1 Pro) 에 보내고, 결과를 number 기준
+      // merge. 도형 없는 item 은 호출조차 안 함 → vision token 30~50% 절감
+      // 목표.
       //
-      // Phase I-7 (검수 게이트): cropInspected === undefined (legacy v2 session)
-      // 이면 *gating 없음* — 옛 동작 보존. v3+ 의 신규 session 은
-      // cropInspected === true *명시 후* 만 Pass 2 트리거 (사용자가 박스 검토
-      // 완료한 페이지에 한해 cropped Pass 2 비용 부담).
+      // 트리거 조건:
+      //   - Pass 1 완료 + 에러 없음
+      //   - cropInspected === true (사용자가 박스 검토 완료)
+      //     ※ legacy v2 (undefined) 도 통과 — 옛 session 호환
+      //   - 적어도 한 item 에 도형 (images.length > 0 또는 inline <svg> 또는
+      //     diagramParams) 존재
+      //   - 사용자가 어떤 item 도 reviewed=true 로 만지지 않음
+      //   - 페이지가 아직 Pass 2 모델로 처리되지 않음 (무한 루프 방지)
       const cropInspectionOK =
         page.cropInspected === undefined ||
         page.cropInspected === true;
@@ -361,61 +373,194 @@ export const usePageOcr = () => {
       const pass2Start = Date.now();
       void pass2Limit(async () => {
         try {
-          const result = await runOcrChain(page, pass2Chain, "2차", "pass2");
-          if (!result) return;
-          // ── Item-level merge (사용자 보고 — task #99 보강) ──
-          // 기존: Pass 2 결과를 *통째로* replace → 도형 없는 item (11/12 같은
-          // 단순 텍스트 문제) 도 GPT-5.5 chip 으로 표시 → 사용자가 *비싼 모델
-          // 낭비* 로 오인. 진짜 원인: 페이지 단위 Pass 2 라 *호출 결과의 모든
-          // item* 이 GPT-5.5 출력.
-          //
-          // 새로: *도형 있는 item* (images.length > 0) 만 Pass 2 결과 + GPT-5.5
-          // chip. 도형 없는 item 은 Pass 1 결과 + Pass 1 모델 chip 유지. 사용자
-          // 인식 일치 + Pass 2 의 *도형 정밀화 가치* 만 살림.
-          const currentPage = useWizardStore
-            .getState()
-            .pages.find((p) => p.id === page.id);
-          const pass1Items = currentPage?.ocrResult ?? [];
-          const pass2ByNumber = new Map<number, OCRProblem>(
-            result.items.map((it) => [it.number, it]),
+          // ── (1) 페이지 이미지 + 회전 한 번만 로드 (모든 box crop 재사용) ──
+          let pageImageDataUrl: string;
+          if (!page.imageRef) {
+            const restored = await ensurePageImage(page, getPageStoragePath(page.id));
+            if (isCancelled(page.id, "pass2")) return;
+            if (!restored) {
+              throw new Error(
+                "페이지 이미지를 찾을 수 없습니다. (Storage 복원 실패 — 재OCR 불가)",
+              );
+            }
+            setPageOCR(page.id, { imageRef: restored.ref });
+            pageImageDataUrl = restored.dataUrl;
+          } else {
+            const IDB_TIMEOUT_MS = 8000;
+            const image = await Promise.race([
+              getPageImage(page.imageRef),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error(
+                        `IndexedDB read timeout (${IDB_TIMEOUT_MS}ms) — DB 가 다른 탭에 ` +
+                          `locked 됐거나 upgrade 가 멈춰있을 수 있습니다.`,
+                      ),
+                    ),
+                  IDB_TIMEOUT_MS,
+                ),
+              ),
+            ]);
+            if (isCancelled(page.id, "pass2")) return;
+            if (!image) throw new Error("페이지 이미지를 찾을 수 없습니다. (IndexedDB에서 만료)");
+            pageImageDataUrl = image.dataUrl;
+          }
+          const rotatedPage =
+            page.rotation === 0
+              ? pageImageDataUrl
+              : await applyRotation(pageImageDataUrl, page.rotation);
+
+          // ── (2) 검증된 문항 박스 + Pass 1 의 도형 item 추출 ──
+          const problemBoxes = (page.cropBoxes ?? []).filter(
+            (b) => b.class === "problem" && typeof b.number === "number",
           );
-          const merged: OCRProblem[] = [];
-          for (const p1 of pass1Items) {
-            const p2 = pass2ByNumber.get(p1.number);
-            if (p2 && (p2.images?.length ?? 0) > 0) {
-              // 도형 있음 → Pass 2 결과 사용
-              merged.push({ ...p2, ocrModel: result.modelUsed });
-            } else {
-              // 도형 없음 → Pass 1 결과 + Pass 1 모델 chip 유지
-              merged.push(p1);
+          const pass1Items = page.ocrResult;
+          const figureItems = pass1Items.filter(
+            (it) =>
+              (it.images && it.images.length > 0) ||
+              (it.diagramParams && it.diagramParams.length > 0) ||
+              /<svg[\s>]/i.test(it.text),
+          );
+
+          if (figureItems.length === 0) {
+            // eligibility 가 잡았어야 하지만 safety net.
+            setPageOCR(page.id, { upgrading: false });
+            return;
+          }
+
+          // ── (3) 각 figure item 별 cropped Pass 2 호출 ──
+          // upgradedByNumber: 문항번호 → 새 OCRProblem (Pass 2 결과).
+          // 매칭 박스 없거나 모든 체인 실패한 item 은 Pass 1 그대로 유지.
+          const upgradedByNumber = new Map<number, OCRProblem>();
+          let lastModelUsed: OCRModel | null = null;
+
+          for (const figItem of figureItems) {
+            if (isCancelled(page.id, "pass2")) return;
+
+            // 매칭 박스 (number 기준). 없으면 Pass 1 보존 — Step 1.5 에서
+            // 사용자가 해당 문항 박스를 삭제했거나 만들지 않았다는 뜻.
+            const matchingBox = problemBoxes.find((b) => b.number === figItem.number);
+            if (!matchingBox) {
+              if (import.meta.env.DEV) {
+                // eslint-disable-next-line no-console
+                console.debug(
+                  `[usePageOcr] ${page.id} item ${figItem.number}: 매칭 박스 없음 — Pass 1 보존`,
+                );
+              }
+              continue;
+            }
+
+            // 박스 영역만 crop. 박스 좌표는 0-1000 정규화. 2% margin 추가 안전망.
+            let croppedImage: string;
+            try {
+              croppedImage = await cropPageImageData(rotatedPage, matchingBox.bbox, {
+                margin: 0.02,
+              });
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                `[usePageOcr] ${page.id} item ${figItem.number} crop 실패 — Pass 1 유지`,
+                err,
+              );
+              continue;
+            }
+
+            if (isCancelled(page.id, "pass2")) return;
+
+            // 모델 체인 시도 — 1차 throw 면 다음 모델로 폴백.
+            let lastErr: Error | null = null;
+            for (let i = 0; i < pass2Chain.length; i++) {
+              const model = pass2Chain[i];
+              if (isCancelled(page.id, "pass2")) return;
+              setPageOCR(page.id, { ocrInflightModel: model, ocrStartedAt: Date.now() });
+              try {
+                const result = await withRetry(() =>
+                  extractPageProblems({
+                    pageBase64: croppedImage,
+                    textLayer: "", // 박스 영역 한정 hint 없음 — empty
+                    model,
+                  }),
+                );
+                if (i > 0) {
+                  // eslint-disable-next-line no-console
+                  console.info(
+                    `[usePageOcr] 2차(크롭) ${page.id} item ${figItem.number}: ${pass2Chain[0]} → ${model} 폴백 성공`,
+                  );
+                }
+                // 크롭 = 1 문제. number 매칭 우선, fallback items[0].
+                const matched =
+                  result.items.find((it) => it.number === figItem.number) ??
+                  result.items[0];
+                if (matched) {
+                  upgradedByNumber.set(figItem.number, {
+                    ...matched,
+                    // 모델이 박스 안 번호를 잘못 읽을 수 있음 — 원래 번호 강제.
+                    number: figItem.number,
+                    ocrModel: model,
+                  });
+                  lastModelUsed = model;
+                }
+                break;
+              } catch (err) {
+                if (isCancelled(page.id, "pass2")) {
+                  setPageOCR(page.id, {
+                    ocrInflightModel: undefined,
+                    ocrStartedAt: undefined,
+                  });
+                  return;
+                }
+                lastErr = err as Error;
+                // eslint-disable-next-line no-console
+                console.warn(
+                  `[usePageOcr] 2차(크롭) ${page.id} item ${figItem.number} 모델 ${model} 실패` +
+                    (i < pass2Chain.length - 1 ? ` → 다음 폴백 시도` : ` (체인 끝)`),
+                  err,
+                );
+              }
+            }
+            // 한 box 실패는 fatal X — 다음 box 시도. 그 item 만 Pass 1 보존.
+            if (!upgradedByNumber.has(figItem.number) && lastErr) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                `[usePageOcr] 2차(크롭) ${page.id} item ${figItem.number} 전 체인 실패 — Pass 1 유지`,
+              );
             }
           }
-          // Pass 2 만 검출한 item (Pass 1 누락) — append
-          for (const p2 of result.items) {
-            if (!pass1Items.some((p1) => p1.number === p2.number)) {
-              merged.push({ ...p2, ocrModel: result.modelUsed });
-            }
-          }
+          setPageOCR(page.id, { ocrInflightModel: undefined, ocrStartedAt: undefined });
+
+          if (isCancelled(page.id, "pass2")) return;
+
+          // ── (4) Merge — upgrade 된 figure item 만 replace, 나머지 Pass 1 그대로 ──
+          const merged: OCRProblem[] = pass1Items.map(
+            (p1) => upgradedByNumber.get(p1.number) ?? p1,
+          );
+
           setPageOCR(page.id, {
             ocrResult: merged,
-            ocrModel: result.modelUsed as WizardPage["ocrModel"],
+            // 적어도 1 box 가 upgrade 됐으면 page.ocrModel 도 Pass 2 모델로 갱신
+            // (PageThumbColumn chip 표시 일관성). 모두 실패면 Pass 1 모델 유지.
+            ocrModel: (lastModelUsed ?? page.ocrModel) as WizardPage["ocrModel"],
             upgrading: false,
           });
           if (import.meta.env.DEV) {
             // eslint-disable-next-line no-console
             console.debug(
-              `[usePageOcr] ${page.id} 2차 ${result.modelUsed} 완료 — ${((Date.now() - pass2Start) / 1000).toFixed(1)}s (${result.items.length} 문항)`,
+              `[usePageOcr] ${page.id} 2차(크롭) 완료 — ${((Date.now() - pass2Start) / 1000).toFixed(1)}s ` +
+                `(${upgradedByNumber.size}/${figureItems.length} box upgrade)`,
             );
           }
         } catch (err) {
           if (isCancelled(page.id, "pass2")) return;
-          // 2차 실패는 fatal 아님 — 1차 결과 그대로 보존하고 spinner 해제.
+          // 2차 전반 실패 (이미지 로드 실패 등) — Pass 1 결과 유지, spinner 해제.
           // eslint-disable-next-line no-console
-          console.warn(`[usePageOcr] 페이지 ${page.id} 2차 전 체인 실패 (1차 결과 유지)`, err);
+          console.warn(
+            `[usePageOcr] 페이지 ${page.id} 2차(크롭) 전체 실패 (Pass 1 유지)`,
+            err,
+          );
           setPageOCR(page.id, { upgrading: false });
         } finally {
-          // Symmetric with the pass-1 marker — clear so a future retry
-          // (e.g. user manually re-triggers Opus) can run again.
+          // Symmetric with the pass-1 marker — clear so a future retry can run again.
           upgradeDispatched.current.delete(page.id);
         }
       });
