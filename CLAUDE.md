@@ -713,6 +713,106 @@ a hydration error." + 일부 브라우저에서 클릭 동작 비결정적.
 **참고**: `src/components/wizard/Step3Options.tsx` "함께 만들 자료" row,
 `src/components/ui/Toggle.tsx`.
 
+### 3-6. Zustand selector 안에 *inline arrow* / *새 reference* 반환 금지 (CRITICAL)
+
+**증상** (사용자 보고 + Chrome MCP 발견): 컴포넌트 마운트 즉시 빈 화면. 콘솔
+`Maximum update depth exceeded. ... forceStoreRerender ... updateStoreInstance`
+무한 setState 루프. 50+ cycle 후 React abort.
+
+**원인 (실제 발견 사례 — Step1_5CropInspect)**:
+```tsx
+const setActiveIndex = useWizardStore((s) =>
+  (i: number) => s,  // ← selector 안에서 *매 호출마다 새 함수* 반환
+);
+```
+
+zustand 의 `useStore(selector)` 는 selector 결과를 *얕은 비교 (Object.is)*
+로 변경 감지. 새 arrow function 은 매번 *다른 reference* → 항상 변경됨 으로
+판단 → 강제 re-render → selector 재호출 → 또 새 함수 → 또 re-render →
+*무한 루프*.
+
+**같은 함정 패턴들 — 모두 금지**:
+```tsx
+// ❌ inline arrow — 매번 새 reference
+const fn = useStore((s) => () => s.doSomething());
+const obj = useStore((s) => ({ a: s.a, b: s.b }));  // 새 객체!
+const arr = useStore((s) => s.items.filter(...));    // 새 배열!
+```
+
+**해결 패턴**:
+```tsx
+// ✅ store 의 *기존 reference* 만 select
+const doSomething = useStore((s) => s.doSomething);
+
+// ✅ 액션은 직접 호출 — selector 없이
+const handleClick = () => useWizardStore.setState({ activePageIndex: i });
+
+// ✅ 파생 계산은 useMemo 로 메모화 (store 외부)
+const filtered = useMemo(() => items.filter(...), [items]);
+
+// ✅ 또는 zustand shallow equality 명시
+import { useShallow } from "zustand/react/shallow";
+const { a, b } = useStore(useShallow((s) => ({ a: s.a, b: s.b })));
+```
+
+**찾는 법**: `useStore((s) =>` 로 grep + selector 의 *반환문* 검토. *함수
+호출 (s.x())*, *객체 리터럴 ({...})*, *배열 메서드 (s.x.filter / map)*,
+*spread (...)* 가 있으면 의심. 가장 안전한 형태는 *단순 property access*
+(`(s) => s.x`).
+
+**참고**: `src/components/wizard/Step1_5CropInspect.tsx` 의 dummy
+`setActiveIndex` selector 가 dead code 였음에도 *컴포넌트 mount 시 무한
+루프* 일으킴. 빈 화면 + 콘솔 에러 → Chrome MCP `read_console_messages` 로
+"Maximum update depth" 키워드 grep 으로 발견.
+
+### 3-7. 한 effect 안에서 *N 회 store mutation* — `Maximum update depth` (CRITICAL)
+
+**증상**: useEffect 가 mount 시 N 개 항목 순회하며 store action 을 N 번 호출.
+React 18+ 의 `useSyncExternalStore` (zustand) 는 effect 안 setState 를 *batch
+안 함* → 매 호출이 *즉시 reflow* → effect 재실행 → 또 N 회 setState →
+*update depth exceeded*.
+
+**원인 (실제 — useCropDetect 의 비-문항 페이지 처리)**:
+```tsx
+useEffect(() => {
+  for (const page of pages) {
+    if (!page.isProblemPage && !page.forceOcr) {
+      setPageCropBoxes(page.id, []);  // ← 각 호출이 pages 새 reference 생성
+      continue;
+    }
+    // ...
+  }
+}, [pages, ...]);
+```
+
+`setPageCropBoxes(p.id, [])` 가 `state.pages.map(...)` 으로 *전체 새 array*
+생성 → useEffect dep `pages` 변경 감지 → 재실행 → 다음 비-문항 페이지 처리
+→ 새 array → ... CRA 의 `unstable_batchedUpdates` 없이는 무한 동기 loop.
+
+**해결**: *한 번의 functional setState* 로 모든 항목 batch update:
+```tsx
+useEffect(() => {
+  // 처리할 항목이 있으면 한 번에 모두 update
+  const needsUpdate = pages.some((p) => p.cropBoxes === undefined && !p.isProblemPage);
+  if (needsUpdate) {
+    useWizardStore.setState((state) => ({
+      pages: state.pages.map((p) =>
+        p.cropBoxes === undefined && !p.isProblemPage ? { ...p, cropBoxes: [] } : p,
+      ),
+    }));
+    return;  // 다음 cycle 에서 자연스럽게 다음 단계 처리
+  }
+  // 다른 처리...
+}, [pages, ...]);
+```
+
+**원칙**: effect 안에서 *루프 + setState* 패턴 발견 시 *batch setState* 로
+변환. 한 번의 `setState((state) => ({...}))` 가 N 회 개별 setState 보다 *훨씬
+안전*. zustand 의 `set` 도 functional form 받음 — 한 함수 안에서 여러 필드
+동시 update 가능.
+
+**참고**: `src/hooks/useCropDetect.ts` 의 비-문항 페이지 batch 처리.
+
 ---
 
 ## 4. 코드 작성 함정
