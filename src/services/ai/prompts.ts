@@ -1052,6 +1052,23 @@ RULES FOR EACH "items" ENTRY
        Original  $\\frac{5}{9} \\div 3 = \\frac{□}{27}$
        Output    \$\\frac{5}{9} \\div 3 = \\frac{\\boxed{\\phantom{0}}}{27}\$
 
+   4d-2. **인접 박스 행 (Row of separate small boxes)** — 사용자 보고 (2026-05-27):
+       원본에 *각 칸당 한 글자/한 숫자* 가 들어간 *분리된 박스* 가 가로로 나란히
+       있는 경우 (예: 순열 [A][B][C][D], 배치 [1][2][3][4], 자리 [ ][ ][ ][ ]).
+       절대 한 박스로 묶지 말 것 — *칸 수만큼 \\boxed{} 를 따로 emit*.
+
+       잘못된 출력 — 4 글자를 한 박스에 합침:
+           \$\\boxed{ABCD}\$
+       올바른 출력 — 4 칸이라 4 개 분리 박스:
+           \$\\boxed{A}\\boxed{B}\\boxed{C}\\boxed{D}\$
+
+       빈칸 행 (자리 표시 4 칸):
+           \$\\boxed{\\phantom{0}}\\boxed{\\phantom{0}}\\boxed{\\phantom{0}}\\boxed{\\phantom{0}}\$
+
+       판단 기준 — 박스 사이 *내부 구분선* (border 가 칸마다 따로) 가 보이면 *분리
+       박스* → 칸당 \\boxed{}. 외곽선만 하나로 둘러싸고 안에 텍스트/수식 1 개면
+       \\boxed{전체}.
+
    4e. **Score / point annotations** "(4점)" "[5점]" "[10.0점]" — strip them entirely. They are scoring metadata, not problem text.
 
    4f. **Section labels** [정답] [풀이] [해설] [예시] [참고] — keep as plain bracketed Korean text. The renderer recognises these as labels.
