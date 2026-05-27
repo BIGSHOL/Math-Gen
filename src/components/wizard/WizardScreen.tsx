@@ -22,6 +22,7 @@ import { Stepper, type StepperStep } from "./Stepper";
 import { StepFrame } from "./StepFrame";
 import { WizardFooter } from "./WizardFooter";
 import { Step1Upload } from "./Step1Upload";
+import { Step1_5CropInspect } from "./Step1_5CropInspect";
 import { Step2OCRReview } from "./Step2OCRReview";
 import { Step3SolutionReview } from "./Step3SolutionReview";
 import { Step3Options } from "./Step3Options";
@@ -30,18 +31,20 @@ import { Step5Export } from "./Step5Export";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
-  { index: 1, label: "OCR", subLabel: "문제 추출" },
-  { index: 2, label: "해설", subLabel: "정답 · 풀이" },
-  { index: 3, label: "옵션", subLabel: "변환 설정" },
-  { index: 4, label: "검토", subLabel: "문항별 확정" },
-  { index: 5, label: "내보내기", subLabel: "PDF · DOCX" },
+  { index: 1, label: "검수", subLabel: "박스 확인" },
+  { index: 2, label: "OCR", subLabel: "문제 추출" },
+  { index: 3, label: "해설", subLabel: "정답 · 풀이" },
+  { index: 4, label: "옵션", subLabel: "변환 설정" },
+  { index: 5, label: "검토", subLabel: "문항별 확정" },
+  { index: 6, label: "내보내기", subLabel: "PDF · DOCX" },
 ];
 
 /**
- * 6-step wizard orchestrator (0 Upload / 1 OCR / 2 해설 / 3 옵션 / 4 검토 /
- * 5 내보내기). State lives in `wizardStore` (sessionStorage-persisted). On
- * mount we guard against accidental tab-close so partial conversion results
- * aren't lost.
+ * 7-step wizard orchestrator (Phase I-6 — Step 1.5 검수 추가):
+ * 0 업로드 / 1 검수 (크롭 박스) / 2 OCR / 3 해설 / 4 옵션 / 5 검토 /
+ * 6 내보내기. State lives in `wizardStore` (sessionStorage-persisted v3,
+ * v2 → v3 migrate 가 step >= 1 을 +1 shift). On mount we guard against
+ * accidental tab-close so partial conversion results aren't lost.
  */
 export const WizardScreen = () => {
   const step = useWizardStore((s) => s.step);
@@ -131,7 +134,7 @@ export const WizardScreen = () => {
     backToLibrary();
   };
 
-  useWizardGuard(step > 0 && step < 5 && !resumeDialog);
+  useWizardGuard(step > 0 && step < 6 && !resumeDialog);
 
   // Mod+← / Mod+→ navigation (Mac ⌘, Windows/Linux Ctrl — `metaKey || ctrlKey`).
   // Ignore arrow keys when an input is focused.
@@ -201,20 +204,21 @@ export const WizardScreen = () => {
       {/* Step content. Step 5 일 때 main 자체는 미리보기 갤러리지만 인쇄
           시에는 hidden printable-root 만 보여야 하므로 wizard-chrome-preview. */}
       <main
-        className={`flex-1 overflow-auto${step === 5 ? " wizard-chrome-preview" : ""}`}
+        className={`flex-1 overflow-auto${step === 6 ? " wizard-chrome-preview" : ""}`}
       >
         <StepFrame step={step}>
           {step === 0 && <Step1Upload onComplete={() => setStep(1)} />}
-          {step === 1 && <Step2OCRReview />}
-          {step === 2 && <Step3SolutionReview />}
-          {step === 3 && <Step3Options />}
-          {step === 4 && <Step4Review />}
-          {step === 5 && <Step5Export />}
+          {step === 1 && <Step1_5CropInspect />}
+          {step === 2 && <Step2OCRReview />}
+          {step === 3 && <Step3SolutionReview />}
+          {step === 4 && <Step3Options />}
+          {step === 5 && <Step4Review />}
+          {step === 6 && <Step5Export />}
         </StepFrame>
       </main>
 
-      {/* Step 5 는 PrintActionPanel 이 footer 역할 흡수 — 통째 숨김. */}
-      {step !== 5 && (
+      {/* Step 6 (내보내기) 는 PrintActionPanel 이 footer 역할 흡수 — 통째 숨김. */}
+      {step !== 6 && (
         <div className="wizard-chrome">
           <WizardFooter
             step={step}

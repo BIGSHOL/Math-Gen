@@ -455,9 +455,8 @@ export const useWizardStore = create<WizardState>()(
       setStep: (step) => set({ step }),
       next: () => {
         const s = get().step;
-        // I-1 시점에는 5 까지 유지 (기존 6 step UI). I-6 (WizardScreen 갱신)
-        // 와 함께 6 으로 확장 + persist v3 마이그레이션 같이 ship.
-        if (s < 5) set({ step: (s + 1) as WizardStepIndex });
+        // Step 0~6 — Step 1.5 (검수) 가 1 로 삽입돼 총 7 단계. next() clamp 6.
+        if (s < 6) set({ step: (s + 1) as WizardStepIndex });
       },
       prev: () => {
         const s = get().step;
@@ -598,13 +597,22 @@ export const useWizardStore = create<WizardState>()(
       reset: () => set(initialState),
     }),
     {
-      // v1 → v2 bump (Phase B): WizardPage.id 가 `pg-${p}` 에서 crypto.randomUUID()
-      // 로 바뀌어 기존 session 의 `pg-1` 같은 id 는 Supabase 의 pages.id (UUID)
-      // FK 와 호환 안 됨. v2 로 bump 해서 stale session 자동 폐기.
-      name: "mathgen-wizard-v2",
-      // I-1 시점에는 v2 유지 — Step 1.5 가 wizard UI 에 등장하는 I-6 시점에
-      // v3 + migrate (+1 step shift) 같이 ship. CropBox / cropInspected 등 새
-      // 필드는 기존 v2 session 에서 undefined 로 hydrate 돼 자연 fallback.
+      // v3 bump (Phase I-6): Step 1.5 (검수) 가 step 1 로 삽입 → 옛 step 1+
+      // 는 +1 shift 필요. CropBox / cropInspected 등 새 필드는 v2 session 에서
+      // undefined 로 hydrate 돼 자연 fallback.
+      name: "mathgen-wizard-v3",
+      version: 3,
+      migrate: (persistedState, fromVersion) => {
+        // v2 → v3: step >= 1 이면 +1 shift (Step 1.5 가 신규 step 1 으로 삽입).
+        // step 0 (업로드) 는 그대로.
+        if (fromVersion < 3 && persistedState && typeof persistedState === "object") {
+          const s = persistedState as { step?: number };
+          if (typeof s.step === "number" && s.step >= 1 && s.step <= 5) {
+            s.step = (s.step + 1) as WizardStepIndex;
+          }
+        }
+        return persistedState as WizardState;
+      },
       storage: createJSONStorage(() => sessionStorage),
       // Skip large fields and transient UI state.
       partialize: (s) => ({

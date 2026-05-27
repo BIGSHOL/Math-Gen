@@ -29,24 +29,28 @@ export const getPageStoragePath = (pageId: string): string | null =>
 
 /**
  * 시험지 완성도로 재진입 step 판정 (위→아래 첫 매치).
- * step 0(업로드)·5(내보내기)로는 자동 진입하지 않는다 — 진입 후 Stepper 로 이동.
+ * step 0(업로드)·6(내보내기)로는 자동 진입하지 않는다 — 진입 후 Stepper 로 이동.
+ *
+ * Phase I-6 시점 step 매핑: 0=업로드, 1=검수, 2=OCR, 3=해설, 4=옵션, 5=검토,
+ * 6=내보내기. 검수 단계는 자동 진입 안 함 (cropDetect 결과 박스 검토 의무
+ * 아님 — 사용자가 명시적 다음 단계 클릭으로만 진입).
  */
 export const decideResumeStep = (
   pages: WizardPage[],
   problems: ProblemReview[],
 ): WizardStepIndex => {
   const problemPages = pages.filter((p) => p.isProblemPage || p.forceOcr);
-  if (problemPages.length === 0) return 1; // OCR — 추출된 문제 페이지 없음
+  if (problemPages.length === 0) return 2; // OCR — 추출된 문제 페이지 없음
   const ocrDone = problemPages.every((p) => p.ocrComplete || Boolean(p.ocrError));
-  if (!ocrDone) return 1; // OCR 미완료
+  if (!ocrDone) return 2; // OCR 미완료
   const allItems = problemPages.flatMap((p) => p.ocrResult);
   const solEligible = allItems.filter((it) => it.text && !it.bodyMissing);
   const solDone =
     solEligible.length > 0 &&
     solEligible.every((it) => it.solution || it.solutionError);
-  if (!solDone) return 2; // 해설 미완료
-  if (problems.length === 0) return 3; // 옵션 — 변형 전
-  return 4; // 검토 (전부 확정이어도 내보내기 자동진입은 안 함)
+  if (!solDone) return 3; // 해설 미완료
+  if (problems.length === 0) return 4; // 옵션 — 변형 전
+  return 5; // 검토 (전부 확정이어도 내보내기 자동진입은 안 함)
 };
 
 /**

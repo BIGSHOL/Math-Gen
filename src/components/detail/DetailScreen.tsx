@@ -228,7 +228,7 @@ export const DetailScreen = () => {
 
         <DetailMetaSidebar
           test={enrichedTest}
-          onMakeVariant={() => handleResume(3)}
+          onMakeVariant={() => handleResume(4)}
           onResume={() => handleResume()}
           resuming={resuming}
           loading={detail.loading}
