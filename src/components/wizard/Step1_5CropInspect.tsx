@@ -16,57 +16,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Btn, Card, Eyebrow, Icon } from "@app/components/ui";
-import { applyRotation } from "@app/lib/pdfProcessor";
-import { ensurePageImage } from "@app/lib/imageRestore";
-import { getPageImage } from "@app/lib/imageStore";
-import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { useWizardStore } from "@app/stores/wizardStore";
-import type { CropBox, WizardPage } from "@app/stores/wizardStore";
+import type { CropBox } from "@app/stores/wizardStore";
 
 import { CropEditTools, type CropTool } from "./CropEditTools";
 import { EditableCropBox } from "./EditableCropBox";
 import PageThumbColumn from "./PageThumbColumn";
 import { useCropDetect } from "@app/hooks/useCropDetect";
-
-/** active 페이지의 회전 적용된 dataUrl 을 비동기로 로드. */
-const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!page) {
-      setUrl(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        let dataUrl: string | null = null;
-        const existing = await getPageImage(page.imageRef);
-        if (existing) {
-          dataUrl = existing.dataUrl;
-        } else {
-          const storagePath = getPageStoragePath(page.id);
-          const restored = await ensurePageImage(page, storagePath);
-          dataUrl = restored?.dataUrl ?? null;
-        }
-        if (!dataUrl) {
-          if (!cancelled) setUrl(null);
-          return;
-        }
-        const rotated = await applyRotation(dataUrl, page.rotation);
-        if (!cancelled) setUrl(rotated);
-      } catch (err) {
-        if (!cancelled) setUrl(null);
-        if (import.meta.env?.DEV) {
-          console.warn("[Step1_5CropInspect] image load:", (err as Error).message);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [page]);
-  return url;
-};
+import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
 
 /** 페이지 이미지 영역에서 *빈 곳* drag → 새 박스 생성 (create 모드 전용). */
 interface DrawHandlerProps {
