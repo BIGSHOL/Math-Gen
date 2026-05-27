@@ -86,6 +86,10 @@ export interface OcrProblemRow {
   status: "ok" | "warn" | "pending";
   reviewed: boolean;
   images: OCRImage[] | null;
+  /** Phase F (dedup): vector 도형 spec. hydrate 후 OCRItem 이 renderDiagram. */
+  diagram_params: import("@app/lib/diagram").DiagramParams[] | null;
+  /** Phase G (dedup): validator warning 자동 재생성 1회 가드 — 재호출 차단. */
+  solution_auto_retried: boolean | null;
   created_at: string;
 }
 
@@ -256,6 +260,10 @@ export const ocrProblemToInsert = (
   status: item.status,
   reviewed: item.reviewed,
   images: item.images ?? null,
+  // Phase F (dedup): 모든 도형 spec DB 저장 — 보관함 hydrate 시 도형 보존.
+  diagram_params: item.diagramParams ?? null,
+  // Phase G (dedup): 자동 재생성 가드 — hydrate 후 무한 재시도 방지.
+  solution_auto_retried: item.solutionAutoRetried ?? false,
 });
 
 export const reviewToInsert = (
@@ -305,6 +313,14 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
   ocrModel: row.ocr_model ?? undefined,
   // Phase #7: 옛 row 는 null/undefined → "auto" fallback
   choicesLayout: layoutFromRow(row.choices_layout),
+  // Phase F (dedup): vector 도형 spec — 보관함 재열기 시 도형 보존.
+  // null/빈 배열 → undefined (OCRItem 이 bbox crop fallback 표시).
+  diagramParams:
+    Array.isArray(row.diagram_params) && row.diagram_params.length > 0
+      ? row.diagram_params
+      : undefined,
+  // Phase G (dedup): hydrate 후 useSolutionGen 의 자동 재시도 차단.
+  solutionAutoRetried: row.solution_auto_retried ?? undefined,
 });
 
 /**

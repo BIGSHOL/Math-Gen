@@ -25,8 +25,13 @@ import {
 const SCHEMA_CACHE_MISS_RE = /(PGRST204|schema cache)/i;
 const isSchemaCacheMiss = (msg: string): boolean => SCHEMA_CACHE_MISS_RE.test(msg);
 
-// 알려진 후속 컬럼 — schema 미적용 시 stripped 대상
-const OPTIONAL_COLUMNS = ["choices_layout"] as const;
+// 알려진 후속 컬럼 — schema 미적용 시 stripped 대상.
+// Phase #7 (choices_layout) + Phase F/G dedup (diagram_params, solution_auto_retried).
+const OPTIONAL_COLUMNS = [
+  "choices_layout",
+  "diagram_params",
+  "solution_auto_retried",
+] as const;
 const stripOptionalColumns = (rows: OcrProblemInsert[]): OcrProblemInsert[] =>
   rows.map((row) => {
     const clone = { ...row } as Record<string, unknown>;
@@ -36,15 +41,17 @@ const stripOptionalColumns = (rows: OcrProblemInsert[]): OcrProblemInsert[] =>
 
 // 한 번만 경고 (콘솔 스팸 방지)
 let warnedSchema = false;
-const warnSchemaMigration = (col: string) => {
+const warnSchemaMigration = (_col: string) => {
   if (warnedSchema) return;
   warnedSchema = true;
   // eslint-disable-next-line no-console
   console.warn(
-    `[api/problems] 'ocr_problems.${col}' 컬럼 없음 — Phase #7 마이그레이션 필요.\n` +
+    "[api/problems] 후속 컬럼 (choices_layout / diagram_params / solution_auto_retried) 없음 — 마이그레이션 필요.\n" +
       "Supabase SQL Editor 에서 다음 실행 (멱등):\n" +
       "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';\n" +
-      "임시 우회: 컬럼 없이 insert/update 자동 재시도 — 보기 배치 정보 미저장.",
+      "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS diagram_params JSONB;\n" +
+      "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS solution_auto_retried BOOL DEFAULT false;\n" +
+      "임시 우회: 컬럼 없이 insert/update 자동 재시도 — 도형/보기/재시도 정보 일부 미저장.",
   );
 };
 

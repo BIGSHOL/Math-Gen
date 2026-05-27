@@ -188,6 +188,15 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
     patch.choices_missing = next.choicesMissing ?? false;
   if (prev.solutionWarnings !== next.solutionWarnings)
     patch.solution_warnings = next.solutionWarnings ?? null;
+  // Phase F (dedup): diagram_params 변경 시 sync — Pass 2 가 새 도형 emit 시.
+  if (prev.diagramParams !== next.diagramParams)
+    patch.diagram_params = next.diagramParams ?? null;
+  // Phase G (dedup): 자동 재시도 가드 — 한 번 fail 후 무한 retry 차단.
+  if (prev.solutionAutoRetried !== next.solutionAutoRetried)
+    patch.solution_auto_retried = next.solutionAutoRetried ?? false;
+  // Phase #7: 보기 배치 변경 — 사용자 편집 후 또는 OCR 결과 update.
+  if (prev.choicesLayout !== next.choicesLayout)
+    patch.choices_layout = next.choicesLayout ?? "auto";
   if (Object.keys(patch).length > 0) {
     void updateOcrProblem(next.id, patch, { debounceMs: 500 });
   }
