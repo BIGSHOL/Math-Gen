@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
+import { preprocessForOcr } from "@app/lib/imagePreprocess";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
@@ -239,6 +240,14 @@ export const usePageOcr = () => {
       const rotated =
         page.rotation === 0 ? imageDataUrl : await applyRotation(imageDataUrl, page.rotation);
 
+      // 이미지 전처리 — CLAUDE.md §28-1 (사용자 결정 2026-05-27).
+      //  · removeColorInk: 빨간/파란 마커 (학생 손글씨) → 흰색 replace
+      //  · boostContrast: auto-contrast (factor 1.2)
+      //  · upscaleImage: 2x bilinear (큰 페이지 skip)
+      // 실패 시 원본 fallback — best-effort.
+      const preprocessed = await preprocessForOcr(rotated);
+      if (isCancelled(page.id, marker)) return null;
+
       let lastErr: Error | null = null;
       for (let i = 0; i < chain.length; i++) {
         const model = chain[i];
@@ -249,7 +258,7 @@ export const usePageOcr = () => {
         try {
           const result = await withRetry(() =>
             extractPageProblems({
-              pageBase64: rotated,
+              pageBase64: preprocessed,
               textLayer: page.textLayer,
               model,
             }),
@@ -457,6 +466,9 @@ export const usePageOcr = () => {
               croppedImage = await cropPageImageData(rotatedPage, matchingBox.bbox, {
                 margin: 0.02,
               });
+              // 이미지 전처리 적용 (Pass 1 과 동일 — CLAUDE.md §28-1).
+              // cropped 영역도 손글씨 잉크 / contrast / upscale 보강.
+              croppedImage = await preprocessForOcr(croppedImage);
             } catch (err) {
               // eslint-disable-next-line no-console
               console.warn(

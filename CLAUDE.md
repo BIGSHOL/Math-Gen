@@ -3517,3 +3517,119 @@ GPT-5.5 호출은 *best-effort enhancement* — 실패해도 Gemini 결과로 �
 - **다른 시각 패턴 추가** — 6각형 배치, 표 형식 박스 등 새 패턴 발견 시
   complexity 기준 확장
 
+---
+
+## 28. 인식률 향상 종합 카탈로그 (2026-05-27)
+
+사용자 보고 "여전히 인식도가 별로네. 인식률 상승에 대해 동원할 수 있는 방법
+검토" — 가능한 모든 접근법 + 우선순위 + 측정.
+
+### 28-0. 현재 pipeline 한계 진단
+
+```
+[Upload] → [cropDetect: Gemini Flash → GPT-5.5 complex] → [Step 1.5 검수]
+        → [Pass 1 OCR: Gemini Flash Lite, page 전체]
+        → [Pass 2 OCR: GPT-5.5, cropped per problem]
+        → [diagramParams / images bbox / inline SVG]
+```
+
+**측정된 약점** (사용자 반복 보고):
+- 손글씨 인접 영역 → bbox bleed (서술형 4 케이스)
+- 다중 시각 요소 (artwork + figure) → 한쪽 정확도 ↓
+- 도형 vector spec → dashed arc / 다중 라벨 일부 누락
+- 손글씨 잉크 텍스처 → 인쇄 텍스트로 오인식
+
+### 28-1. Tier 1 — 즉시 적용 (비용 0, 큰 효과)
+
+| 방법 | 효과 | 구현 |
+|---|---|---|
+| **이미지 전처리** (upscaling + color filter + contrast) | 손글씨 잉크 제거, 작은 글자 부스트 | Canvas 기반 ~200줄 |
+| **Pre-handwriting mask** (red/blue 픽셀 자동 식별 → 흰색 replace) | bbox bleed 완전 차단 | Canvas 픽셀 분석 ~200줄 |
+| **PDF text layer cross-check** | OCR 출력 vs PDF 임베디드 텍스트 비교 → 큰 차이 시 stronger model 재시도 | PDF.js getTextContent ~150줄 |
+| **Per-type specialized prompt** (객관식 / 서술형 / 도형) | cropDetect type 으로 분기, 타입별 룰 강조 | prompts.ts ~300줄 |
+
+**원칙**: 모델 호출 추가 X — 기존 모델 + 더 좋은 입력 / 더 정밀한 prompt 로 정확도 ↑.
+
+### 28-2. Tier 2 — 중기 (1-2 주, 비용 ↑)
+
+| 방법 | 효과 | 비용 |
+|---|---|---|
+| **Sonnet 4.6 vision Pass 1 전환** | 한국어 수학 컨텍스트 강함, 도형 라벨 정확 | 5x ($0.003 → $0.015/page) |
+| **Multi-model ensemble** (Gemini + Sonnet 병렬 후 vote) | 모델 disagree → warn flag → 사용자 검수 우선 | 2x 비용 + 2x 시간 |
+| **Confidence-based 자동 재시도** | Pass 1 confidence=low → stronger model 자동 호출 | 케이스별 추가 |
+
+### 28-3. Tier 3 — 장기 (구조적 변경)
+
+| 방법 | 효과 | 노력 |
+|---|---|---|
+| **User correction learning** | 사용자 편집 패턴 저장 → 다음 prompt 에 inject | DB row + ~500줄 |
+| **Side-by-side UI** (원본 crop ↔ OCR 텍스트) | 사용자 검수 속도 ↑ | ~400줄 UI |
+| **Drag region selector** | 사용자가 "이 영역 재 OCR" 박스 | ~250줄 |
+| **Curriculum template DB** | 중1/중2/중3 알려진 패턴 캐시 | DB + ~600줄 |
+
+### 28-4. 사용자 결정 (2026-05-27)
+
+| Tier | 적용 | 이유 |
+|---|---|---|
+| Tier 1 (4 항목 모두) | ✅ 전체 다 적용 (효과 클 것 같다는 직관) | 비용 0 + safe |
+| Tier 2 | ✅ Sonnet 전환 + ensemble (측정 후 결정) | Tier 1 결과 측정 후 |
+| Tier 3 | 🟡 후속 | 구조 변경 큰 작업 |
+
+### 28-5. 구현 순서 + 위치
+
+**Step 1**: `src/lib/imagePreprocess.ts` (NEW) — Canvas 기반 전처리 함수
+- `upscaleImage(dataUrl, factor=2)` — Lanczos resampling 으로 2x
+- `removeColorInk(dataUrl)` — red/blue 픽셀 → 흰색 (HSL 기반)
+- `boostContrast(dataUrl, factor=1.2)` — 자동 contrast
+- `preprocessForOcr(dataUrl)` — 위 3 단계 chain (`applyRotation` 직후 호출)
+
+**Step 2**: `src/hooks/usePageOcr.ts` — preprocessForOcr 통합
+- Pass 1 호출 직전: `const ocrInput = await preprocessForOcr(rotatedDataUrl)`
+- Pass 2 (cropped) 도 동일
+
+**Step 3**: `src/services/ai/handwritingMask.ts` (NEW) — pre-detect handwriting regions
+- Canvas pixel histogram — red/blue dominant 영역 식별
+- 결과: `handwritingRegions: BBox[]` array
+- OCR prompt 에 inject: "다음 영역은 학생 손글씨 — 절대 무시"
+
+**Step 4**: `src/lib/textLayerValidator.ts` (NEW) — PDF cross-check
+- `validateOcrAgainstTextLayer(ocrText, pdfTextLayer)` → similarity score
+- < 70% → warn + 자동 stronger model 재시도
+
+**Step 5**: `prompts.ts` 분기 — `buildOcrPrompt(type)` 헬퍼
+- `OCR_CHOICE_PROMPT` (보기 정확도 위주)
+- `OCR_ESSAY_PROMPT` (배점·sub-parts boundary 위주)
+- `OCR_DIAGRAM_PROMPT` (SVG vector spec 위주)
+
+### 28-6. 측정 방법 (Tier 1 → Tier 2 결정 기준)
+
+**측정 데이터셋**: 사용자 보유 실 시험지 10 종 (현재 + 새 업로드).
+- 객관식 페이지 5, 서술형 페이지 5, 도형 페이지 5
+
+**측정 지표**:
+- **Pass 1 정확도** — OCR 결과 vs 정답 (수동 검수) 일치율 (%)
+- **bbox precision** — Step 1.5 에서 사용자 수동 수정 박스 수 (낮을수록 좋음)
+- **figure rendering accuracy** — SVG / image 가 원본과 같은가 (binary)
+- **end-to-end success rate** — 사용자가 *편집 없이* "확정" 누른 비율
+
+**Tier 1 적용 후 측정**:
+- 정확도 90%+ → Tier 1 으로 충분, Tier 2 보류
+- 정확도 80~90% → Tier 2 (Sonnet 전환) 도입 검토
+- 정확도 80% 미만 → 다른 접근 필요 (모델 자체 한계)
+
+### 28-7. 회귀 방지 — Tier 1 적용 시 확인
+
+각 단계마다:
+- [ ] `npx tsc --noEmit` exit 0
+- [ ] 옛 시험지 (preprocessing 전) 도 정상 처리
+- [ ] applyRotation 뒤 preprocessForOcr 호출 — 회전 + 전처리 양립
+- [ ] Chrome MCP 시각 검증 — 전처리 전후 비교 가능 (DEV 모드 toggle 권장)
+- [ ] `?croptest` 하니스 회귀 없음
+
+### 28-8. 후속 — 분기점 결정
+
+Tier 1 측정 후 사용자 보고:
+- "여전히 별로" → Tier 2 즉시 진입 (Sonnet 전환 + ensemble)
+- "괜찮아짐" → Tier 1 으로 stable, Tier 3 (UX) 검토
+- "케이스별로 다름" → confidence-based 자동 재시도 추가
+
