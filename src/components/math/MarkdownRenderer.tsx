@@ -422,7 +422,112 @@ const normalizeInlineSvgs = (html: string): string => {
     return `<svg${a}>`;
   });
 
+  // Pass D — 폐곡선 자동 닫기. 사용자 보고 (2026-05-27): "사각형이 마무리가
+  // 안되었네. 변이 하나 없어". 모델이 4 개 <line> 으로 사각형을 그렸는데
+  // 마지막 변을 emit 안 하는 케이스 보정.
+  //
+  // 알고리즘: SVG 안의 <line> endpoint 들을 grouping (tolerance = bbox 대각선
+  // 의 2%). degree-1 endpoint 가 정확히 2 개이고 그 두 점 사이 거리가 도형
+  // bbox 대각선의 60% 이내면 → 자동 닫는 line 추가.
+  //
+  // 안전 가드 (false positive 차단):
+  //  - line 개수 3~12 일 때만 (3 미만 = 후보 X, 12 초과 = 복잡 도형 위험)
+  //  - degree-1 endpoint 정확히 2 개 (1 개 = 닫힌 도형, 4 개+ = 복잡)
+  //  - dangling 간격 < bbox 대각선 60% (멀면 의도된 열린 도형)
+  out = out.replace(/<svg\b[\s\S]*?<\/svg>/g, (svgBlock) => closeOpenPolygons(svgBlock));
+
   return out;
+};
+
+/**
+ * SVG 한 블록 안의 unclosed line-polygon 을 검출해 닫는 line 자동 삽입.
+ * normalizeInlineSvgs Pass D 의 helper — KaTeX SVG 는 prerenderAllKatex 가
+ * 별도 처리하므로 여기 들어오지 않음 (본문 도형 SVG 만 대상).
+ */
+const closeOpenPolygons = (svgBlock: string): string => {
+  // <line ... /> 또는 <line ...></line> 양쪽 매치.
+  const LINE_RE = /<line\b([^>]*?)\/?>/g;
+  const getAttr = (attrs: string, name: string): string | null => {
+    const m = attrs.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`));
+    return m ? m[1] : null;
+  };
+  interface LineSeg {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    raw: string;
+  }
+  const lines: LineSeg[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = LINE_RE.exec(svgBlock)) !== null) {
+    const attrs = m[1] ?? "";
+    const x1 = parseFloat(getAttr(attrs, "x1") ?? "");
+    const y1 = parseFloat(getAttr(attrs, "y1") ?? "");
+    const x2 = parseFloat(getAttr(attrs, "x2") ?? "");
+    const y2 = parseFloat(getAttr(attrs, "y2") ?? "");
+    if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+    // 점선·축 보조선 등은 제외 — stroke-dasharray 있으면 후처리 대상 X.
+    if (/stroke-dasharray\s*=/i.test(attrs)) continue;
+    lines.push({ x1, y1, x2, y2, raw: m[0] });
+  }
+  // line 개수 가드 — 너무 적거나 많으면 사각형 후보 아님.
+  if (lines.length < 3 || lines.length > 12) return svgBlock;
+
+  // bbox + tolerance.
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const L of lines) {
+    minX = Math.min(minX, L.x1, L.x2);
+    maxX = Math.max(maxX, L.x1, L.x2);
+    minY = Math.min(minY, L.y1, L.y2);
+    maxY = Math.max(maxY, L.y1, L.y2);
+  }
+  const D = Math.hypot(maxX - minX, maxY - minY);
+  if (D <= 0) return svgBlock;
+  const TOL = Math.max(1, D * 0.02);
+
+  // endpoint grouping + degree 계산.
+  interface Pt {
+    x: number;
+    y: number;
+    degree: number;
+  }
+  const pts: Pt[] = [];
+  const findOrAdd = (x: number, y: number): void => {
+    for (const p of pts) {
+      if (Math.hypot(p.x - x, p.y - y) <= TOL) {
+        p.degree += 1;
+        return;
+      }
+    }
+    pts.push({ x, y, degree: 1 });
+  };
+  for (const L of lines) {
+    findOrAdd(L.x1, L.y1);
+    findOrAdd(L.x2, L.y2);
+  }
+
+  // degree-1 (= dangling) 후보 정확히 2 개여야 안전.
+  const dangling = pts.filter((p) => p.degree === 1);
+  if (dangling.length !== 2) return svgBlock;
+  const [a, b] = dangling;
+  const gap = Math.hypot(a.x - b.x, a.y - b.y);
+  if (gap < TOL) return svgBlock; // 이미 거의 닫힘
+  if (gap > D * 0.6) return svgBlock; // 너무 멀면 의도된 열린 도형 (예: arrow tail)
+
+  // 첫 line 의 stroke 속성을 그대로 따라간 닫는 line 생성.
+  const sample = lines[0].raw;
+  const strokeMatch = sample.match(/stroke\s*=\s*"([^"]+)"/);
+  const widthMatch = sample.match(/stroke-width\s*=\s*"([^"]+)"/);
+  const stroke = strokeMatch ? strokeMatch[1] : "black";
+  const sw = widthMatch ? widthMatch[1] : "2";
+  const closingLine = `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="${sw}"/>`;
+
+  // </svg> 직전에 삽입.
+  return svgBlock.replace(/<\/svg>/, `${closingLine}</svg>`);
 };
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({

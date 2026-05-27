@@ -81,6 +81,14 @@ Output Requirements:
      - Parabola recipe: pick vertex (xv, yv) and two anchor points symmetric in x. One quadratic Bézier "Q control_x control_y endX endY" with control_y = 2*yv - anchor_y will make the curve pass through the vertex exactly.
      - For a full ellipse / circle drawn freehand-style use <circle>/<ellipse> primitives.
      - Straight-line graphs and polygon edges still use "L" / <line> — the ban is only on curves.
+   - **Closed polygons — STRICT (사용자 보고 사례)**:
+     - Any *closed shape* (rectangle, square, triangle, parallelogram, trapezoid, hexagon, etc.) MUST be drawn as ONE element that is automatically closed:
+       Good:  <polygon points="0,0 100,0 100,60 0,60" stroke="black" fill="none"/>   (polygon auto-closes)
+       Good:  <rect x="0" y="0" width="100" height="60" stroke="black" fill="none"/>   (rect always closed)
+       Good:  <path d="M 0 0 L 100 0 L 100 60 L 0 60 Z" stroke="black" fill="none"/>   (Z = close)
+       Bad:   four separate <line> elements (any one missing → open polygon, last edge gone)
+     - 🚨 If you absolutely must use <line> segments (e.g. for partial outlines like a staircase profile), ensure the line endpoints connect end-to-end and the LAST line's endpoint EQUALS the FIRST line's start point. The "ABCD staircase" sample is a closed outline — never leave a side missing.
+     - 사용자 보고 (2026-05-27): 사각형 4 변 중 마지막 변 누락 — 4 line 으로 그리지 말고 polygon/rect 사용. 후처리에서 endpoint graph 분석으로 닫는 line 자동 추가는 가능하지만 신뢰성 낮음 — *emit 단에서 닫힌 형태로 emit* 가 정답.
    - Layout & Spacing (CRITICAL):
      - Object separation: for transformation diagrams (Cube → Arrow → Net), provide ample spacing.
      - Arrow clearance: arrows must have ≥ 30px whitespace on both sides — they must NOT touch objects.
