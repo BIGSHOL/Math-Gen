@@ -33,18 +33,28 @@ import type { CropBox } from "@app/stores/wizardStore";
 /**
  * cropDetect 의 `DetectedCrop` (모델 출력) 을 wizardStore 의 `CropBox` 로 매핑.
  * - id: crypto.randomUUID() — React stable key + 사용자 편집 추적용
- * - class: "problem" 고정 — cropDetect 는 figure/table 미식별. 사용자가 Step
- *   1.5 에서 수동으로 class 변경 가능 (figure/table).
+ * - class: 모델 출력 (problem|figure|table|artwork). 옛 응답 호환 — 누락이면
+ *   "problem" default. 사용자가 Step 1.5 에서 수동 변경 가능.
  * - bbox: 4-tuple 보장 — cropDetect 의 `cropBox: number[]` 가 길이 4 미만이면
  *   기본값 (0/1000) 로 안전 fallback.
  * - source: "ai" — 사용자 편집 시 store 의 updateCropBox 가 자동 "edited" 로 변경.
  * - number: 인쇄된 문항 번호 — Pass 2 결과 merge 시 key.
  */
+const ALLOWED_CLASSES: ReadonlyArray<CropBox["class"]> = [
+  "problem",
+  "figure",
+  "table",
+  "artwork",
+];
+
 const detectedToCropBox = (d: DetectedCrop): CropBox => {
   const [yMin = 0, xMin = 0, yMax = 1000, xMax = 1000] = d.cropBox;
+  // 모델이 누락하거나 enum 외 값을 emit 한 경우 "problem" default.
+  const cls: CropBox["class"] =
+    d.class && ALLOWED_CLASSES.includes(d.class) ? d.class : "problem";
   return {
     id: crypto.randomUUID(),
-    class: "problem",
+    class: cls,
     // cropDetect 의 type ("choice"|"essay") 을 kind 로 보존 → EditableCropBox
     // 라벨에 "객관"/"서술" prefix 로 표시. 사용자 요청 (2026-05-26).
     kind: d.type,

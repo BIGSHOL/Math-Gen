@@ -111,7 +111,19 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
  */
 export interface CropBox {
   id: string;
-  class: "problem" | "figure" | "table";
+  /**
+   * 4-class crop classification:
+   *  - **problem**: 한 문항 전체 (텍스트 + 도형 + 보기). 박스 단위 Pass 2 OCR.
+   *  - **figure**:  vectorize 가능한 기하 도형 / 그래프 (단위정사각형 + 대각선,
+   *                좌표축 + 곡선, Venn diagram 등). SVG emit 시도.
+   *  - **table**:   bordered grid (시간표, 점수표, 달력). 표 형태 emit.
+   *  - **artwork**: vectorize *불가능* 한 실사 reference (회화, 사진, 풍경,
+   *                실험기구, 손글씨 sketch). SVG 시도 X — image crop 만 보존.
+   *                예: 반 고흐 "고흐의 의자" 작품 thumbnail.
+   *
+   * 사용자 Step 1.5 검수에서 수동 변경 가능. cropDetect AI 가 1차 자동 분류.
+   */
+  class: "problem" | "figure" | "table" | "artwork";
   /**
    * 문항 유형 — cropDetect 가 추정. "choice"=객관식 (보기 ①②③④⑤ 있음) /
    * "essay"=서술형·단답형 (보기 없음, (N점) 마커). 박스 라벨에 "객관"/"서술"

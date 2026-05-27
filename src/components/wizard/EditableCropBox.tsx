@@ -34,11 +34,19 @@ export interface EditableCropBoxProps {
   onDelete: (id: string) => void;
 }
 
-/** class 별 색상 — problem (파랑) / figure (녹색) / table (주황). */
+/**
+ * class 별 색상 — 4 way:
+ *  - problem (파랑 #0EA5E9): 한 문항 전체
+ *  - figure  (녹색 #10B981): vectorize 가능한 기하 도형
+ *  - table   (주황 #F97316): bordered grid (표/달력/시간표)
+ *  - artwork (보라 #A855F7): vectorize 불가능한 실사 reference (회화/사진)
+ *    — SVG 시도 안 함, image crop 만 보존.
+ */
 const CLASS_COLORS: Record<CropBox["class"], { border: string; bg: string; label: string }> = {
   problem: { border: "#0EA5E9", bg: "rgba(14,165,233,0.08)", label: "문제" },
   figure: { border: "#10B981", bg: "rgba(16,185,129,0.08)", label: "그림" },
   table: { border: "#F97316", bg: "rgba(249,115,22,0.08)", label: "표" },
+  artwork: { border: "#A855F7", bg: "rgba(168,85,247,0.08)", label: "작품" },
 };
 
 /**

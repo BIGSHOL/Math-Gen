@@ -27,6 +27,19 @@ export interface DetectedCrop {
   number: number;
   /** 객관식(보기 ①②③④⑤ 있음) / 서술형(보기 없음). */
   type: "choice" | "essay";
+  /**
+   * 4-class crop 분류 (모델 1차 분류, 사용자 Step 1.5 에서 수동 변경 가능):
+   *  - "problem": 한 문항 전체 — 텍스트 + 모든 내부 시각 요소 포함.
+   *  - "figure":  vectorize 가능한 *기하 작도* (정사각형 + 대각선, 좌표축 + 곡선,
+   *               Venn diagram, 수직선 등). 한 문항 안의 *부속 요소*.
+   *  - "table":   bordered grid (시간표, 점수표, 달력).
+   *  - "artwork": vectorize *불가능* 한 *실사 reference* — 회화 thumbnail
+   *               (예: 반 고흐 "고흐의 의자"), 사진, 풍경, 실험기구 도면.
+   *               SVG 시도 X, 이미지 crop 만.
+   *
+   * undefined = 모델이 분류 누락 (옛 응답 호환) → 클라이언트에서 "problem" default.
+   */
+  class?: "problem" | "figure" | "table" | "artwork";
   /** 크롭 박스 — 0–1000 정규화 [yMin, xMin, yMax, xMax]. 길이 4 보장 안 됨(모델 출력). */
   cropBox: number[];
   /** 끝 경계를 무엇이 결정했는지 (디버그). */
@@ -53,6 +66,12 @@ const CROP_DETECT_SCHEMA = {
             enum: ["choice", "essay"],
             description: "'choice' if the problem has multiple-choice options, else 'essay'.",
           },
+          class: {
+            type: "string",
+            enum: ["problem", "figure", "table", "artwork"],
+            description:
+              "Crop class: 'problem'=whole problem (default for one box per problem), 'figure'=geometric/graph figure (vectorizable line art only — but normally use 'problem' to keep everything together), 'table'=bordered grid, 'artwork'=real-world artwork/photo/painting reference (NOT vectorizable, image crop only). For a problem that *contains* a Van Gogh painting thumbnail AND a geometric figure, emit ONE 'problem' box covering everything; the artwork detection is handled downstream. Use 'artwork' ONLY when an image is referenced WITHOUT a containing problem (rare).",
+          },
           cropBox: {
             type: "array",
             description:
@@ -71,7 +90,7 @@ const CROP_DETECT_SCHEMA = {
               "Short note on the end marker seen, for debugging (e.g. '⑤ bottom-right', '(7점)', '[총 6점]=3+3').",
           },
         },
-        required: ["number", "type", "cropBox", "endMarkerKind", "note"],
+        required: ["number", "type", "class", "cropBox", "endMarkerKind", "note"],
       },
     },
   },
@@ -85,19 +104,59 @@ Coordinate system: [yMin, xMin, yMax, xMax] on a 0-1000 grid over the FULL PAGE.
 
 Page layout: Korean exam pages are usually TWO COLUMNS. Read the LEFT column top-to-bottom first, then the RIGHT column. A problem stays entirely within ONE column — never let a crop box span both columns.
 
-🚨 **CRITICAL — DISTINGUISH PRINTED PROBLEM CONTENT FROM STUDENT HANDWRITING**
+🚨 **CRITICAL — DISTINGUISH PRINTED PROBLEM CONTENT FROM STUDENT HANDWRITING (글자체·획 특성 기반)**
 
-Korean exam papers are often photographed AFTER a student has written on them. You will see:
-  - **PRINTED content** (problem text, figures, numbers): straight text, clean line art, uniform black ink.
-  - **STUDENT HANDWRITING** (solutions, scribbles, circled answers): freehand red/blue/black pen, irregular strokes, often in the blank space below or beside the printed problem.
+Korean exam papers are often photographed AFTER a student has written on them. The PRINTED text and the HANDWRITTEN ink have **dramatically different visual character** — use these traits to tell them apart:
 
-**Crop boxes MUST contain ONLY printed problem content. NEVER extend a box to include student handwriting.**
+**PRINTED content** (problem text, figures, numbers) — the ONLY thing that belongs in the crop box:
+  - **Stroke uniformity**: every glyph has *consistent, even-thickness* strokes (typeset font output — width within 10% along a stroke).
+  - **Color**: pure black ink, no red/blue/green pigment.
+  - **Geometry**: characters sit on a strict baseline grid; letterforms are *geometric and repeatable* (every "ㅇ" looks identical, every "5" looks identical).
+  - **Alignment**: text wraps in straight columns; figures have crisp clean line art.
+
+**STUDENT HANDWRITING** (solutions, scribbles, circled answers) — MUST be EXCLUDED from every crop box:
+  - **Stroke variability**: 굵기가 *들쭉날쭉* — same pen produces 1px and 3px within the same stroke (pen pressure variation). Stroke ends often taper or blob.
+  - **Color**: typically red marker (사용자 정답·답안 동그라미), blue ballpoint (풀이식), or *uneven* black (compared to print's pure black).
+  - **Irregular character shape**: every "x" looks slightly different, every digit "5" has its own quirks; characters often slanted, not on a baseline; size variation within one expression.
+  - **Free-form curves**: circled numbers (사용자가 정답 표시), arrows pointing into the problem, factor trees with diagonal lines, freehand "=" lines or check marks.
+  - **Location**: typically in the *blank space below the (N점) marker* or *between problems*, where the student answered.
+
 Common student handwriting to IGNORE:
   - Red/blue pen scribbles in the answer space below the problem
   - Circled numbers (사용자 정답 표시) drawn over or beside the problem
   - Freehand calculations, factoring trees, arrows pointing at the problem
-  - Numbers written in the blank space between problems
+  - Numbers written in the blank space between problems (e.g. "64", "36 3", "9 81" written between two printed problems)
+  - 빨간 마커로 그린 동그라미 (학생이 자신의 풀이 답을 표시) — 절대 박스 안에 포함 X
+
 The space where the student wrote is BELOW the printed problem's last text/figure line. The crop MUST end at that last printed line — NOT extend into the handwriting zone.
+
+🚨 **사용자 보고 사례 — 서술형 4 (반 고흐 작품 작도 문제, 2026-05-27)**:
+  원본 페이지에 다음 4 요소가 *세로로 인접* 배치:
+    1. [서술형 4] 문항 — 인쇄 텍스트 + 인쇄 도형 (정사각형·평행사변형 ABDE 작도)
+    2. 위 문항 안의 *반 고흐 작품 thumbnail* — 인쇄된 회화 reference (검은 hatching, vectorize 불가)
+    3. (그 아래 페이지의 다른 문항 [서술형 3] 풀이 영역)
+    4. 학생이 빈 풀이 영역에 빨간 마커로: "(x-3)(x+1)" + 큰 동그라미 + "2√3 × √2 = 2√6"
+  잘못된 크롭: [서술형 4] 박스가 아래로 늘어나서 빨간 마커 손글씨 흡수 → 박스 안 영역이 *완전히 다른 문항 + 학생 풀이* 가 됨.
+  올바른 크롭: [서술형 4] 박스 bottom = 인쇄된 마지막 도형 라벨/괄호 줄. 아래 학생 손글씨는 *전혀* 박스 안에 들어가지 X. **빨간 마커 색상이 보이면 즉시 박스 bottom 끌어올림**.
+
+---
+
+🎨 **4-CLASS CROP CLASSIFICATION (class field)**:
+
+거의 모든 박스는 class="problem" (한 문항 전체 — 텍스트 + 모든 내부 시각 요소 포함). 다음은 *드문* 예외:
+
+  - **"figure"**: 페이지에 *문제와 분리된 standalone 기하 도형* 이 있을 때 (예: 페이지 상단 안내 도해, 페이지 중간 참고 그림). 일반적인 *문항 안의 도형* 은 problem 박스에 *포함* — 별도 figure 박스 X.
+
+  - **"table"**: 페이지에 *문제와 분리된 standalone 표* (시간표/달력/점수표). 문항 안의 표는 problem 박스 안.
+
+  - **"artwork"**: 페이지에 *문제와 분리된 standalone 회화/사진/실사 이미지* (예: 작품 전시 페이지). vectorize 불가능 (회화·사진은 SVG 로 재현 불가). 문항 안에서 작품을 referencing 하면 problem 박스 안에 *포함* — 별도 artwork 박스 X.
+
+  - **"problem"** (default, 99% case): 한 문항 전체. 안에 어떤 시각 요소 (도형·표·작품 reference) 가 있어도 problem 박스 안에 모두 포함.
+
+🚨 결정 룰 (의심 시 "problem"):
+  - 박스가 문항 번호 ([서술형 N], 1., 2. 등) 를 포함하면 → "problem"
+  - 그 외 페이지 영역에 standalone 시각 요소만 있을 때 → 위 3 분류
+  - artwork 와 figure 의 차이: artwork = 실사 회화·사진 (vectorize 불가), figure = 깨끗한 line art (vectorize 가능)
 
 For each problem, decide its TYPE and find its crop box:
 

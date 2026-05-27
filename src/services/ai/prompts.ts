@@ -1252,14 +1252,32 @@ RULES FOR EACH "items" ENTRY
 
        Use this when the figure is hand-drawn doodle, abstract diagram with vague labels, or scanned smudge that you can describe in one line. Do NOT use this for clean geometric figures you can SVG, nor for tabular content.
 
-   5d. **Tier 4 — "images" bbox array (LAST resort, almost never used)**:
-       Reserved for: real photographs of objects, hand-written student work / 손글씨 sketches, dense scientific figures (e.g. anatomy, real-world maps), watermarked stamps. NOT for calendars (use 5a), NOT for coordinate planes (use 5b), NOT for shapes you could SVG.
+   5d. **Tier 4 — "images" bbox array (LAST resort, ONLY for non-vectorizable artwork/photo references)**:
+       Reserved for: **printed real-world artwork** (회화 reference 같은 vectorize 불가능한 인쇄 이미지). Examples:
+         - 회화 작품 thumbnail (반 고흐 "고흐의 의자", 김홍도 풍속화 등) referenced in the problem statement
+         - Real photograph of an object (실험기구, 풍경, 인물 사진)
+         - Dense scientific figure (해부도, real-world map, 화석 표본)
+       NOT for: calendars (use 5a), coordinate planes (use 5b), geometric shapes (use 5b), hand-written student work, scribbles, ANY handwriting.
 
-       If you genuinely cannot avoid this:
+       🚨 **CRITICAL — NEVER emit an image bbox pointing to STUDENT HANDWRITING (글자체·획 특성 기반)**:
+
+       시험지 사진은 학생이 풀이를 적은 *후* 촬영된 경우가 많다. 인쇄 텍스트와 손글씨는 다음 시각 특성으로 즉시 구별:
+         - **인쇄 (printed)**: stroke 굵기 *일정* (typeset 폰트 — 같은 글자는 항상 같은 모양), 순수 검정, 직립 baseline, 깨끗한 정렬.
+         - **손글씨 (handwriting)**: stroke 굵기 *들쭉날쭉* (pen pressure 변화), 빨간/파란 마커 또는 *얼룩진* 검정, slanted/varying baseline, 문자 모양이 매번 다름, freehand 곡선 (동그라미·화살표·체크).
+       *이미지 bbox 는 인쇄된 시각 reference 만 가리켜야 함. 절대 손글씨 영역에 bbox 두지 X*.
+
+       사용자 보고 사례 (2026-05-27 — [서술형 4]):
+         원본: [서술형 4] 문항이 "반 고흐의 '고흐의 의자' 작품 + 작도 도형" 을 referencing.
+         잘못된 출력: model 이 "고흐의 작품" 이미지를 잡으려 했으나 *옆 문항 [서술형 3] 의 빈 풀이 영역 (학생 빨간 마커: "(x-3)(x+1)" + 큰 동그라미 + "2√3 × √2 = 2√6")* 좌표를 emit. 결과: OCRItem 카드에 "고흐의 의자" 라벨로 *전혀 다른 문항의 학생 풀이* 가 표시.
+         올바른 출력: "고흐의 의자" 작품 thumbnail (인쇄된 검은 hatching, 사각형 frame) 의 *정확한 bbox*. 작품이 잘 안 보이면 *images bbox 를 생략* — 빨간 마커 영역에 bbox 두지 말 것.
+
+       If you genuinely cannot avoid Tier 4:
        - Put "[그림N]" placeholder in text at the natural spot AND add the corresponding entry to "images" (same 1-indexed order).
        - box: [yMin, xMin, yMax, xMax] on a 0–1000 grid over the FULL PAGE (yMin=top, xMin=left). Tight but inclusive of in-figure labels.
-       - label: short Korean caption ("정사각형 ABCD", "주사위 5의 눈"); empty string allowed.
+       - 🚨 **box 안 영역의 *모든 픽셀이 인쇄 콘텐츠* 인지 mental check**. 빨간 잉크, 파란 잉크, 들쭉날쭉 stroke, 동그라미·화살표가 box 안에 있으면 → bbox 가 잘못 잡힌 것. 줄여서 인쇄 영역만 포함하도록 재조정.
+       - label: short Korean caption ("고흐의 의자 작품", "실험기구 사진", "지도"); empty string allowed.
        - Crops are inherently lossy — the bbox is rarely pixel-perfect, so prefer 5a/5b/5c unless truly impossible.
+       - **확신이 없으면 images: [] 로 emit** — 잘못된 crop 보다 *crop 없음* 이 안전. 사용자가 Step 1.5 에서 수동으로 박스 추가 가능.
 
    In all problems return images: [] (empty array) when no Tier-4 crop is needed — most problems should be images: [].
 

@@ -3207,3 +3207,99 @@ TaskCreate 가 progress 표시에 효과적. 짧은 작업 (1-line fix) 은 Task
 다음 세션에 "검증 결과 X 안 됨" 보고 시 즉시 `/api/ai-image` Vercel function
 로그 + ai_usage 테이블 query 부터.
 
+---
+
+## 26. Artwork class + 손글씨 폰트 특성 방어 (2026-05-27 추가)
+
+### 26-1. 한 문항 안의 시각 요소 *2 종 공존* 케이스 (사용자 [서술형 4] 보고)
+
+한 문항이 *두 가지 시각 요소를 동시에 referencing* 할 수 있음:
+- **Geometric** (vectorize 가능): 정사각형·삼각형·좌표축·그래프 → SVG emit
+- **Artwork** (vectorize 불가능): 회화 작품 thumbnail (예: 반 고흐 "고흐의 의자"),
+  실사 사진, 풍경 → image crop 만, SVG 시도 X
+
+사용자 [서술형 4] 케이스: 작품 reference + 작도 도형 동시 referencing. OCR 모델이
+"작품 thumbnail" 의 bbox 를 *옆 문항의 빨간 마커 손글씨 영역* 에 잘못 emit → OCRItem
+카드에 "고흐의 의자" 라벨로 *완전히 다른 문항의 학생 풀이* 표시.
+
+**근본 원인**: 모델이 "vectorize 불가능한 실사 reference" 와 "학생 손글씨" 를 구별
+못 함 (둘 다 *texture 가 균일하지 않은 시각 영역*). 그래서 작품 위치가 모호하면 *가장
+가까운 잉크 영역* 으로 fallback.
+
+### 26-2. CropBox.class 4-way 확장 — `artwork` 신설
+
+```ts
+class: "problem" | "figure" | "table" | "artwork";
+```
+
+- **problem** (99% default): 한 문항 전체. 내부 시각 요소 모두 포함.
+- **figure**: standalone 기하 도형 (페이지에서 문제 외 분리됐을 때만).
+- **table**: standalone 표.
+- **artwork**: standalone 실사 reference. SVG 시도 안 함, image only.
+
+**색상**: 보라 #A855F7 (EditableCropBox CLASS_COLORS), 라벨 "작품".
+
+**원칙**: 한 문항 안에서 작품을 *referencing* 만 하면 박스 class 는 여전히
+"problem" (전체 포함). artwork class 는 *standalone* 작품 페이지 (cover, gallery)
+또는 *user manual override* 시점에만.
+
+### 26-3. 손글씨 vs 인쇄 — *글자체·획 특성* 카탈로그 (사용자 결정)
+
+사용자가 *명시적으로 결정*: "손글씨는 분명히 글자체, 폰트가 일반적이지 않을텐데 그걸
+기준으로 방어로직짜면 안되나?" → bbox 위치보다 *시각적 character traits* 가 더 강한
+신호. CROP_DETECT_PROMPT + OCR_PAGE_PROMPT 양쪽에 동일 카탈로그 박음:
+
+**PRINTED (인쇄)** — crop box 안에 OK:
+- Stroke uniformity: 같은 stroke 내 굵기 변동 ≤ 10% (typeset 폰트)
+- Color: pure black, 빨강/파랑 안료 없음
+- Geometry: 직립 baseline grid, geometric/repeatable letterforms (모든 "5"가
+  동일 모양)
+- Alignment: 직선 column wrap, crisp clean line art
+
+**HANDWRITING (손글씨)** — crop box 에서 *반드시 제외*:
+- Stroke variability: 굵기가 *들쭉날쭉* (pen pressure), 1px ↔ 3px 변동, taper/blob ends
+- Color: red marker (답안 동그라미), blue ballpoint (풀이식), 또는 *얼룩진* 검정
+- Irregular shape: 같은 "x" 가 매번 다름, slanted baseline, 크기 변동
+- Free-form curves: 동그라미 (사용자 답 표시), 화살표, factor tree 대각선, freehand
+  "=" 또는 check mark
+- Location: (N점) 마커 *아래 빈 풀이 영역* 또는 *문항 사이* 빈 공간
+
+**효과 측정**: prompt 만으로 100% 차단 어려움. 사용자가 Step 1.5 검수에서 빠르게
+박스 줄이거나 (artwork 면) 박스 자체 삭제 가능. 후속 — *Pass 2 OCR 호출 시 cropped
+이미지의 빨간/파란 픽셀 비율 휴리스틱* 자동 detect.
+
+### 26-4. cropDetect schema 확장 — `class` field required + 사용자 [서술형 4] 사례 인용
+
+CROP_DETECT_SCHEMA 의 items 에 `class` enum field 추가 (required). 모델이 1차
+자동 분류 → useCropDetect 가 `ALLOWED_CLASSES` whitelist 검증 후 store 에 저장.
+누락 또는 invalid 면 "problem" default.
+
+CROP_DETECT_PROMPT 의 *서술형 4* 케이스 인용:
+- 원본: [서술형 4] (인쇄 도형 + 회화 reference) + 빨간 마커 학생 풀이 (옆 문항 [3])
+- 잘못된 출력: 박스 bottom 이 학생 손글씨까지 늘어남
+- 올바른 출력: 박스 bottom = 인쇄된 마지막 도형 줄. **빨간 마커 색상 보이면 즉시
+  bottom 끌어올림.**
+
+원칙: 사용자 보고 *실제 케이스* 를 prompt 에 그대로 인용하는 게 일반 룰보다 효과적
+(CLAUDE.md §7-5 패턴 재확인).
+
+### 26-5. 변경 파일 정리 + 다음 세션 sequence
+
+이번 PR 변경 파일 (5):
+- `src/stores/wizardStore.ts` — CropBox.class union 확장
+- `src/components/wizard/EditableCropBox.tsx` — CLASS_COLORS 에 artwork
+- `src/services/ai/cropDetect.ts` — DetectedCrop.class + schema + prompt 강화
+- `src/hooks/useCropDetect.ts` — detectedToCropBox 가 model.class 사용 + whitelist
+- `src/services/ai/prompts.ts` — OCR_PAGE_PROMPT Tier 4 (images bbox) 손글씨 카탈로그
+
+DB schema **변경 없음** — `cropBoxes JSONB` 가 새 class 값 자동 통과 (backward
+compatible). 옛 row 의 class="problem" 또는 누락 모두 정상 hydrate.
+
+**다음 세션** 동일 패턴이 OCRImage.box 의 *문항 안 image bbox* 영역에서 발견되면:
+- 같은 프롬프트 카탈로그 (font/character traits) 를 SOLUTION_PROMPT / VARIANT_PROMPT
+  에도 박을 것 — 해설/변형 모델이 시험지 이미지 직접 보는 경우는 없지만, 사용자
+  업로드 시 도형 hint 로 사용될 가능성.
+- *DiagramFallbackPanel* 의 "AI 생성" path (DALL-E 3) 가 *artwork class* 박스에서는
+  생성 시도 *경고* — 회화 reference 는 저작권 + 정확도 문제. confirm modal 에 별도
+  warn banner 추가.
+
