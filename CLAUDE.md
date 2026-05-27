@@ -2509,6 +2509,20 @@ barrel. 단 *순환 import 위험* — barrel 이 sibling 을 import 하지 않�
 - 🟢 6 template 의 PDF 다운로드 (`/api/export-pdf`) 결과 검증 — Puppeteer
   로딩 시 폰트 / 색상 / layout 일관성
 
+### 22-6. *완료* Phase I-7b — Pass 2 per-box cropped OCR (commit `d8771c7`)
+- ✅ usePageOcr Pass 2 가 전체 페이지 → 검증된 cropBox (class="problem")
+  별 cropped image 로 전환. vision token 30~50% 절감 목표.
+- ✅ 도형 있는 figureItems 만 호출 대상. 도형 없는 item 은 호출 자체 X.
+  결과는 number 기준 merge.
+- ✅ legacy v2 fallback: cropBoxes=undefined 시 cropInspectionOK 통과하지만
+  problemBoxes 비어있어 silent no-op (Pass 1 유지). 사용자가 Step 1.5 에
+  다시 방문 시 자동 populate.
+- ✅ pass2Chain 폴백 + dispatched Set 매커지 그대로 (no AbortController).
+- 🟡 검증 갭: dev 에서 API 키 미노출 → extractPageProblems 호출 시 401/auth
+  에러. 한 차례 브라우저 hung 관찰 (fresh tab 로딩은 정상 — 일회성). 실제
+  cropped Pass 2 동작 검증은 *API 키 활성 환경* (Vercel preview 또는
+  VITE_OPENAI_API_KEY 설정된 dev) 에서 사용자 수동 권장.
+
 ---
 
 ## 23. ClassDay 흡수 + Phase G/H/I 진행 + handoff (2026-05-26 세션)
