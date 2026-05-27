@@ -142,6 +142,11 @@ const syncPageDiff = (next: WizardPage, prev: WizardPage): void => {
   if (prev.ocrModel !== next.ocrModel) pagePatch.ocr_model = next.ocrModel ?? null;
   if (prev.rotation !== next.rotation) pagePatch.rotation = next.rotation;
   if (prev.forceOcr !== next.forceOcr) pagePatch.force_ocr = next.forceOcr ?? false;
+  // Phase I: cropBoxes / cropInspected 영구 저장 — 보관함 재열기 시 재검출 차단.
+  // cropBoxes 배열 reference 비교 (mutation 안 함 — store 가 새 배열 emit).
+  if (prev.cropBoxes !== next.cropBoxes) pagePatch.crop_boxes = next.cropBoxes ?? null;
+  if (prev.cropInspected !== next.cropInspected)
+    pagePatch.crop_inspected = next.cropInspected ?? false;
   if (Object.keys(pagePatch).length > 0) {
     void updatePageOcr(next.id, pagePatch);
   }

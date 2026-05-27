@@ -54,9 +54,14 @@ CREATE TABLE IF NOT EXISTS pages (
   ocr_complete        BOOL NOT NULL DEFAULT false,
   ocr_model           TEXT,
   ocr_error           TEXT,
+  crop_boxes          JSONB DEFAULT '[]'::jsonb,             -- Phase I: Step 1.5 검수 박스 [{id,class,kind,bbox[4],source,number,verified}]
+  crop_inspected      BOOL DEFAULT false,                    -- Phase I: 사용자가 검수 완료 표시
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (test_id, page_num)
 );
+-- Phase I 마이그레이션 (멱등): 기존 행 컬럼 추가
+ALTER TABLE pages ADD COLUMN IF NOT EXISTS crop_boxes JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE pages ADD COLUMN IF NOT EXISTS crop_inspected BOOL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_pages_test
   ON pages(test_id, page_num);
 

@@ -55,6 +55,10 @@ export interface PageRow {
   ocr_complete: boolean;
   ocr_model: string | null;
   ocr_error: string | null;
+  /** Phase I: Step 1.5 검수 박스 — null/[] 면 미검출, [...] 면 검출 완료 (재검출 X). */
+  crop_boxes: import("@app/stores/wizardStore").CropBox[] | null;
+  /** Phase I: 사용자가 페이지 검수 완료로 표시. */
+  crop_inspected: boolean | null;
   created_at: string;
 }
 
@@ -215,6 +219,12 @@ export const wizardPageToPageInsert = (
   ocr_complete: page.ocrComplete,
   ocr_model: page.ocrModel ?? null,
   ocr_error: page.ocrError ?? null,
+  // Phase I: cropBoxes / cropInspected 영구 저장 — 보관함 재열기 시 cropBoxes
+  // !== undefined 보장 → useCropDetect 가 재검출 X (사용자 보고 2026-05-27).
+  // undefined 면 [] 로 안전 default (DB 에는 빈 배열 — 재열기 시 "검출 됐는데
+  // 박스 0 개" 의미. 사용자가 직접 박스 그려야 함).
+  crop_boxes: page.cropBoxes ?? null,
+  crop_inspected: page.cropInspected ?? false,
 });
 
 /**
@@ -318,6 +328,11 @@ export const pageRowToWizard = (
   forceOcr: row.force_ocr ?? undefined,
   ocrModel: (row.ocr_model as WizardPage["ocrModel"]) ?? undefined,
   rotation: row.rotation,
+  // Phase I: DB 의 crop_boxes 가 null 이면 *옛 데이터* (마이그레이션 전) —
+  // undefined 로 두어 Step 1.5 가 자동 검출. JSONB 빈 배열 [] 이면 검출
+  // 됐는데 박스 0 개 (사용자가 직접 그려야 함) — 재검출 X.
+  cropBoxes: row.crop_boxes ?? undefined,
+  cropInspected: row.crop_inspected ?? undefined,
 });
 
 export const reviewRowToWizard = (row: ReviewRow): ProblemReview => ({
