@@ -334,6 +334,14 @@ export const usePageOcr = () => {
       // ── Pass 2: 도형 페이지 정밀 분석 (GPT-5.5 → Gemini 3.1 Pro 폴백) ──
       // 1차가 깔끔히 끝났고 도형이 있는 페이지만 트리거. 이미 도형 체인의
       // 어떤 모델로라도 처리된 페이지는 skip (무한 루프 방지).
+      //
+      // Phase I-7 (검수 게이트): cropInspected === undefined (legacy v2 session)
+      // 이면 *gating 없음* — 옛 동작 보존. v3+ 의 신규 session 은
+      // cropInspected === true *명시 후* 만 Pass 2 트리거 (사용자가 박스 검토
+      // 완료한 페이지에 한해 cropped Pass 2 비용 부담).
+      const cropInspectionOK =
+        page.cropInspected === undefined ||
+        page.cropInspected === true;
       const alreadyUpgraded = pass2Chain.includes(page.ocrModel as OCRModel);
       const eligibleForUpgrade =
         page.ocrComplete &&
@@ -342,6 +350,7 @@ export const usePageOcr = () => {
         isPass1Model(page.ocrModel) &&
         !alreadyUpgraded &&
         pageHasFigures(page.ocrResult) &&
+        cropInspectionOK &&
         !page.ocrResult.some((it) => it.reviewed) && // preserve user edits
         !upgradeDispatched.current.has(page.id);
 
