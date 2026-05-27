@@ -71,6 +71,8 @@ export const DiagramCropOverlay = ({
   // 이미지 컨테이너 ref + 실제 px 크기 (ResizeObserver — Step 1.5 와 동일 패턴)
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  // 페이지 이미지의 *자연 픽셀 크기* — 박스 크기 표시 (사용자 결정 2026-05-27: % 대신 px)
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     if (!open) return;
     if (!containerRef.current) return;
@@ -82,6 +84,18 @@ export const DiagramCropOverlay = ({
     setContainerSize({ width: el.clientWidth, height: el.clientHeight });
     return () => ro.disconnect();
   }, [open, pageImageDataUrl]);
+  // pageImageDataUrl → Image() 로 자연 픽셀 크기 추출 (containerRef 크기는 *display* 라 부정확)
+  useEffect(() => {
+    if (!pageImageDataUrl) {
+      setNaturalSize({ width: 0, height: 0 });
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.src = pageImageDataUrl;
+  }, [pageImageDataUrl]);
 
   const handleBoxUpdate = useCallback((_id: string, patch: Partial<CropBox>) => {
     setBox((prev) => ({ ...prev, ...patch }));
@@ -127,13 +141,19 @@ export const DiagramCropOverlay = ({
     }
   }, [saving, pageImageDataUrl, box.bbox, initialImage, onSave, onClose]);
 
-  // 박스 크기·위치 안내 라벨
+  // 박스 크기·위치 안내 라벨 — 페이지 자연 픽셀 크기 기반 (사용자 결정 2026-05-27)
   const sizeHint = useMemo(() => {
     const [yMin, xMin, yMax, xMax] = box.bbox;
-    const w = ((xMax - xMin) / 10).toFixed(1);
-    const h = ((yMax - yMin) / 10).toFixed(1);
-    return `${w}% × ${h}%`;
-  }, [box.bbox]);
+    if (naturalSize.width === 0 || naturalSize.height === 0) {
+      // 자연 크기 미로딩 — % fallback
+      const w = ((xMax - xMin) / 10).toFixed(1);
+      const h = ((yMax - yMin) / 10).toFixed(1);
+      return `${w}% × ${h}%`;
+    }
+    const wpx = Math.round(((xMax - xMin) / 1000) * naturalSize.width);
+    const hpx = Math.round(((yMax - yMin) / 1000) * naturalSize.height);
+    return `${wpx} × ${hpx} px`;
+  }, [box.bbox, naturalSize]);
 
   return (
     <ModalShell

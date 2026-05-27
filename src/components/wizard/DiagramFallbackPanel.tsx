@@ -203,14 +203,13 @@ export const DiagramFallbackPanel = ({
         />
       )}
 
-      {/* AI 생성 confirm 모달 */}
+      {/* AI 생성 confirm 모달 — 비용 표시 X (사용자 결정 2026-05-27) */}
       {confirmOpen && (
         <DiagramGenerateConfirm
           open={confirmOpen}
           initialPrompt={extractDiagramHint(item)}
           hasExistingDiagram={hasValidVector || images.length > 0}
           hasExistingGeneration={hasAiGen}
-          todayTotalCostUsd={accumulatedCostUsd}
           onConfirm={handleGenerate}
           onClose={() => setConfirmOpen(false)}
           generating={generating}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Btn, Eyebrow, Icon } from "@app/components/ui";
+import { Btn, Icon } from "@app/components/ui";
 import { ModalShell } from "./ModalShell";
 
 /**
@@ -7,9 +7,11 @@ import { ModalShell } from "./ModalShell";
  *
  * **표시 정보**:
  *  - prompt preview (한국어 추출본) — 사용자가 직접 편집 가능
- *  - 비용 안내 ("약 $0.05 / ~3초")
  *  - 이미 도형 있는 경우 경고 ("원본 도형이 있는데 새로 생성하시겠습니까?")
  *  - 생성 / 취소 버튼
+ *
+ * **비용/소요 시간 표시 제거 (사용자 결정 2026-05-27)** — 사용자에게 불필요한
+ * 정보. 호출은 여전히 ai_usage 테이블에 cost_usd 기록 (admin 모니터링용).
  *
  * **submit**: parent (OCRItem) 가 onConfirm(editedPrompt) 받아 imageGen 호출.
  */
@@ -21,22 +23,17 @@ export interface DiagramGenerateConfirmProps {
   hasExistingDiagram?: boolean;
   /** 이미 같은 prompt 의 ai-gen 이미지가 있으면 dedupe 경고. */
   hasExistingGeneration?: boolean;
-  /** 누적 비용 표시 (USD). 0 이면 표시 X. */
-  todayTotalCostUsd?: number;
   onConfirm: (prompt: string) => void;
   onClose: () => void;
   /** 생성 in-flight — confirm 버튼 disable + spinner. */
   generating?: boolean;
 }
 
-const ESTIMATED_COST_USD = 0.046; // DALL-E 3 + gpt-4o-mini 번역
-
 export const DiagramGenerateConfirm = ({
   open,
   initialPrompt,
   hasExistingDiagram,
   hasExistingGeneration,
-  todayTotalCostUsd,
   onConfirm,
   onClose,
   generating,
@@ -133,32 +130,6 @@ export const DiagramGenerateConfirm = ({
           </div>
         </div>
 
-        {/* 비용 안내 */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="px-3 py-2 rounded-r2 bg-surface2 border border-line">
-            <Eyebrow className="mb-0.5">예상 비용</Eyebrow>
-            <div className="font-mono font-semibold text-small text-text">
-              ${ESTIMATED_COST_USD.toFixed(3)}
-            </div>
-            <div className="text-caption text-muted">
-              DALL-E 3 + gpt-4o-mini 번역
-            </div>
-          </div>
-          <div className="px-3 py-2 rounded-r2 bg-surface2 border border-line">
-            <Eyebrow className="mb-0.5">예상 소요</Eyebrow>
-            <div className="font-mono font-semibold text-small text-text">
-              ~3 초
-            </div>
-            <div className="text-caption text-muted">2–5초 응답</div>
-          </div>
-        </div>
-
-        {/* 누적 비용 */}
-        {typeof todayTotalCostUsd === "number" && todayTotalCostUsd > 0 && (
-          <div className="text-caption text-muted text-right">
-            오늘 누적 (이 시험지): ${todayTotalCostUsd.toFixed(3)}
-          </div>
-        )}
       </div>
 
       <div className="px-5 py-3 border-t border-line flex items-center justify-end gap-2 bg-surface2">

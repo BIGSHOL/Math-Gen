@@ -69,6 +69,14 @@ export interface MarkdownRendererProps {
   /** SVG strings that will replace `[그림N]` placeholders in content. */
   diagramSvgs?: DiagramSvgItem[];
   /**
+   * 사용자 결정 (2026-05-27): SVG 없는 [그림N] 자리를 *크롭 이미지* 로 대체.
+   * 우선순위 — diagramSvgs[idx] 가 있으면 그것, 없으면 imageCrops[idx] 의 src 를
+   * `<img>` 로 inline. 둘 다 없으면 [그림N] placeholder 그대로 유지.
+   *
+   * indexing 은 `[그림N]` 의 N (1-indexed) → 배열 idx (0-indexed) 변환.
+   */
+  imageCrops?: Array<{ src: string; label?: string }>;
+  /**
    * Phase #7: 원본 보기 배치 hint. OCR 모델이 인식한 grid 를 그대로 렌더.
    * 기본 "auto" — 옵션 길이 기반 자동 결정. tall LaTeX 검출 시 5x1 강제 override.
    */
@@ -577,6 +585,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   className = "",
   inline,
   diagramSvgs,
+  imageCrops,
   choicesLayout = "auto",
 }) => {
   // Stage 0: inline <svg>…</svg> extraction.
@@ -672,6 +681,28 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           return replaceSvg(match, svg, input, offset);
         }
         return match;
+      },
+    );
+  }
+
+  // Stage 1b: 사용자 결정 (2026-05-27) — SVG 가 채우지 못한 [그림N] 을 *크롭 이미지* 로 대체.
+  // 본문에 `[그림1]` 텍스트 잔류 + 별도 하단 이미지 = 사용자가 redundant 라고 보고.
+  // → SVG 우선, image fallback. 둘 다 없으면 placeholder 그대로.
+  const inlinedImageIndices = new Set<number>();
+  if (imageCrops && imageCrops.length > 0) {
+    svgReplacedContent = svgReplacedContent.replace(
+      /\[그림(\d+)\]/g,
+      (match, numStr) => {
+        const idx = parseInt(numStr) - 1;
+        if (idx < 0 || idx >= imageCrops.length) return match;
+        const im = imageCrops[idx];
+        if (!im?.src) return match;
+        inlinedImageIndices.add(idx);
+        // alt 텍스트 escape
+        const altRaw = im.label ?? `도형 ${idx + 1}`;
+        const alt = altRaw.replace(/"/g, "&quot;");
+        // inline block — 본문 흐름 유지. max-width 240px 로 종이 폭 안 넘어가게.
+        return `\n\n<img src="${im.src}" alt="${alt}" class="diagram-inline-img" style="display:block;max-width:240px;height:auto;margin:8px auto;border:1px solid #e5e7eb;border-radius:4px;background:white;padding:4px" />\n\n`;
       },
     );
   }

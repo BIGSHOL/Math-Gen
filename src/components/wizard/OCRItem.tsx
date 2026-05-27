@@ -180,6 +180,25 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
 
   const crops = useCroppedImages(item.images, pageImageDataUrl);
 
+  // 사용자 결정 (2026-05-27): 본문에 [그림N] 마커가 있는데 SVG 가 채우지 못하는
+  // 경우, 크롭 이미지를 inline 으로 본문에 inject (하단 중복 표시 차단).
+  // inlinedImageIndices = MarkdownRenderer 가 inline 처리할 image idx 들.
+  const inlinedImageIndices = useMemo(() => {
+    const set = new Set<number>();
+    if (!item.text || !item.images) return set;
+    const matches = item.text.matchAll(/\[그림(\d+)\]/g);
+    for (const m of matches) {
+      const n = parseInt(m[1], 10);
+      if (!Number.isFinite(n) || n < 1) continue;
+      const idx = n - 1;
+      if (idx >= item.images.length) continue;
+      // SVG 가 채우는 idx 는 inline 이미지 X (SVG 가 우선)
+      set.add(idx);
+    }
+    return set;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.text, item.images?.length]);
+
   // Phase F: vector 도형 spec 이 있으면 renderDiagram → MarkdownRenderer 의
   // [그림N] 치환에 사용. bbox crop fallback (crops) 보다 우선.
   const vectorDiagrams = useMemo<DiagramSvgItem[] | undefined>(() => {
@@ -352,19 +371,21 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
           <MarkdownRenderer
             content={item.text}
             diagramSvgs={vectorDiagrams}
+            imageCrops={crops.map((c) => ({ src: c.src, label: c.label }))}
             choicesLayout={item.choicesLayout}
           />
         </div>
       )}
 
-      {/* 도형 표시 — Phase #12/#13 우선순위:
+      {/* 도형 표시 — Phase #12/#13 우선순위 (사용자 결정 2026-05-27 — inline 우선):
           (a) 사용자가 "원본 보기" toggle off (default) + source="ai-gen" 있으면 ai-gen 만
           (b) showOriginal=false + source="user-crop" 있으면 user-crop 만
           (c) vectorDiagrams 있으면 본문 [그림N] 치환 (이 영역은 표시 X)
-          (d) else: bbox crop (source="ai-crop") 모두 표시
+          (d) [그림N] 마커가 본문에 있어서 *inline 으로 표시된 image 도 제외* (중복 차단)
+          (e) else: bbox crop (source="ai-crop") 표시
        */}
       {!editing && (() => {
-        const displayCrops = showOriginal
+        const allDisplay = showOriginal
           ? crops.filter((c) => c.source === "ai-crop")
           : (() => {
               const aiGen = crops.filter((c) => c.source === "ai-gen");
@@ -373,6 +394,11 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               if (userCrop.length > 0) return userCrop;
               return vectorDiagrams ? [] : crops.filter((c) => c.source === "ai-crop");
             })();
+        // 본문에 [그림N] 마커로 inline 표시된 idx 는 하단 표시 X (중복 차단)
+        const displayCrops = allDisplay.filter((c) => {
+          const originalIdx = crops.indexOf(c);
+          return !inlinedImageIndices.has(originalIdx);
+        });
         if (displayCrops.length === 0) return null;
         return (
           <div className="mt-3 flex flex-wrap gap-3">
