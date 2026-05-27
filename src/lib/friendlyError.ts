@@ -46,8 +46,12 @@ export const friendlyError = (err: unknown): string => {
 
   // (1) 우리가 직접 throw 한 한국어 메시지 — 통과
   // 휴리스틱: 한글 문자가 메시지의 30% 이상이면 이미 우리 한국어 메시지
+  // 길이 한도 200 — cropDetect / OCR / 변형 의 자체 에러 메시지가 진단 정보
+  // 포함해 ~150-200자가 되는 케이스 정상. fallback 으로 떨어지면 "처리 실패" 라는
+  // 진단 가치 0 메시지가 표시되어 사용자가 root cause 추적 불가능 (CLAUDE.md
+  // §1-2 / §1-3 의 friendly 메시지 길이 함정).
   const hangulCount = (msg.match(/[가-힣]/g) ?? []).length;
-  if (hangulCount > 0 && hangulCount / msg.length > 0.3 && msg.length < 100) {
+  if (hangulCount > 0 && hangulCount / msg.length > 0.3 && msg.length < 200) {
     return msg;
   }
 

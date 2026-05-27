@@ -3733,3 +3733,195 @@ npm run dev -- --port 3001 --strictPort
 - **백틱 함정** (§4-6, §25-4): `prompts.ts` 같은 큰 template literal 안 한국어 본문에 backtick 사용 시 parse error. 큰따옴표 또는 escape.
 - **api/export-pdf.ts pre-existing error**: Puppeteer deps 미설치. 이번 세션 관여 X — 무시.
 
+---
+
+## 30. 2026-05-27 후속 세션 — 사용자 보고 "처리 실패" 디버그 (3 함정)
+
+이번 세션 §25-29 작업 직후 사용자가 PDF 업로드 → Step 1.5 검수 단계에서 **"처리 실패 — 재시도해주세요"** 보고. 추가로 콘솔에 `ocr_feedback` 404 noise 다수. 디버그 과정에서 *세 가지 새로운 함정* 발견 + 카탈로그화.
+
+### 30-1. schema required field 추가 → maxOutputTokens 한도 함정 (CRITICAL)
+
+**증상**: Step 1.5 의 cropDetect 가 모든 페이지에서 *처리 실패*. dev console 의 진짜 에러는 prod 빌드에서 strip 됨 (§30-3 함정).
+
+**Root cause**: §26-2 (artwork class) + §27-3 (complexity 분류) 작업으로 `CROP_DETECT_SCHEMA` 의 `items[*]` required field 가 5 → 7 개로 증가:
+
+```
+이전: number, type, cropBox, endMarkerKind, note
+신규: number, type, class, complexity, cropBox, endMarkerKind, note
+```
+
+한 페이지에 5-7 문항이면 schema 출력이 ~1500 토큰. 그러나 `cropDetect.ts` 의 `maxOutputTokens: 8192` 가 prompt + reasoning 토큰까지 포함이라 부족. → 응답 잘림 → invalid JSON → `parseJsonOrThrow` throw → friendly 변환 → UI "처리 실패".
+
+**해결**: callGemini 와 동일한 `maxOutputTokens: 65536` + `finishReason === "MAX_TOKENS"` 명시적 처리 (CLAUDE.md §1-2 의 OCR 적용 패턴을 cropDetect 에도 동일하게):
+
+```ts
+const finishReason = (response as { candidates?: Array<{ finishReason?: string }> })
+  .candidates?.[0]?.finishReason;
+if (finishReason === "MAX_TOKENS") {
+  throw new Error(
+    `Gemini 토큰 한도 초과 (페이지 분석 실패) — 손글씨/문항 과다. 재시도하세요.`,
+  );
+}
+// 빈 응답 시 finishReason 진단 (SAFETY / RECITATION / OTHER)
+const rawJson = typeof response.text === "string" ? response.text : "";
+if (!rawJson) {
+  const reason = finishReason ?? "unknown";
+  throw new Error(`Gemini 빈 응답 (finishReason=${reason}) — 재시도하세요.`);
+}
+```
+
+GPT-5.5 refine (`refineCropBoxesWithGpt55`) 도 8192 → 16384 안전 마진 (reasoning.effort="low" 가 reasoning 토큰을 max_output_tokens 안에서 소진).
+
+**원칙 — schema required field 추가 시 *4 단 체크***:
+
+| □ | 항목 |
+|---|---|
+| □ | 모든 호출 사이트의 `maxOutputTokens` / `max_output_tokens` 가 *충분*한지 재측정 (`(field 수) × 문항 수 × ~30 tokens` minimum) |
+| □ | `finishReason === "MAX_TOKENS"` 명시적 처리 — 없으면 silent invalid JSON throw |
+| □ | 빈 응답 (`response.text === ""`) 시 `finishReason` 으로 진단 메시지 |
+| □ | callGemini / callOpenAI / cropDetect 등 *모든 비슷한 호출 경로* 가 *같은* MAX_TOKENS 처리 (한 곳만 fix 하면 다른 path 에서 같은 함정 재발) |
+
+§1-2 의 함정이 cropDetect 까지 *전염* 됐는데 호출 경로가 다르다는 이유로 같은 fix 적용을 누락. *새로운 AI 호출 path 추가 시* 반드시 callGemini 의 함정 처리 패턴을 *복사*.
+
+### 30-2. friendlyError 한국어 메시지 길이 fallback 함정 (CRITICAL)
+
+**증상**: cropDetect 가 진단 정보 포함한 한국어 에러 ("Gemini 토큰 한도 초과...") 를 throw 해도 *UI 에 "처리 실패 — 재시도해주세요." fallback* 만 표시 → 진단 가치 0 → 사용자가 root cause 추적 불가능.
+
+**Root cause**: `friendlyError.ts` 의 한국어 통과 룰:
+```ts
+if (hangulCount > 0 && hangulCount / msg.length > 0.3 && msg.length < 100) {
+  return msg;  // 통과
+}
+```
+길이 한도 `< 100` 자가 너무 보수적. 우리 자체 한국어 에러 메시지가 *진단 정보* (모델 이름, 토큰 한도, finishReason 등) 포함해 100-200자 되는 케이스 정상. 그런데 한도 초과 → fallback (msg.length > 80 → "처리 실패") 으로 떨어짐.
+
+**해결**: 길이 한도 100 → 200 으로 확대. 자체 한국어 메시지는 항상 통과시키되, 외부 영문 raw error 는 여전히 짧게 변환.
+
+```ts
+if (hangulCount > 0 && hangulCount / msg.length > 0.3 && msg.length < 200) {
+  return msg;
+}
+```
+
+**원칙**: friendly 변환 layer 가 *자체 진단 메시지를 fallback 으로 덮어쓰는* 함정. 우리 *자체 throw* 의 한국어 메시지는 *항상 그대로 통과* 시키는 게 정답. 길이 한도는 외부 영문 raw 만 적용 (또는 한국어는 길이 무관 통과).
+
+후속 검토 — friendlyError 에 *prefix 기반 통과* 패턴 검토 가능:
+```ts
+// 자체 throw 의 식별 prefix → 길이 무관 통과
+if (msg.startsWith("[cropDetect]") || msg.startsWith("[useSolutionGen]") || ...) {
+  return msg.replace(/^\[[^\]]+\]\s*/, ""); // prefix strip
+}
+```
+현재는 길이 200 으로 안전 영역 충분. 추가 prefix 패턴은 사용자 보고 발생 시.
+
+### 30-3. prod 빌드의 console.warn strip 함정 — dev console 진단 불가
+
+**증상**: 사용자가 *Vercel preview* (`index-CwNVid7e.js` minified bundle) 에서 보고 있을 때, `useCropDetect.ts` 의 `console.warn` 이 모두 *invisible*:
+
+```ts
+} catch (err) {
+  ...
+  setCropDetectError(page.id, friendlyError(err));
+  if (import.meta.env?.DEV) {  // ← prod 에서 false → console.warn 안 찍힘
+    console.warn(`[useCropDetect] page ${page.id}:`, (err as Error).message);
+  }
+}
+```
+
+prod 에서 fan-out hook 의 *진짜 에러 메시지* 가 console 에 *전혀* 안 보임. 사용자는 UI 의 friendly 메시지 + 콘솔의 *무관한* 에러 (예: ocr_feedback 404) 만 본다. 디버깅 시 *근본 원인 추적 불가능*.
+
+**해결책 — 3 layer 진단**:
+
+1. **UI friendly 메시지를 *진단 가치 있게*** (§30-2 길이 한도 확대 + §30-1 명확한 한국어 에러).
+2. **prod 빌드에서도 첫 발생 console.warn 1 회 emit** — 단 사용자 데이터 leak 방지를 위해 *짧고 익명* 한 메시지만:
+   ```ts
+   if (import.meta.env?.DEV) {
+     console.warn(`[useCropDetect] page ${page.id}: ${(err as Error).message}`);
+   } else {
+     // prod 도 진단 가치 있게 — page id 와 짧은 메시지만 (PII 없음)
+     console.warn(`[useCropDetect] cropDetect failed: ${(err as Error).message.slice(0, 200)}`);
+   }
+   ```
+3. **dev 환경 사용 권장** — 사용자가 prod 에서 보고 시 *우선 dev 재현* 안내. dev console 에 full 진단 가능.
+
+이번 세션은 layer 1 (UI friendly 메시지 명확화) + layer 3 (dev 사용 안내) 만 적용. layer 2 (prod console.warn 활성화) 는 *후속 검토* — PII leak 위험 vs 디버깅 편의성 trade-off.
+
+**원칙**: prod 빌드의 console.warn 모든 strip 정책이 *디버깅 가치* 와 충돌. fan-out hook 의 catch 에서 *익명·짧은* warn 은 prod 에도 emit 하는 게 합리적. 새 fan-out hook 추가 시 *처음부터* prod-safe warn 패턴 사용.
+
+### 30-4. ocr_feedback 테이블 미마이그레이션 — 404 noise 함정 (CLAUDE.md §25-2 적용)
+
+**증상**: 콘솔에 `GET .../rest/v1/ocr_feedback?... 404 (Not Found)` 가 *문항당 1 회씩* 폭주. PostgREST 의 404 는 *테이블 자체가 schema cache 에 없음* 의미 (Phase #6 의 ocr_feedback 테이블이 production Supabase 에 ALTER TABLE / CREATE TABLE 마이그레이션 안 됨).
+
+**Root cause**: schema.sql L321-388 의 `CREATE TABLE IF NOT EXISTS ocr_feedback` 가 *코드는 commit 됐지만* 사용자가 Supabase SQL editor 에서 실행 안 함. 클라이언트 코드는 *테이블 존재 가정* 으로 fetch → 404.
+
+**해결** (CLAUDE.md §25-2 graceful fallback 패턴 적용):
+
+```ts
+const TABLE_MISSING_RE = /(PGRST20[45]|schema cache|relation .* does not exist|404)/i;
+const isTableMissing = (err): boolean => {
+  if (!err) return false;
+  if (err.code === "PGRST205" || err.code === "PGRST204") return true;
+  if (err.status === 404) return true;
+  return TABLE_MISSING_RE.test(err.message ?? "");
+};
+
+let warnedMissingTable = false;
+const warnSchemaMigration = (): void => {
+  if (warnedMissingTable) return;
+  warnedMissingTable = true;
+  console.warn("[ocrFeedback] ocr_feedback 테이블이 Supabase 에 없습니다 — schema.sql §8 블록 실행 필요. 마이그레이션 전까지 👍/👎 기능 비활성.");
+};
+```
+
+`ocrFeedback.ts` 의 모든 호출 (submit / getMy / listByTest / delete / listScrapped / resolve / unresolve / loadSummary) 의 catch 에 `isTableMissing(error) → warnSchemaMigration + silent return` 추가. 404 noise → 1 회 warn → fallback (👍/👎 비활성, OCR 자체 영향 0).
+
+**원칙 — schema 변경 → 마이그레이션 강제 정책의 한계**:
+- Supabase 는 *자동 마이그레이션* 안 함 (대시보드 SQL editor 수동)
+- `schema.sql` 커밋만으로 *production* 반영 X
+- 사용자가 잊거나, *다른 환경* (Vercel preview vs production) 적용 안 함
+- → 클라이언트 코드의 *graceful fallback 이 필수* — schema 변경 의존성 0 으로 동작
+
+새 테이블 추가 PR 시 *반드시* §25-2 패턴 묶음 (isTableMissing + warnSchemaMigration + 모든 호출 catch) 동시 적용. 마이그레이션 안내 한 번이 사용자에게 *충분* (warnedMissingTable 한 번 set).
+
+### 30-5. 이번 세션 변경 파일 + 후속 액션
+
+**변경 파일 (3)**:
+
+| 파일 | 변경 | 영역 |
+|---|---|---|
+| `src/services/ai/cropDetect.ts` | maxOutputTokens 8192→65536, MAX_TOKENS finishReason 처리, refine 8192→16384 | §30-1 |
+| `src/lib/friendlyError.ts` | 한국어 메시지 길이 한도 100→200 | §30-2 |
+| `src/services/api/ocrFeedback.ts` | 모든 호출 graceful 404 fallback | §30-4 |
+
+**후속 액션 — 사용자 위임**:
+- 🚨 **Supabase SQL editor 에서 `schema.sql` §8 (ocr_feedback) 블록 실행** — 👍/👎 기능 활성화. 코드 fallback 으로 404 noise 는 차단되지만 실제 기능 사용 위해 필요.
+- 🟢 **Vercel preview deploy** — `vercel deploy --yes`. prod 빌드에 이번 fix 반영.
+- 🟢 **dev 에서 직접 재현** — `npm run dev` (3001 포트). PDF 업로드 → Step 1.5 진입 → cropDetect 동작 확인. dev console 의 `[useCropDetect]` warn 으로 진짜 에러 추적 가능.
+
+**다음 세션 시작 시 추천 sequence** (§29-4 보강):
+1. `git log --oneline -10` — 이번 세션 commits 확인
+2. §30 (4 함정 카탈로그) + §29 (이번 세션 종합) + §25-2 (graceful fallback 패턴) 읽기
+3. 사용자 보고 들으면:
+   - **"prod 에서 또 X 안 됨"** → 우선 *dev 재현* 안내 (§30-3 함정). 사용자 보고 우선 dev 환경에서.
+   - **"Supabase 404"** → schema.sql 의 새 테이블이 마이그레이션 안 된 케이스. §30-4 패턴 즉시 적용.
+   - **"AI 호출 실패"** → §30-1 의 4 단 체크리스트로 토큰 한도 / finishReason / friendly 메시지 길이 검증.
+
+### 30-6. 메타 원칙 — *함정의 전염* (cross-cutting concern)
+
+이번 세션의 4 함정 모두 *기존 카탈로그된 함정의 새 발현*:
+
+| 새 함정 | 원형 (이미 카탈로그된) | 차이 |
+|---|---|---|
+| §30-1 cropDetect maxOutputTokens | §1-2 callGemini MAX_TOKENS | 호출 *경로* 다름 — 동일 fix 누락 |
+| §30-2 friendlyError 길이 fallback | (없음 — 신규 함정) | friendly 변환 layer 의 가려짐 효과 |
+| §30-3 prod console.warn strip | (없음 — 신규 함정) | DEV-only 로깅의 prod 진단 부재 |
+| §30-4 ocr_feedback 404 | §25-2 PGRST204 컬럼 fallback | 컬럼 → 테이블 단위 확장 |
+
+**일반 원칙**: 함정 카탈로그 (CLAUDE.md) 의 *원형* 을 따라가되, *호출 경로 / layer / 단위가 다르면* 동일 함정이 *다른 옷* 입고 재발. 새 코드 추가 시 *체크리스트 형태* 로 모든 비슷한 path 검토:
+- AI 호출 추가 → §1-2 MAX_TOKENS 처리 + maxOutputTokens 검증
+- 새 Supabase 테이블 → §25-2 graceful fallback 동시 적용
+- 친구 메시지 변환 → 자체 한국어는 무조건 통과
+- prod 빌드 사용자 보고 → 우선 dev 재현 안내
+
+§30 의 4 함정은 *모두* 이미 알려진 패턴이었지만 새 path 에서 미적용. 새 PR 시 *CLAUDE.md 의 모든 §* 를 *전수 검색* 하는 도구·습관이 필요. 사용자 보고 → 즉시 grep 으로 *비슷한 함정* 카탈로그 매치.
+

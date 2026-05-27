@@ -13,7 +13,33 @@ import { supabase } from "./supabase";
  *
  * **anon (비로그인) 차단**: RLS `feedback_insert_role` 가 `user_id =
  * auth.uid()` 강제 — anon insert fail. UI 단에서 비로그인 시 버튼 숨김.
+ *
+ * **Graceful fallback for missing table** (CLAUDE.md §25-2): 사용자가 Supabase
+ * 에 `supabase/schema.sql` 의 ocr_feedback 부분을 마이그레이션 안 한 상태에서
+ * 클라이언트가 GET/POST 호출하면 PostgREST 404 또는 PGRST205. 한 번 경고
+ * (warnSchemaMigration) 후 silent skip — 콘솔 404 noise 방지 + UI 정상 동작
+ * (👍/👎 안 됨이지만 OCR 자체는 영향 X).
  */
+
+const TABLE_MISSING_RE = /(PGRST20[45]|schema cache|relation .* does not exist|404)/i;
+const isTableMissing = (
+  err: { message?: string; code?: string; status?: number } | null,
+): boolean => {
+  if (!err) return false;
+  if (err.code === "PGRST205" || err.code === "PGRST204") return true;
+  if (err.status === 404) return true;
+  return TABLE_MISSING_RE.test(err.message ?? "");
+};
+
+let warnedMissingTable = false;
+const warnSchemaMigration = (): void => {
+  if (warnedMissingTable) return;
+  warnedMissingTable = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[ocrFeedback] ocr_feedback 테이블이 Supabase 에 없습니다 — supabase/schema.sql 의 §8 (ocr_feedback) 블록을 SQL editor 에서 실행하세요. 마이그레이션 전까지 👍/👎 기능 비활성.",
+  );
+};
 
 // ============================================================================
 // Predefined reason codes (사용자 보고 — 사전 정의 6 사유)
@@ -123,6 +149,10 @@ export const submitOcrFeedback = async (
     .select("*")
     .single();
   if (error) {
+    if (isTableMissing(error)) {
+      warnSchemaMigration();
+      return null;
+    }
     // eslint-disable-next-line no-console
     console.warn("[ocrFeedback] submit failed:", error.message);
     return null;
@@ -140,12 +170,16 @@ export const getMyOcrFeedback = async (
   const { data: authData } = await supabase.auth.getUser();
   const user_id = authData?.user?.id;
   if (!user_id) return null;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("ocr_feedback")
     .select("*")
     .eq("ocr_problem_id", ocrProblemId)
     .eq("user_id", user_id)
     .maybeSingle();
+  if (error && isTableMissing(error)) {
+    warnSchemaMigration();
+    return null;
+  }
   return (data as OcrFeedbackRow) ?? null;
 };
 
@@ -160,11 +194,15 @@ export const listMyOcrFeedbackByTest = async (
   const { data: authData } = await supabase.auth.getUser();
   const user_id = authData?.user?.id;
   if (!user_id) return out;
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("ocr_feedback")
     .select("*")
     .eq("test_id", testId)
     .eq("user_id", user_id);
+  if (error && isTableMissing(error)) {
+    warnSchemaMigration();
+    return out;
+  }
   if (!data) return out;
   for (const row of data as OcrFeedbackRow[]) {
     out.set(row.ocr_problem_id, row);
@@ -188,6 +226,10 @@ export const deleteMyOcrFeedback = async (
     .eq("ocr_problem_id", ocrProblemId)
     .eq("user_id", user_id);
   if (error) {
+    if (isTableMissing(error)) {
+      warnSchemaMigration();
+      return false;
+    }
     // eslint-disable-next-line no-console
     console.warn("[ocrFeedback] delete failed:", error.message);
     return false;
@@ -269,6 +311,10 @@ export const listScrappedOcrItems = async (
   }
   const { data, error } = await q;
   if (error) {
+    if (isTableMissing(error)) {
+      warnSchemaMigration();
+      return [];
+    }
     // eslint-disable-next-line no-console
     console.warn("[ocrFeedback] listScrapped failed:", error.message);
     return [];
@@ -332,6 +378,10 @@ export const resolveOcrFeedback = async (
     })
     .eq("id", feedbackId);
   if (error) {
+    if (isTableMissing(error)) {
+      warnSchemaMigration();
+      return false;
+    }
     // eslint-disable-next-line no-console
     console.warn("[ocrFeedback] resolve failed:", error.message);
     return false;
@@ -356,6 +406,10 @@ export const unresolveOcrFeedback = async (
     })
     .eq("id", feedbackId);
   if (error) {
+    if (isTableMissing(error)) {
+      warnSchemaMigration();
+      return false;
+    }
     // eslint-disable-next-line no-console
     console.warn("[ocrFeedback] unresolve failed:", error.message);
     return false;
@@ -385,11 +439,15 @@ export const loadOcrFeedbackSummary = async (
   };
   if (!supabase) return empty;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("ocr_feedback")
     .select("rating, resolved")
     .gte("created_at", since)
     .limit(50000);
+  if (error && isTableMissing(error)) {
+    warnSchemaMigration();
+    return empty;
+  }
   if (!data) return empty;
   let total_likes = 0;
   let total_dislikes = 0;

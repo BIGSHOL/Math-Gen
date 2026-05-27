@@ -434,7 +434,9 @@ Examine the page image carefully. Locate the printed problem number markers (e.g
             strict: true,
           },
         },
-        max_output_tokens: 8192,
+        // complex 문항만 (보통 1-3 개) 출력하지만, reasoning.effort="low" 라도
+        // reasoning 토큰이 max_output_tokens 안에서 소진됨. 8192 → 16384 마진.
+        max_output_tokens: 16384,
         reasoning: { effort: "low" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any,
@@ -544,13 +546,35 @@ export const detectCropBoxes = async (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         responseSchema: toGeminiSchema(CROP_DETECT_SCHEMA) as any,
         temperature: 0.1,
-        maxOutputTokens: 8192,
+        // 토큰 한도 — 한 페이지에 5-7 문항 × schema 의 7 required field
+        // (number/type/class/complexity/cropBox/endMarkerKind/note) 합 ~150 tokens/문항.
+        // class + complexity 추가 (2026-05-27) 후 8192 한도 초과 사례 발생 →
+        // 응답 잘림 → invalid JSON → 처리 실패. callGemini 와 동일 65536 으로 상향.
+        maxOutputTokens: 65536,
         abortSignal: signal,
       },
     });
 
+    // CLAUDE.md §1-2 — Gemini 의 MAX_TOKENS 도달은 invalid JSON 으로만 보임.
+    // parse 전에 finishReason 체크 → 명확한 한국어 에러로 변환.
+    const finishReason = (
+      response as { candidates?: Array<{ finishReason?: string }> }
+    ).candidates?.[0]?.finishReason;
+    if (finishReason === "MAX_TOKENS") {
+      throw new Error(
+        `Gemini 토큰 한도 초과 (페이지 분석 실패) — 손글씨/문항 과다. 재시도하세요.`,
+      );
+    }
+
     const rawJson = typeof response.text === "string" ? response.text : "";
-    if (!rawJson) throw new Error("[cropDetect] Gemini 빈 응답 — 텍스트 없음.");
+    if (!rawJson) {
+      // 빈 응답 — finishReason 별도 진단 메시지로 변환
+      const reason = finishReason ?? "unknown";
+      // SAFETY = AI 안전 필터, RECITATION = 모델 학습 데이터 그대로 emit, OTHER = 기타
+      throw new Error(
+        `Gemini 빈 응답 (finishReason=${reason}) — 재시도하세요.`,
+      );
+    }
     const parsed = parseJsonOrThrow<{ items?: DetectedCrop[] }>(
       stripCodeFences(rawJson),
     );
@@ -560,7 +584,13 @@ export const detectCropBoxes = async (
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     const raw = (err as Error).message ?? String(err);
-    const wrapped = new Error(friendlyGeminiError(raw, GEMINI_3_FLASH));
+    // 진짜 원인 추적 가능하도록 raw 도 friendly 안에 inline (디버그 어렵게 만든
+    // 함정 — friendly 만 보면 "처리 실패" 만 보임). cropDetect 의 자체 에러는
+    // 이미 한국어 → friendlyGeminiError 가 그대로 통과시킴.
+    const friendly = raw.startsWith("[cropDetect]")
+      ? raw
+      : friendlyGeminiError(raw, GEMINI_3_FLASH);
+    const wrapped = new Error(friendly);
     (wrapped as Error & { cause?: unknown }).cause = raw;
     throw wrapped;
   }
