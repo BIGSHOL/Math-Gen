@@ -15,6 +15,7 @@
  */
 
 import { getGeminiClient, GEMINI_3_FLASH } from "./gemini";
+import { getOpenAIClient, GPT_5_5_PRO } from "./openai";
 import { parseDataUrl } from "./sanitize";
 import { toGeminiSchema, parseJsonOrThrow, friendlyGeminiError } from "./ocr";
 import { stripCodeFences } from "./generate";
@@ -40,6 +41,20 @@ export interface DetectedCrop {
    * undefined = 모델이 분류 누락 (옛 응답 호환) → 클라이언트에서 "problem" default.
    */
   class?: "problem" | "figure" | "table" | "artwork";
+  /**
+   * 복잡도 분류 — Gemini Flash 가 1차 판단. complex 문항은 GPT-5.5 second pass
+   * 로 bbox 정밀 재검출 (사용자 결정 2026-05-27).
+   *
+   * "complex" 기준:
+   *  - 다중 시각 요소: 한 문항 안에 *2 종 이상 시각 요소* 공존 (artwork + figure,
+   *    figure + table, 다중 도형). 예: 서술형 4 (반 고흐 작품 + 작도 도형).
+   *  - 긴 서술형: 본문 200자+ 또는 (1)(2) sub-parts 가 있는 분할 서술형.
+   *
+   * "simple": 위 조건 미해당 — 객관식, 단일 도형 문항, 짧은 서술형.
+   *
+   * undefined = 옛 응답 호환 → 클라이언트에서 "simple" default (안전 fallback).
+   */
+  complexity?: "simple" | "complex";
   /** 크롭 박스 — 0–1000 정규화 [yMin, xMin, yMax, xMax]. 길이 4 보장 안 됨(모델 출력). */
   cropBox: number[];
   /** 끝 경계를 무엇이 결정했는지 (디버그). */
@@ -72,6 +87,12 @@ const CROP_DETECT_SCHEMA = {
             description:
               "Crop class: 'problem'=whole problem (default for one box per problem), 'figure'=geometric/graph figure (vectorizable line art only — but normally use 'problem' to keep everything together), 'table'=bordered grid, 'artwork'=real-world artwork/photo/painting reference (NOT vectorizable, image crop only). For a problem that *contains* a Van Gogh painting thumbnail AND a geometric figure, emit ONE 'problem' box covering everything; the artwork detection is handled downstream. Use 'artwork' ONLY when an image is referenced WITHOUT a containing problem (rare).",
           },
+          complexity: {
+            type: "string",
+            enum: ["simple", "complex"],
+            description:
+              "Complexity assessment for routing: 'complex' = (a) problem references TWO OR MORE distinct visual elements (e.g. an artwork thumbnail PLUS a geometric figure, OR figure + table, OR multiple figures), OR (b) it's a long 서술형 essay (200+ Korean characters in problem text, OR has (1)(2)... sub-parts). 'simple' = everything else (choice problems, single-figure essays, short essays). Complex problems will be re-analyzed by a stronger reasoning model (GPT-5.5) for bbox precision. Default toward 'simple' unless clearly complex.",
+          },
           cropBox: {
             type: "array",
             description:
@@ -90,7 +111,7 @@ const CROP_DETECT_SCHEMA = {
               "Short note on the end marker seen, for debugging (e.g. '⑤ bottom-right', '(7점)', '[총 6점]=3+3').",
           },
         },
-        required: ["number", "type", "class", "cropBox", "endMarkerKind", "note"],
+        required: ["number", "type", "class", "complexity", "cropBox", "endMarkerKind", "note"],
       },
     },
   },
@@ -157,6 +178,40 @@ The space where the student wrote is BELOW the printed problem's last text/figur
   - 박스가 문항 번호 ([서술형 N], 1., 2. 등) 를 포함하면 → "problem"
   - 그 외 페이지 영역에 standalone 시각 요소만 있을 때 → 위 3 분류
   - artwork 와 figure 의 차이: artwork = 실사 회화·사진 (vectorize 불가), figure = 깨끗한 line art (vectorize 가능)
+
+---
+
+🧠 **COMPLEXITY CLASSIFICATION (complexity field) — GPT-5.5 routing**:
+
+각 문항의 *분석 난이도* 를 평가. complex 문항은 *GPT-5.5 second pass* 로 bbox 정밀 재검출됨 (비용·시간 증가하지만 정확도 ↑).
+
+**"complex"** (다음 둘 중 하나라도 해당):
+
+  (a) **다중 시각 요소 — 한 문항 안에 *2 종 이상의 시각 요소* 공존**:
+       - artwork + figure (회화 reference + 작도 도형. 예: 서술형 4 의 반 고흐 작품 + 평행사변형)
+       - figure + table (도형 + 표)
+       - 다중 figure (서로 다른 도형 2 개 이상 — before/after, 좌측/우측 도형 비교)
+       - 도형 + 손글씨 인접 (학생 풀이가 도형 영역과 겹침)
+
+  (b) **긴 서술형 — 본문 200자+** 또는 *(1)(2) sub-parts 분할 서술형*:
+       - 사용자가 풀이 단계 / 조건 분석을 *명시적으로* 서술해야 하는 문항
+       - cropDetect 가 sub-part 끝 boundary 판단 시 reasoning 필요
+
+**"simple"** (위 조건 미해당):
+  - 객관식 (① ② ③ ④ ⑤ 보기)
+  - 단일 도형 문항 — 정사각형 1 개, 좌표축 1 개 등
+  - 짧은 서술형 — 본문 100-150자, single figure
+  - text-only 문항 (도형 없는 계산 문항)
+
+🚨 보수적 default: **의심 시 "simple"** (불필요한 GPT-5.5 호출 비용 ~$0.05/페이지 회피). complex 는 *명백한 다중 요소* 또는 *길고 분할된 서술형* 에만 적용.
+
+사용자 보고 사례 (2026-05-27 — 서술형 4):
+  문항: "[서술형 4] 아래 왼쪽 그림은 반 고흐가 그린 '고흐의 의자'의 작품을 화면 분할한 그림이고, 그 옆의 도형은 화면 분할 무늬의 일부분이다..."
+  - 좌측: 반 고흐 작품 thumbnail (artwork)
+  - 우측: 평행사변형 ABDE 작도 (figure with √3, √2, √6 dashed arcs)
+  - 학생 손글씨 인접 (빨간 마커 풀이)
+  → **complexity = "complex"** (다중 시각 요소 + 손글씨 인접 + 200자+ 본문)
+  → GPT-5.5 second pass 트리거 → bbox 정밀 재검출
 
 For each problem, decide its TYPE and find its crop box:
 
@@ -257,6 +312,199 @@ const padCropBox = (box: number[], split: number | null): number[] => {
   const isLeftColumn = split == null || xMin < split;
   const paddedXMin = isLeftColumn ? Math.max(0, xMin - LEFT_PAD) : xMin;
   return [yMin, paddedXMin, yMax, Math.min(1000, xMax + RIGHT_PAD)];
+};
+
+/**
+ * GPT-5.5 Pro 정밀 재검출 프롬프트 — Gemini Flash 1차 결과에서 complexity="complex"
+ * 로 표시된 문항들의 bbox 만 reasoning-heavy 모델로 재검출.
+ *
+ * Gemini Flash 가 *대부분 케이스* 는 잘 처리하지만, 다중 시각 요소 + 손글씨 인접 +
+ * 긴 서술형 sub-parts 같은 *복합 reasoning* 케이스에서 bbox 가 부정확한 경우가
+ * 발생. GPT-5.5 의 강력한 scene understanding 으로 보강.
+ */
+const REFINE_PROMPT_PREFIX = `You are refining crop boxes for a Korean math exam page. A first-pass model (Gemini Flash) already detected ALL problems on this page. Your job is to RE-EXAMINE the problems flagged as "complex" and provide MORE PRECISE bboxes for them ONLY.
+
+A problem is "complex" when it has multiple visual elements (artwork + figure, figure + table, multiple figures) OR is a long essay (200+ chars, with (1)(2) sub-parts). These cases need careful scene reasoning that's beyond a fast vision model.
+
+Coordinate system: [yMin, xMin, yMax, xMax] on a 0-1000 grid over the FULL PAGE.
+
+🚨 CRITICAL RULES (same as first pass — re-stated for emphasis):
+
+1. **STUDENT HANDWRITING MUST BE EXCLUDED** from every crop box. Use visual character traits:
+   - Printed: uniform stroke, pure black, geometric repeatable shapes, baseline grid
+   - Handwriting: variable stroke (1px↔3px), red/blue ink, irregular shapes, slanted, free-form curves
+   - If you see red/blue ink inside a candidate bbox → SHRINK the bbox until ONLY printed content remains.
+
+2. **For 다중 시각 요소 problems** (the main reason this re-pass exists):
+   - The whole problem (text + ALL its visual elements: artwork + figure + table) goes in ONE box.
+   - Box top = printed problem number ([서술형 N], 1., 2., …).
+   - Box bottom = bottom of the LAST printed element (last sub-part text, last (N점) marker, last printed figure/artwork — whichever sits lowest on the page).
+   - If an artwork thumbnail and a geometric figure sit side-by-side, the box must encompass BOTH horizontally.
+
+3. **For long essay (200+ chars or sub-parts)**:
+   - Box bottom = last printed sub-part text line (e.g., "(2) 완전제곱식을 이용하여 구하시오.")
+   - The blank handwriting space between sub-parts IS inside the box (cannot split), but the box ENDS at the printed text — never extends into the post-(2) blank.
+
+4. **사용자 보고 사례 [서술형 4]** (반 고흐 작품 + 작도 도형, 2026-05-27):
+   원본: [서술형 4] 본문 + 좌측 반 고흐 작품 thumbnail + 우측 평행사변형 작도 + 빨간 마커 학생 풀이 (옆 문항)
+   잘못된 출력: 박스가 아래로 늘어나서 학생 빨간 마커 풀이 흡수
+   올바른 출력: 박스 bottom = 우측 평행사변형의 마지막 라벨 줄. 빨간 잉크 영역 절대 박스 안 X.
+
+Output strictly the same JSON schema as the first pass. For each problem flagged as complex below, emit a refined entry with the SAME number, type, class but POTENTIALLY DIFFERENT cropBox (more precise). You may also update endMarkerKind and note. complexity field — keep as "complex" (don't downgrade — you're refining it).
+
+Return ONLY the refined entries for complex problems, NOT all problems. The caller will merge with original Gemini results.
+
+──────────────────────────────────────────────────────────
+First-pass results (from Gemini Flash) — JSON:
+──────────────────────────────────────────────────────────
+`;
+
+/**
+ * GPT-5.5 정밀 재검출 — Gemini Flash 1차 결과에서 complexity="complex" 인 문항만
+ * bbox 정밀 재검출. simple 문항은 Gemini 결과 그대로 보존 (cost·time 절약).
+ *
+ * 사용자 결정 (2026-05-27): 자동 트리거 + 다중 시각 요소/200자+ 기준 + 개별 교체.
+ *
+ * 실패 시 Gemini 결과 그대로 fallback (best-effort enhancement, not critical).
+ *
+ * @param pageBase64 페이지 이미지 (rotation 적용된 dataURL)
+ * @param initialResults Gemini Flash 의 1차 결과 (모든 문항)
+ * @param signal AbortSignal — 외부 cancel 신호
+ * @returns merged DetectedCrop[] — complex 문항의 bbox 만 GPT-5.5 결과로 교체
+ */
+export const refineCropBoxesWithGpt55 = async (
+  pageBase64: string,
+  initialResults: DetectedCrop[],
+  signal?: AbortSignal,
+): Promise<DetectedCrop[]> => {
+  // 1. complex 문항 찾기 — 없으면 즉시 return (no-op)
+  const complexNumbers = initialResults
+    .filter((r) => r.complexity === "complex")
+    .map((r) => r.number);
+  if (complexNumbers.length === 0) return initialResults;
+
+  if (signal?.aborted) {
+    throw new DOMException("Aborted before refine", "AbortError");
+  }
+
+  // 2. GPT-5.5 Responses API 호출
+  const client = getOpenAIClient();
+  const { data } = parseDataUrl(pageBase64);
+  const mimeMatch = pageBase64.match(/^data:([^;]+);base64,/);
+  const mimeType = mimeMatch?.[1] ?? "image/png";
+  const dataUrl = `data:${mimeType};base64,${data}`;
+
+  const promptText = `${REFINE_PROMPT_PREFIX}${JSON.stringify(
+    { items: initialResults },
+    null,
+    2,
+  )}
+
+──────────────────────────────────────────────────────────
+COMPLEX PROBLEM NUMBERS TO REFINE: ${complexNumbers.join(", ")}
+──────────────────────────────────────────────────────────
+
+Now examine the page image carefully and emit refined bboxes ONLY for these complex problems. Use the same JSON schema (items array). Each item must have all required fields (number, type, class, complexity, cropBox, endMarkerKind, note).`;
+
+  try {
+    const response = await client.responses.create(
+      {
+        model: GPT_5_5_PRO,
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: promptText },
+              { type: "input_image", image_url: dataUrl, detail: "high" },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "RefinedCropBoxes",
+            schema: CROP_DETECT_SCHEMA as unknown as Record<string, unknown>,
+            strict: true,
+          },
+        },
+        max_output_tokens: 8192,
+        reasoning: { effort: "low" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+      { signal: signal ?? undefined },
+    );
+
+    // output_text fallback (Responses API pattern — CLAUDE.md §1-3)
+    const r = response as {
+      output_text?: string;
+      output?: Array<{
+        type?: string;
+        content?: Array<{ type?: string; text?: string }>;
+      }>;
+      status?: string;
+      incomplete_details?: { reason?: string };
+    };
+    let rawJson = r.output_text ?? "";
+    if (!rawJson && Array.isArray(r.output)) {
+      for (const item of r.output) {
+        if (item.type !== "message" || !Array.isArray(item.content)) continue;
+        for (const c of item.content) {
+          if (
+            (c.type === "output_text" || c.type === "text") &&
+            typeof c.text === "string"
+          ) {
+            rawJson += c.text;
+          }
+        }
+      }
+    }
+    if (!rawJson) {
+      // reasoning 토큰 소진 또는 incomplete — Gemini 결과로 fallback
+      if (import.meta.env?.DEV) {
+        console.warn(
+          "[cropDetect] GPT-5.5 refine 빈 응답 — Gemini 결과 유지.",
+          r.incomplete_details,
+        );
+      }
+      return initialResults;
+    }
+
+    const parsed = parseJsonOrThrow<{ items?: DetectedCrop[] }>(
+      stripCodeFences(rawJson),
+    );
+    const refined = Array.isArray(parsed.items) ? parsed.items : [];
+
+    // 3. Merge: complex 문항만 교체 (개별 교체), simple 은 Gemini 결과 그대로
+    const refinedByNumber = new Map<number, DetectedCrop>();
+    for (const r of refined) {
+      if (typeof r.number === "number") refinedByNumber.set(r.number, r);
+    }
+
+    // 4. column-aware padding 재적용 (refined bbox 에도 동일 룰)
+    const split = estimateColumnSplit(
+      Array.from(refinedByNumber.values()).map((r) => r.cropBox),
+    );
+
+    return initialResults.map((orig) => {
+      const refinedItem = refinedByNumber.get(orig.number);
+      if (!refinedItem) return orig; // simple 문항 — 그대로
+      // complex 문항 — refined bbox 로 교체. padding 재적용.
+      return {
+        ...refinedItem,
+        cropBox: padCropBox(refinedItem.cropBox, split),
+      };
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    // best-effort — GPT-5.5 실패 시 Gemini 결과 유지
+    if (import.meta.env?.DEV) {
+      console.warn(
+        "[cropDetect] GPT-5.5 refine 실패 — Gemini 결과 유지.",
+        (err as Error).message,
+      );
+    }
+    return initialResults;
+  }
 };
 
 /**

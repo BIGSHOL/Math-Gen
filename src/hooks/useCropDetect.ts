@@ -25,7 +25,11 @@ import { friendlyError } from "@app/lib/friendlyError";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { getPageImage } from "@app/lib/imageStore";
 import { applyRotation } from "@app/lib/pdfProcessor";
-import { detectCropBoxes, type DetectedCrop } from "@app/services/ai/cropDetect";
+import {
+  detectCropBoxes,
+  refineCropBoxesWithGpt55,
+  type DetectedCrop,
+} from "@app/services/ai/cropDetect";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { useWizardStore } from "@app/stores/wizardStore";
 import type { CropBox } from "@app/stores/wizardStore";
@@ -135,12 +139,31 @@ export const useCropDetect = (): UseCropDetect => {
           const rotated = await applyRotation(dataUrl, page.rotation);
           if (isCancelled(page.id)) return;
 
-          // 4. Gemini 3 Flash 호출
+          // 4. Gemini 3 Flash 호출 (1차 — 빠른 분석)
           const detected = await detectCropBoxes(rotated);
           if (isCancelled(page.id)) return;
 
-          // 5. 매핑 + store update
-          const boxes: CropBox[] = detected.map(detectedToCropBox);
+          // 5. complex 문항 있으면 GPT-5.5 정밀 재검출 (best-effort enhancement)
+          //    - complexity = "complex" → 다중 시각 요소 또는 긴 서술형 (200자+)
+          //    - GPT-5.5 실패 / 빈 응답 → Gemini 결과 유지 (silent fallback)
+          //    - 사용자 결정 (2026-05-27): 자동 트리거 + 개별 교체
+          const hasComplex = detected.some((d) => d.complexity === "complex");
+          let finalDetected: DetectedCrop[] = detected;
+          if (hasComplex) {
+            if (import.meta.env?.DEV) {
+              const complexNums = detected
+                .filter((d) => d.complexity === "complex")
+                .map((d) => d.number);
+              console.debug(
+                `[useCropDetect] page ${page.id} complex 문항 [${complexNums.join(",")}] — GPT-5.5 정밀 재검출`,
+              );
+            }
+            finalDetected = await refineCropBoxesWithGpt55(rotated, detected);
+            if (isCancelled(page.id)) return;
+          }
+
+          // 6. 매핑 + store update (1 회 호출 — refined 결과로)
+          const boxes: CropBox[] = finalDetected.map(detectedToCropBox);
           setPageCropBoxes(page.id, boxes);
         } catch (err) {
           if (isCancelled(page.id)) return;

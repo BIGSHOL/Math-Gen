@@ -3398,3 +3398,122 @@ DB schema 변경 0. 옛 row 모두 backward compatible.
 - [ ] Chrome MCP 시각 검증 — `\boxed{ABCD}` 가 4 박스로 렌더 (사용자 위임)
 - [ ] 실 시험지 OCR end-to-end (artwork class + 손글씨 방어) — 사용자 위임
 
+---
+
+## 27. cropDetect complexity routing — Gemini Flash → GPT-5.5 second pass (2026-05-27)
+
+### 27-1. 동기
+
+사용자 보고 [서술형 4] (반 고흐 작품 + 작도 도형) 케이스에서 *cropDetect 자체*
+가 잘못된 bbox 를 emit. Gemini Flash 단일 모델로는 *다중 시각 요소 + 손글씨
+인접* 같은 *복합 reasoning* 케이스 정확도 부족.
+
+사용자 요청: "어려운 문제는 gpt 5.5로 할 수 있도록 따로 분류 가능한가?"
+→ Gemini Flash 가 complexity 1차 분류 → complex 문항은 GPT-5.5 second pass.
+
+### 27-2. 아키텍처 — 2-tier dispatch (사용자 결정 반영)
+
+```
+[Step 1.5 mount]
+  ↓
+useCropDetect.ts (page 단위 fan-out, pLimit(2))
+  ↓
+Gemini 3 Flash detectCropBoxes (~2-3s, ~$0.001/page)
+  ↓ items[*].complexity 분류 — 모두 emit
+  ↓
+hasComplex? ───── No ────→ setPageCropBoxes (1차 결과)
+  │
+  Yes
+  ↓
+refineCropBoxesWithGpt55 (GPT-5.5 Pro, Responses API, ~30s-5min, ~$0.05/page)
+  ↓ complex 문항만 bbox 재검출 + JSON merge
+  ↓
+setPageCropBoxes (final merged 결과)
+```
+
+**핵심 결정**:
+- **트리거 자동** — Gemini 가 complexity flag emit, 사용자 조작 0
+- **개별 교체** — complex 문항의 bbox 만 GPT-5.5 로 교체, simple 은 Gemini 그대로
+- **Best-effort** — GPT-5.5 실패 / 빈 응답 → Gemini 결과 유지 (silent fallback)
+
+### 27-3. "complex" 판단 기준 (CROP_DETECT_PROMPT 카탈로그)
+
+Gemini Flash 가 다음 둘 중 하나라도 해당하면 `complexity = "complex"` emit:
+
+**(a) 다중 시각 요소** — 한 문항 안에 *2 종 이상 시각 요소* 공존:
+- artwork + figure (회화 + 작도 — 서술형 4 사례)
+- figure + table (도형 + 표)
+- 다중 figure (서로 다른 도형 2 개 이상)
+- 도형 + 손글씨 인접 (학생 풀이 영역과 겹침)
+
+**(b) 긴 서술형** — 본문 200자+ 또는 (1)(2) sub-parts 분할:
+- 풀이 단계 / 조건 분석 명시 서술 문항
+- sub-part 끝 boundary reasoning 필요
+
+**보수적 default**: 의심 시 "simple" → 불필요한 GPT-5.5 호출 (~$0.05/page) 회피.
+
+### 27-4. GPT-5.5 refine 프롬프트 — 핵심 룰 재진술
+
+refineCropBoxesWithGpt55 의 `REFINE_PROMPT_PREFIX` 는 1차 prompt 의 핵심 룰을
+*재진술* 한다 (모델이 1차 출력만 보고 추론하면 root rule 누락 위험):
+
+1. **손글씨 배제** — visual character traits (uniform vs variable stroke, color)
+2. **다중 시각 요소 wrapping** — 한 문항 box 가 artwork + figure 모두 포함
+3. **긴 서술형 boundary** — last printed sub-part 까지만, post-(2) blank X
+4. **서술형 4 사례 인용** — 반 고흐 작품 + 작도 도형 + 빨간 마커 손글씨 케이스
+
+GPT-5.5 출력은 *complex 문항만* (전체 X) — 호출자가 1차 결과와 merge.
+
+### 27-5. 비용 / 속도 트레이드오프
+
+| 모델 | 페이지당 | 30 문항 시험지 | 속도 |
+|---|---|---|---|
+| Gemini 3 Flash (default) | ~$0.001 | ~$0.005 | 2-3초/페이지 |
+| GPT-5.5 refine (complex only) | ~$0.05 | (1-2 페이지) ~$0.10 | 30초-5분/페이지 |
+
+→ 보통 시험지 3-5 페이지 중 1-2 페이지가 complex → 추가 비용 ~$0.10, 시간 ~1분.
+
+**Vercel function timeout 주의**: 현재 `vercel.json` 의 `api/*.ts` = 60s 한도.
+cropDetect 는 *클라이언트 SDK 직접 호출* 이라 timeout 영향 X (브라우저 fetch 는
+TTL 없음). 단 *Vercel function 으로 마이그레이션* 시 GPT-5.5 5분 가능성을 위해
+Vercel Pro ($20/월, 300s timeout) 필요.
+
+### 27-6. 구현 위치 + 호출 순서
+
+**`src/services/ai/cropDetect.ts`**:
+- `DetectedCrop.complexity?: "simple" | "complex"` — schema required field
+- `CROP_DETECT_SCHEMA.items.complexity` enum + description
+- `CROP_DETECT_PROMPT` 의 *complexity catalog* 섹션 (서술형 4 사례 포함)
+- 신규 export `refineCropBoxesWithGpt55(pageBase64, initialResults, signal)`:
+  - complex 문항 없으면 즉시 return (no-op)
+  - GPT-5.5 Responses API 호출 (`gpt-5.5-pro`, `max_output_tokens: 8192`,
+    `reasoning: { effort: "low" }`)
+  - output_text fallback 패턴 (CLAUDE.md §1-3)
+  - JSON parse → number 기준 merge (개별 교체)
+  - column-aware padding 재적용
+  - catch (AbortError 제외) → initialResults fallback
+
+**`src/hooks/useCropDetect.ts`**:
+- Gemini Flash 호출 후 `hasComplex` check
+- `refineCropBoxesWithGpt55` await → final merged 결과
+- `setPageCropBoxes` 1 회 호출 (refined 결과로)
+
+### 27-7. 실패 mode + 안전망
+
+GPT-5.5 호출은 *best-effort enhancement* — 실패해도 Gemini 결과로 진행:
+
+- **빈 응답** (output_text === "") — reasoning 토큰 소진. fallback.
+- **API 에러** (rate limit / quota / network) — fallback.
+- **AbortError** — 사용자 cancel — 그대로 throw (useCropDetect 가 처리).
+- **TypeScript 에러 — `as any` 캐스트** — Responses API 타입 정의 불안정해서
+  `as any` 1 회 사용 (eslint-disable). SDK 업데이트 시 정리.
+
+### 27-8. 다음 세션 — 가능 확장
+
+- **수동 override 버튼** — Step 1.5 에 "이 페이지 정밀 재검출" 버튼 (사용자가
+  simple 페이지도 강제 GPT-5.5)
+- **UI badge** — page thumbnail 에 "정밀 분석" chip (complex 페이지 표시)
+- **cropDetectModel 필드** — 어느 모델이 마지막 emit 했는지 기록 (디버그)
+- **다른 시각 패턴 추가** — 6각형 배치, 표 형식 박스 등 새 패턴 발견 시
+  complexity 기준 확장
+
