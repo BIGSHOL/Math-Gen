@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { AuthGate } from "@app/components/auth";
+import { ToastContainer } from "@app/components/ui";
 import { installGlobalErrorHandlers } from "@app/lib/errorReporter";
 import { DetailScreen } from "@app/components/detail";
 import { LibraryScreen } from "@app/components/library";
@@ -64,6 +65,7 @@ const App = () => {
         {screen === "detail" && <DetailScreen />}
         {screen === "wizard" && <WizardScreen />}
         <ModalLayer />
+        <ToastContainer />
       </div>
     </AuthGate>
   );

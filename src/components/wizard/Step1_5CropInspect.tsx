@@ -24,6 +24,7 @@ import { EditableCropBox } from "./EditableCropBox";
 import PageThumbColumn from "./PageThumbColumn";
 import { useCropDetect } from "@app/hooks/useCropDetect";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
+import { showToast } from "@app/stores/toastStore";
 
 /** 페이지 이미지 영역에서 *빈 곳* drag → 새 박스 생성 (create 모드 전용). */
 interface DrawHandlerProps {
@@ -303,7 +304,13 @@ export const Step1_5CropInspect = () => {
           kind="secondary"
           icon="check"
           full
-          onClick={() => markCropInspected(activePage.id)}
+          onClick={() => {
+            markCropInspected(activePage.id);
+            showToast({
+              kind: "success",
+              message: `페이지 ${activeIndex + 1} 검토 완료 (박스 ${boxes.length}개)`,
+            });
+          }}
           disabled={activePage.cropInspected}
         >
           {activePage.cropInspected ? "검토 완료됨" : "이 페이지 검토 완료"}
@@ -313,7 +320,13 @@ export const Step1_5CropInspect = () => {
           icon="check-square"
           full
           size="sm"
-          onClick={() => markAllCropInspected()}
+          onClick={() => {
+            markAllCropInspected();
+            showToast({
+              kind: "success",
+              message: `모든 페이지 ${totalPages}개 검토 완료`,
+            });
+          }}
         >
           모든 페이지 일괄 완료
         </Btn>
