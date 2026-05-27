@@ -13,7 +13,7 @@
 // 다음 단계 (Step 2 OCR Review) 는 cropInspected + cropBoxes.length > 0 인
 // 페이지에 대해서만 Pass 2 (cropped GPT-5.5 재OCR) 트리거. (Phase I-7 의 변경)
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Btn, Card, Eyebrow, Icon } from "@app/components/ui";
 import { useWizardStore } from "@app/stores/wizardStore";
@@ -145,6 +145,54 @@ export const Step1_5CropInspect = () => {
   const activePage = pages[activeIndex];
   const pageImageUrl = usePageImageDataUrl(activePage);
 
+  // 이미지 zoom — "fit" (현재 viewport 폭 자동) 또는 0.25 ~ 2.0 (원본 픽셀 배율).
+  // 사용자 보고 (2026-05-27): "화면이 너무 큰거같은데 비율을 작게 할 수 있는
+  // 기능도 필요하겠어" — 페이지 이미지를 작게 보면서 박스 전체 한눈에 검수 가능.
+  // 박스 % 좌표는 containerSize (ResizeObserver) 기반 자동 적응 → 추가 변환 X.
+  type ImageScale = number | "fit";
+  const [imageScale, setImageScale] = useState<ImageScale>("fit");
+  const [naturalWidth, setNaturalWidth] = useState<number>(0);
+
+  const zoomIn = useCallback(
+    () =>
+      setImageScale((s) => {
+        if (s === "fit") return 1.0;
+        return Math.min(2.0, Math.round((s + 0.1) * 100) / 100);
+      }),
+    [],
+  );
+  const zoomOut = useCallback(
+    () =>
+      setImageScale((s) => {
+        if (s === "fit") return 0.5;
+        return Math.max(0.25, Math.round((s - 0.1) * 100) / 100);
+      }),
+    [],
+  );
+  const zoomFit = useCallback(() => setImageScale("fit"), []);
+
+  // 키보드 단축키: Ctrl/⌘ + +/-/0
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      // textarea / input 안에서는 비활성 (네이티브 브라우저 zoom 우선)
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        zoomIn();
+      } else if (e.key === "-") {
+        e.preventDefault();
+        zoomOut();
+      } else if (e.key === "0") {
+        e.preventDefault();
+        zoomFit();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomIn, zoomOut, zoomFit]);
+
   // 이미지 컨테이너 ref + 실제 px 크기 — bbox 변환 기준.
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -242,6 +290,41 @@ export const Step1_5CropInspect = () => {
           ) : null}
         </div>
         <div className="flex-1 min-h-0 overflow-auto bg-surface2 rounded-r2 p-3 relative">
+          {/* Zoom 컨트롤 — floating toolbar 상단 우측. 사용자 보고 (2026-05-27):
+              "화면이 너무 큰거같은데 비율을 작게 할 수 있는 기능도 필요". */}
+          {pageImageUrl && (
+            <div
+              className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-surface/95 backdrop-blur rounded-r2 border border-line px-1 py-1 shadow-s1 text-text"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={zoomOut}
+                title="축소 (Ctrl+−)"
+                aria-label="축소"
+                className="w-7 h-7 grid place-items-center rounded-r1 hover:bg-hover transition-colors"
+              >
+                <Icon name="minus" size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={zoomFit}
+                title="화면에 맞춤 (Ctrl+0)"
+                className="px-1.5 h-7 min-w-[3.2em] grid place-items-center rounded-r1 hover:bg-hover transition-colors font-mono text-caption font-semibold"
+              >
+                {imageScale === "fit" ? "맞춤" : `${Math.round(imageScale * 100)}%`}
+              </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                title="확대 (Ctrl++)"
+                aria-label="확대"
+                className="w-7 h-7 grid place-items-center rounded-r1 hover:bg-hover transition-colors"
+              >
+                <Icon name="plus" size={13} />
+              </button>
+            </div>
+          )}
           {pageImageUrl ? (
             <div
               ref={imageContainerRef}
@@ -256,7 +339,24 @@ export const Step1_5CropInspect = () => {
               <img
                 src={pageImageUrl}
                 alt={`페이지 ${activeIndex + 1}`}
-                style={{ display: "block", maxWidth: "100%", userSelect: "none" }}
+                onLoad={(e) => setNaturalWidth(e.currentTarget.naturalWidth)}
+                style={
+                  imageScale === "fit"
+                    ? {
+                        display: "block",
+                        maxWidth: "100%",
+                        userSelect: "none",
+                      }
+                    : {
+                        display: "block",
+                        width:
+                          naturalWidth > 0
+                            ? `${naturalWidth * imageScale}px`
+                            : "100%",
+                        maxWidth: "none",
+                        userSelect: "none",
+                      }
+                }
                 draggable={false}
               />
               {/* 검출 진행 중 — 이미지 위 *중앙 오버레이*. 사용자 보고
