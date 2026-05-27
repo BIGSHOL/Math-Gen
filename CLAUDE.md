@@ -3001,3 +3001,209 @@ Profiler) — render count 가 비정상이면 selector / useMemo 보강.
 - [ ] 회귀 테스트: tsc + Chrome MCP fresh tab (Maximum update depth 없음)
 - [ ] API 키 활성 환경에서 *실제 호출* 검증 — dev key 미노출 환경 hang 가능성
   (§24-7) 회피
+
+---
+
+## 25. 2026-05-27 세션 함정 카탈로그 — 사용자 보고 폭발 + Phase #12-#16
+
+이번 세션은 사용자가 **20+ 종 보고**를 *반복적으로* 던지는 형태. UX/OCR/렌더링/
+DB/AI 새 feature 까지 광범위. 다음 세션이 무난하도록 *반복된 함정 패턴* +
+*시간 잡아먹은 영역* 카탈로그.
+
+### 25-1. **사용자 1-line 보고 → 거대 작업 변환** 패턴
+
+사용자가 "X 됐는데 사라짐", "Y 가 이상함", "Z 더 강력하게" 같이 *한 줄로*
+보고하면 *실제로는 multi-file refactor + DB schema 변경 + Vercel function +
+UI overhaul* 가 동반되는 케이스가 다수.
+
+대표 예 (이번 세션):
+- "검출 완료된 거 재검출 함" → pages 테이블 컬럼 + mappers + sync + fallback
+  4-fix (Phase #14)
+- "모든 프로세스 결과 db화" → diagram_params / solution_auto_retried 컬럼 +
+  OPTIONAL_COLUMNS 확장 + sync diff (Phase #15)
+- "도형 confidence 낮으면 직접 그릴 수 있게" → 5 신규 파일 + OCRImage shape
+  확장 + DALL-E function + Storage upload (Phase #12-#13, ~950 줄)
+- "완료된 항목 이전 누르면 풀려버림" → furthestStep store 필드 + Stepper
+  prop + WizardScreen integration
+
+**대응**: 사용자 보고는 *언제나 처음 보이는 것보다 크다*. 답하기 전에:
+1. *root cause* 식별 — 화면 동작이 아니라 데이터 흐름 또는 schema 부재
+2. *블래스트 radius* 측정 — mapper/sync/fallback 까지 다 점검
+3. *plan agent 1-shot* — Phase 큰 변경은 plan agent 호출 후 사용자 결정
+   거치는 게 빠름 (사용자가 trigger / 모델 / 저장 정책 등 결정)
+
+### 25-2. **DB schema 마이그레이션 graceful fallback 패턴** (재사용 표준)
+
+새 컬럼 추가 시 사용자가 SQL 마이그레이션 안 한 상태에서 코드 deploy 되면
+PGRST204 (schema cache miss) → 모든 insert/update fail.
+
+**해결 표준** (이번 세션 *3 회* 재사용):
+```ts
+const SCHEMA_CACHE_MISS_RE = /(PGRST204|schema cache)/i;
+const isSchemaCacheMiss = (msg: string) => SCHEMA_CACHE_MISS_RE.test(msg);
+
+const OPTIONAL_COLUMNS = ["new_col_1", "new_col_2"] as const;
+const stripOptionalColumns = (row) => {
+  const clone = { ...row };
+  for (const col of OPTIONAL_COLUMNS) delete clone[col];
+  return clone;
+};
+
+let warnedSchema = false;
+const warnSchemaMigration = () => {
+  if (warnedSchema) return;
+  warnedSchema = true;
+  console.warn("[api/...] column 없음 — ALTER TABLE 마이그레이션 안내...");
+};
+
+// insert/update 호출부:
+if (error) {
+  if (isSchemaCacheMiss(error.message)) {
+    warnSchemaMigration();
+    const stripped = stripOptionalColumns(payload);
+    const { error: retryErr } = await supabase.from(...).insert(stripped);
+    if (retryErr) { /* 최종 fail */ }
+    return;
+  }
+  // 기존 error 처리
+}
+```
+
+**적용 위치 (이번 세션 3 곳)**:
+- `src/services/api/problems.ts` (choices_layout / diagram_params / solution_auto_retried)
+- `src/services/api/pages.ts` (crop_boxes / crop_inspected)
+- 기타 미래 컬럼 추가 시 동일 패턴
+
+새 컬럼 추가는 *항상* 이 패턴 묶음 (schema + mappers + service fallback + sync diff)
+으로 가야 사용자 SQL 적용 전후 모두 안전.
+
+### 25-3. **mappers 양방향 매핑 누락** — 가장 자주 빠진 함정
+
+사용자 보고 "보관함 재열기 시 X 사라짐" 의 root cause 가 거의 *mappers 매핑
+누락*. OCRImage / OCRProblem / WizardPage 의 새 필드 추가 시:
+
+```
+□ Type 확장 (src/stores/wizardStore.ts)
+□ DB schema 컬럼 추가 (supabase/schema.sql + ALTER TABLE IF NOT EXISTS)
+□ Row type 확장 (src/services/api/mappers.ts 의 OcrProblemRow / PageRow)
+□ Insert mapping (wizardPageToPageInsert / ocrProblemToInsert)
+□ Hydrate mapping (pageRowToWizard / ocrProblemRowToWizard)
+□ Service fallback (PGRST204 retry — OPTIONAL_COLUMNS)
+□ wizardSync diff (syncItemDiff / syncPageDiff)
+```
+
+**7 단계 체크리스트** — 하나라도 빠지면 hydrate 후 *그 필드만 사라짐*. 다음
+세션은 이 checklist 를 *항상* 따라가면 됨.
+
+이번 세션 누락 발견 사례:
+- `diagramParams` — type 있는데 DB / mapper / sync 전부 없음 (Phase #15 에서 fix)
+- `cropBoxes` — type / store 있는데 DB / mapper / sync 없음 (Phase #14 에서 fix)
+- `images` 의 새 필드들 — wizardSync diff 누락 (Phase #12-#13 에서 fix)
+
+### 25-4. **백틱 함정 — prompts.ts 편집 시 *반복* 발견**
+
+CLAUDE.md §4-6 의 백틱 함정. 이번 세션 *2 회* 발생:
+- 사례 A: `[단답형 N]` 처럼 backtick 안 한국어 본문에 외부 backtick 사용
+- 사례 B: ``\`<line>\``` 같은 escape backtick + 본문 backtick 혼용
+
+**원칙 재확인**: `prompts.ts` 같은 *큰 template literal 안에 한국어 본문* 일
+때, **모든 backtick 을 *피해라*** — 큰따옴표 또는 single quote 사용. 본인이
+한국어 본문 작성 시 자동으로 `` `xxx` `` 형태를 쓰는 경향이 있는데 *반드시*
+`"xxx"` 로 작성. 이걸 명심.
+
+검증: prompts.ts edit 후 *반드시 즉시* `npx tsc --noEmit` — 백틱 에러는
+컴파일 단계에서만 잡힘.
+
+### 25-5. **Stepper / furthestStep 패턴** (사용자 보고 — 완료 체크 풀림)
+
+Stepper 의 `done` 상태가 `s.index < current` 로만 결정되면 사용자가 *prev
+로 돌아갔을 때* 미래 step 이 future 로 reset. 사용자 보고: "완료된 항목 이전
+누르면 풀려버림".
+
+**해결 (이번 세션)**: `furthestStep` 추적 — store 에 monotonic 증가 필드.
+- `setStep` / `next` 시 `furthest = max(furthest, newStep)`
+- `prev` 는 furthest 영향 X
+- `startWizard` / `hydrateFromTest` / `reset` 시 `furthest = step` (재초기화)
+- Stepper 가 `state = s.index < current ? "done" : s.index === current ? "active"
+  : s.index < furthest ? "done" : "future"`
+
+**패턴 일반화**: 사용자 navigation 동작 (이전/다음 버튼) 으로 *진행 표시* 가
+풀리면 안 됨 — 별도 *monotonic high-water-mark* 필요. wizardStore 외 다른
+multi-step UI 도 같은 패턴.
+
+### 25-6. **Phase F (diagramParams) 의 진짜 표시 위치**
+
+이번 세션 처음 발견: `OCRProblem.diagramParams` 가 *Phase F 부터 존재*했는데
+DB 매핑 전체 누락. → 보관함 재열기 시 도형 사라짐. *Phase F (OCR Tier 2)
+구현 시* 이 부분이 통째 빠진 채로 commit 됐다는 의미.
+
+**원칙**: AI emit 결과 (vector spec, ocr text, solution 등) 는 *언제나*
+DB 영구 저장. 새 AI 결과 필드 추가 시 §25-3 의 7-단계 checklist 따름.
+*type 만 추가하고 sync 못 한 필드* 는 다음 세션의 사용자 보고 1순위.
+
+### 25-7. **OCRImage.source 의 backward-compatible default**
+
+이번 세션에 추가한 OCRImage.source ("ai-crop" | "user-crop" | "ai-gen") —
+옛 row 는 source 없음. reader 가 *항상* `source ?? "ai-crop"` 으로 default
+적용해야. 직접 비교 (`source === "ai-crop"`) 는 옛 row 의 undefined 와 mismatch.
+
+**일반 원칙**: 새 union enum 필드 추가 시 *옛 데이터 default* 를 *type 안*
+에 코멘트로 명시 + reader 코드에 fallback 명시. SQL DEFAULT 만으로는 부족
+(기존 row 의 NULL 유지). hydrate path 에서 명시적 ?? .
+
+### 25-8. **viewport-fixed overlay vs container-absolute overlay**
+
+이번 세션 사용자 보고: "AI가 문항을 검출하고 있어요" 가 *이미지 영역 안* 만
+중앙. 사용자가 시험지 이미지를 스크롤하면 overlay 가 *viewport 밖* 으로.
+
+**해결**: overlay 분리 — *위치 신호 (shimmer)* 는 container absolute, *카드
+본체* 는 viewport `position: fixed`. 사용자가 어디 보고 있어도 카드는 viewport
+중앙.
+
+**원칙**: progress indicator 의 *위치* 는 *작업 위치* 와 별개. 작업이 어디서
+일어나는지 시각 표시는 *해당 영역 안 (container-absolute)*, 사용자 인지용
+*중앙 카드 / toast* 는 *viewport-fixed* — 두 개 분리.
+
+### 25-9. **dev 환경 API 키 미노출 정책의 함정** (§24-7 재확인)
+
+이번 세션 *#13 AI 이미지 생성* 구현 후 dev 검증 불가 — `vite.config.ts` 의
+보안 조치로 API 키 strip. `vercel dev` 도 미지원 (Vite 호환 X).
+
+**원칙**: 새 Vercel function (`api/*.ts`) 구현 시 *검증은 항상 Vercel preview*.
+사용자가 dev 환경에서 검증 시도하면 *반드시* 안내:
+> dev 환경 API 키 미노출 정책 (CLAUDE.md §24-7). 검증은 `vercel deploy --yes`
+> 후 preview URL 에서.
+
+### 25-10. **Plan mode 의 Phase 5-스텝 워크플로우** — Plan agent 활용
+
+이번 세션의 #12-#13 통합 plan 작성에서 Phase 1 (Explore agent 3 개 병렬) →
+Phase 2 (Plan agent 1 개) → Phase 3 (AskUserQuestion 4 결정) → Phase 4
+(plan 파일 §25 추가) → Phase 5 (ExitPlanMode) 흐름 사용.
+
+**효율적**: explore agent 가 *3 영역 분담* (도형 흐름 / EditableCropBox
+재사용 / AI SDK) — 30 초 안에 충분한 컨텍스트. Plan agent 결과를 그대로
+ExitPlanMode 까지.
+
+**미래 큰 작업 시 패턴**: 사용자 보고가 "이거 + 저거 + ..." 묶음이면 *즉시*
+plan mode 추천. 1-line 처리는 즉시, multi-file 변경은 plan + approve.
+
+### 25-11. **TaskCreate / TaskUpdate 사용 패턴** (이번 세션)
+
+이번 세션 15+ task 생성. 사용자가 *long-running* (multi-step) 으로 인식되면
+TaskCreate 가 progress 표시에 효과적. 짧은 작업 (1-line fix) 은 TaskCreate
+오버헤드 안 줄. 가이드라인:
+- 3+ step 또는 multi-file 변경 → TaskCreate
+- 1-line edit + immediate test → 그냥 진행
+- task `in_progress` → `completed` 빠르게 cycling — 사용자가 "지금 뭐 하고 있나"
+  실시간 인지 가능
+
+### 25-12. **다음 세션 시작 시 추천 sequence**
+
+이번 세션 commits 가 많아 다음 세션 시작 시 (1) recent commits 확인 +
+(2) §25 카탈로그 읽기 + (3) 사용자 보고 → root cause 식별 → 7-단계 checklist
+적용 순서가 효율적.
+
+특히 *Phase #12-#13 (AI 이미지 생성)* 은 Vercel preview 검증 필요 — 사용자가
+다음 세션에 "검증 결과 X 안 됨" 보고 시 즉시 `/api/ai-image` Vercel function
+로그 + ai_usage 테이블 query 부터.
+

@@ -48,6 +48,8 @@ const STEPS: StepperStep[] = [
  */
 export const WizardScreen = () => {
   const step = useWizardStore((s) => s.step);
+  // Phase #16: 한 번 도달한 가장 멀리 간 step — Stepper 의 done 유지 (prev 후에도).
+  const furthestStep = useWizardStore((s) => s.furthestStep);
   const setStep = useWizardStore((s) => s.setStep);
   const next = useWizardStore((s) => s.next);
   const prev = useWizardStore((s) => s.prev);
@@ -212,7 +214,7 @@ export const WizardScreen = () => {
       <div className="px-8 py-4 border-b border-line bg-surface wizard-chrome">
         {/* max-w 2200 — QHD (2560) 까지 활용, 좌우 여백 ~180px (사용자 결정 2026-05-26) */}
         <div className="max-w-[2200px] mx-auto">
-          <Stepper steps={STEPS} current={step} onJump={setStep} />
+          <Stepper steps={STEPS} current={step} furthest={furthestStep} onJump={setStep} />
         </div>
       </div>
 

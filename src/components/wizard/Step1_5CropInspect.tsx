@@ -359,18 +359,14 @@ export const Step1_5CropInspect = () => {
                 }
                 draggable={false}
               />
-              {/* 검출 진행 중 — 이미지 위 *중앙 오버레이*. 사용자 보고
-                  (2026-05-27): 검출 중인지 멈춘건지 인지 안 됨 → 큰 오버레이
-                  + spinner + 강한 텍스트 + diagonal shimmer 로 한눈에 알게.
-                  박스가 이미 있어도 inflight 면 표시 (재검출 시나리오). */}
+              {/* 검출 진행 중 — 이미지 영역의 shimmer 배경 (작업 *위치* 신호).
+                  사용자 보고 (2026-05-27): 검출 중인지 멈춘건지 인지 안 됨.
+                  카드 본체는 viewport fixed 로 분리 — 아래 별도 element. */}
               {activePage.cropDetectInflight && (
                 <div
                   style={{
                     position: "absolute",
                     inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
                     pointerEvents: "none",
                     background:
                       "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(14,165,233,0.06) 25%, rgba(14,165,233,0.18) 50%, rgba(14,165,233,0.06) 75%, rgba(14,165,233,0.18) 100%)",
@@ -378,21 +374,8 @@ export const Step1_5CropInspect = () => {
                     backdropFilter: "blur(0.5px)",
                   }}
                   className="animate-detect-shimmer"
-                >
-                  <div className="flex flex-col items-center gap-2.5 px-5 py-4 rounded-r3 bg-white/95 shadow-lg border-2 border-accent/40 animate-loud-pulse">
-                    <Icon
-                      name="circle-notch"
-                      size={28}
-                      className="text-accent animate-spin"
-                    />
-                    <div className="text-body font-bold text-accent">
-                      AI가 문항을 검출하고 있어요
-                    </div>
-                    <div className="text-caption text-muted">
-                      약 3~5초 — 잠시만 기다려주세요
-                    </div>
-                  </div>
-                </div>
+                  aria-hidden
+                />
               )}
               {/* 박스 overlay */}
               {containerSize.width > 0 &&
@@ -518,6 +501,36 @@ export const Step1_5CropInspect = () => {
           모든 페이지 일괄 완료
         </Btn>
       </aside>
+
+      {/* 검출 진행 중 카드 — viewport fixed 중앙. 사용자 보고 (2026-05-27):
+          "AI가 문항을 검출하고 있어요를 화면 가운데로". 이미지 영역 안 overlay
+          (위 shimmer 배경) 와 별도로 카드는 화면 절대 중앙에 떠야 어디 보고
+          있어도 즉시 인지. pointer-events: none 으로 박스 편집 차단 안 함. */}
+      {activePage.cropDetectInflight && (
+        <div
+          style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "none",
+            zIndex: 50,
+          }}
+          className="flex flex-col items-center gap-2.5 px-6 py-5 rounded-r3 bg-white/95 shadow-2xl border-2 border-accent/40 animate-loud-pulse"
+        >
+          <Icon
+            name="circle-notch"
+            size={32}
+            className="text-accent animate-spin"
+          />
+          <div className="text-subhead font-bold text-accent">
+            AI가 문항을 검출하고 있어요
+          </div>
+          <div className="text-caption text-muted">
+            약 3~5초 — 잠시만 기다려주세요
+          </div>
+        </div>
+      )}
     </div>
   );
 };

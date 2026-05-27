@@ -11,23 +11,38 @@ export interface StepperStep {
 export interface StepperProps {
   steps: StepperStep[];
   current: WizardStepIndex;
+  /**
+   * Phase #16: 한 번 도달한 가장 멀리 간 step. 사용자가 prev 로 돌아가도
+   * `furthest` 이하 step 은 done 유지. 사용자 보고: "완료된 항목에 대해
+   * 이전 누르면 완료가 풀려버림" (2026-05-27). store 의 furthestStep 으로 전달.
+   */
+  furthest?: WizardStepIndex;
   onJump?: (index: WizardStepIndex) => void;
 }
 
 /**
- * 5-step horizontal stepper. States per step:
- *   - done   → ink fill + check icon
+ * 7-step horizontal stepper. States per step:
+ *   - done   → ink fill + check icon (current 미만 또는 furthest 이하)
  *   - active → accent border + accent number
  *   - future → muted number + dashed border
  *
  * The connector line between steps animates from 0 → 100% as you progress
  * (280ms ease). Clicking a `done` step jumps back to it.
  */
-export const Stepper = ({ steps, current, onJump }: StepperProps) => (
+export const Stepper = ({ steps, current, furthest, onJump }: StepperProps) => (
   <ol className="flex items-center w-full" role="list">
     {steps.map((s, i) => {
-      const state: "done" | "active" | "future" =
-        s.index < current ? "done" : s.index === current ? "active" : "future";
+      // Phase #16: furthest 가 있으면 그 이하 step (current 제외) 도 done 으로.
+      // furthest 미설정 (옛 호출처) 면 기존 동작 — current 미만만 done.
+      const reachedMax = (furthest ?? current) as number;
+      const isDone =
+        s.index !== current &&
+        (s.index < current || s.index < reachedMax);
+      const state: "done" | "active" | "future" = isDone
+        ? "done"
+        : s.index === current
+          ? "active"
+          : "future";
       const isLast = i === steps.length - 1;
       const canJump = state === "done" && !!onJump;
       return (
@@ -81,7 +96,9 @@ export const Stepper = ({ steps, current, onJump }: StepperProps) => (
               <span
                 className={cn(
                   "absolute inset-y-0 left-0 bg-ink transition-[width] duration-[280ms] ease-spring",
-                  s.index < current ? "w-full" : "w-0",
+                  // Phase #16: connector line — step N 이 done 이면 fill 유지.
+                  // (furthest 가 있으면 그 이하 connector 도 done.)
+                  s.index < current || s.index < (furthest ?? current) ? "w-full" : "w-0",
                 )}
               />
             </span>

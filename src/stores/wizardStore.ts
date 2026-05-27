@@ -363,6 +363,13 @@ export interface WizardState {
   testId: string | null;
   step: WizardStepIndex;
   /**
+   * Phase #16 (2026-05-27): 한 번 도달한 가장 멀리 간 step. setStep / next 가
+   * monotonic 증가, prev() 는 영향 X → Stepper 의 done 상태가 사용자 navigation
+   * 으로 풀리지 않음. startWizard / reset / hydrateFromTest 가 0 으로 초기화.
+   * 사용자 보고: "완료된 항목에 대해 이전 누르면 완료가 풀려버림".
+   */
+  furthestStep: WizardStepIndex;
+  /**
    * "이어서 작업" hydrate 직후 1회만 true. WizardScreen 의 resume 다이얼로그가
    * 이 플래그를 보면 skip — 이미 명시적으로 불러온 시험지라 재차 묻지 않는다.
    * `partialize` 제외 (휘발성) — 새로고침 후엔 일반 resume 흐름.
@@ -469,6 +476,13 @@ export interface WizardState {
 const initialState = {
   testId: null,
   step: 0 as WizardStepIndex,
+  /**
+   * Phase #16 (2026-05-27): 한 번 도달한 가장 멀리 간 step. setStep / next 가
+   * max(furthestStep, newStep) 으로 monotonic 증가. prev() 로 돌아가도 감소 X →
+   * Stepper 의 done 상태 보존. startWizard / hydrateFromTest 가 reset.
+   * 사용자 보고: "완료된 항목에 대해 이전 누르면 완료가 풀려버림."
+   */
+  furthestStep: 0 as WizardStepIndex,
   justHydrated: false,
   uploadedFileName: null,
   uploadProgress: 0,
@@ -494,14 +508,26 @@ export const useWizardStore = create<WizardState>()(
     (set, get) => ({
       ...initialState,
 
-      setStep: (step) => set({ step }),
+      setStep: (step) => {
+        // Phase #16: furthestStep monotonic — 한 번 도달한 step 은 prev 후에도 유지.
+        const cur = get().furthestStep;
+        set({ step, furthestStep: (Math.max(cur, step) as WizardStepIndex) });
+      },
       next: () => {
         const s = get().step;
         // Step 0~6 — Step 1.5 (검수) 가 1 로 삽입돼 총 7 단계. next() clamp 6.
-        if (s < 6) set({ step: (s + 1) as WizardStepIndex });
+        if (s < 6) {
+          const newStep = (s + 1) as WizardStepIndex;
+          const cur = get().furthestStep;
+          set({
+            step: newStep,
+            furthestStep: (Math.max(cur, newStep) as WizardStepIndex),
+          });
+        }
       },
       prev: () => {
         const s = get().step;
+        // furthestStep 은 *유지* — 사용자 보고 (2026-05-27): "완료 항목 이전 누르면 풀려버림"
         if (s > 0) set({ step: (s - 1) as WizardStepIndex });
       },
 
@@ -635,7 +661,14 @@ export const useWizardStore = create<WizardState>()(
 
       startWizard: (testId) => set({ ...initialState, testId }),
       hydrateFromTest: (snapshot) =>
-        set({ ...initialState, ...snapshot, justHydrated: true }),
+        set({
+          ...initialState,
+          ...snapshot,
+          // Phase #16: 보관함 재열기 시 — 도달한 step 까지 자동 done.
+          // snapshot.step 이 decideResumeStep 결과 → furthestStep 동일 set.
+          furthestStep: (snapshot.step ?? 0) as WizardStepIndex,
+          justHydrated: true,
+        }),
       reset: () => set(initialState),
     }),
     {
