@@ -70,17 +70,30 @@ export const useCropDetect = (): UseCropDetect => {
   useEffect(() => {
     const isCancelled = (id: string) => !dispatched.current.has(id);
 
+    // *비-문항 페이지 일괄 처리* — 한 번의 store mutation 으로 모두 빈 배열 set.
+    // 개별 setPageCropBoxes(p.id, []) N 회 호출은 매 setState 마다 pages
+    // reference 변경 → effect 재실행 → React maximum update depth 에러.
+    // 한 번의 functional setState 로 N 페이지 update 하면 1 회만 trigger.
+    const needsBatchEmpty = pages.some(
+      (p) => p.cropBoxes === undefined && !p.isProblemPage && !p.forceOcr,
+    );
+    if (needsBatchEmpty) {
+      useWizardStore.setState((state) => ({
+        pages: state.pages.map((p) =>
+          p.cropBoxes === undefined && !p.isProblemPage && !p.forceOcr
+            ? { ...p, cropBoxes: [] }
+            : p,
+        ),
+      }));
+      return; // 다음 effect cycle 에서 자연스럽게 문제 페이지 처리
+    }
+
     for (const page of pages) {
       // (1) 이미 검출됨
       if (page.cropBoxes !== undefined) continue;
       // (2) 에러 상태 — 사용자 resetDispatch 까지 대기
       if (page.cropDetectError) continue;
-      // (3) 비-문항 페이지 → 빈 배열 즉시 통과 (검토 unnecessary)
-      if (!page.isProblemPage && !page.forceOcr) {
-        setPageCropBoxes(page.id, []);
-        continue;
-      }
-      // (4) 이미 dispatch 중
+      // (3) 이미 dispatch 중
       if (dispatched.current.has(page.id)) continue;
 
       dispatched.current.add(page.id);

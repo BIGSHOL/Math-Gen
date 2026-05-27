@@ -173,10 +173,6 @@ const useDrawNewBox = ({
 export const Step1_5CropInspect = () => {
   const pages = useWizardStore((s) => s.pages);
   const activeIndex = useWizardStore((s) => s.activePageIndex);
-  const setActiveIndex = useWizardStore((s) =>
-    (i: number) => s, // placeholder — 아래 직접 store.setState
-  );
-  void setActiveIndex;
   const addCropBox = useWizardStore((s) => s.addCropBox);
   const updateCropBox = useWizardStore((s) => s.updateCropBox);
   const deleteCropBox = useWizardStore((s) => s.deleteCropBox);
