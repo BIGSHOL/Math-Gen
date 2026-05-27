@@ -12,6 +12,7 @@ import { create } from "zustand";
  *   - errors     : error_logs 검색 + fingerprint 묶음
  *   - monitoring : admin_anomalies (Phase D — 일단 stub)
  *   - feedback   : content_feedback 집계 (Phase E — stub)
+ *   - ocr_scraps : OCR 단계 👎 스크랩 list (Phase #6 — 사용자 보고 검토)
  */
 
 export type AdminSection =
@@ -21,7 +22,8 @@ export type AdminSection =
   | "tests"
   | "errors"
   | "monitoring"
-  | "feedback";
+  | "feedback"
+  | "ocr_scraps";
 
 interface AdminStore {
   section: AdminSection;

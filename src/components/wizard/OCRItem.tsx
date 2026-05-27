@@ -12,6 +12,7 @@ import {
 } from "@app/lib/diagram";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
+import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
 
 /**
  * Step 2 — a single extracted problem card.
@@ -39,6 +40,12 @@ export interface OCRItemProps {
    * still happens in Step 2 (OCR).
    */
   readonly?: boolean;
+  /**
+   * Phase #6 — Supabase test row id. OcrFeedbackPanel 에 전달돼 ocr_feedback
+   * row 의 test_id 컬럼 채움. 로그인 + persisted test (Supabase 에 저장된)
+   * 일 때만 의미 있음. null/undefined 면 피드백 패널 숨김.
+   */
+  testId?: string | null;
 }
 
 /**
@@ -115,7 +122,7 @@ const StatusChip = ({ status, reviewed }: { status: OCRProblem["status"]; review
   );
 };
 
-export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemProps) => {
+export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OCRItemProps) => {
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
 
   const [editing, setEditing] = useState(false);
@@ -228,6 +235,14 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly }: OCRItemPro
         ) : null}
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Phase #6 — 좋아요/싫어요 (편집 중 / readonly 가 아니고 testId 있을 때만) */}
+          {!editing && !readonly && testId && (
+            <OcrFeedbackPanel
+              ocrProblemId={item.id}
+              testId={testId}
+              compact
+            />
+          )}
           {readonly ? null : editing ? (
             <>
               <Btn kind="ghost" size="sm" icon="x" onClick={cancelEdit}>

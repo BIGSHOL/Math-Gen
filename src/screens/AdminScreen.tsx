@@ -8,6 +8,7 @@ import { TestStats } from "@app/components/admin/sections/TestStats";
 import { ErrorLogs } from "@app/components/admin/sections/ErrorLogs";
 import { Monitoring } from "@app/components/admin/sections/Monitoring";
 import { ContentInsights } from "@app/components/admin/sections/ContentInsights";
+import { OcrScrapsManagement } from "@app/components/admin/sections/OcrScrapsManagement";
 import { useAdminStore } from "@app/stores/adminStore";
 import { loadAnomalies } from "@app/services/api/admin";
 
@@ -63,6 +64,8 @@ const SectionRouter = () => {
       return <Monitoring />;
     case "feedback":
       return <ContentInsights />;
+    case "ocr_scraps":
+      return <OcrScrapsManagement />;
     default:
       return <UsageDashboard />;
   }

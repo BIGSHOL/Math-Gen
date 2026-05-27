@@ -144,6 +144,8 @@ export const Step2OCRReview = () => {
   const pages = useWizardStore((s) => s.pages);
   const activeIdx = useWizardStore((s) => s.activePageIndex);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
+  // Phase #6 — OcrFeedbackPanel 의 test_id 컬럼 채움. null 이면 패널 숨김.
+  const testId = useWizardStore((s) => s.testId);
 
   const { resetDispatch } = usePageOcr();
 
@@ -304,6 +306,7 @@ export const Step2OCRReview = () => {
               pageId={activePage.id}
               item={item}
               pageImageDataUrl={pageImage}
+              testId={testId}
             />
           ))}
         </div>

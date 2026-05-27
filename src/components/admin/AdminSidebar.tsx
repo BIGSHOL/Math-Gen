@@ -25,6 +25,7 @@ const SECTIONS: SectionSpec[] = [
   { id: "errors", label: "에러 로그", icon: "warning-octagon" },
   { id: "monitoring", label: "이상 감지", icon: "radar" },
   { id: "feedback", label: "콘텐츠 분석", icon: "thumbs-up" },
+  { id: "ocr_scraps", label: "OCR 스크랩", icon: "bookmark-simple" },
 ];
 
 export const AdminSidebar = () => {

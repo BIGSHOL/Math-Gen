@@ -301,6 +301,80 @@ CREATE POLICY variant_history_all_role ON variant_history
   );
 
 -- ============================================================================
+-- 8. ocr_feedback (OCR 단계 좋아요/싫어요 — Phase #6 사용자 보고 스크랩)
+-- ----------------------------------------------------------------------------
+-- 사용자가 OCR 결과 카드에 👍 / 👎 한 기록. 👎 시 사전 정의 reason_codes
+-- (multi-select) + 자유 입력 reason_text. 관리자가 list / resolved 표시.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ocr_feedback (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ocr_problem_id      UUID NOT NULL REFERENCES ocr_problems(id) ON DELETE CASCADE,
+  test_id             UUID NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+  tenant_id           UUID,                                  -- tests.tenant_id 복사 (admin filter 효율)
+  rating              TEXT NOT NULL CHECK (rating IN ('like', 'dislike')),
+  reason_codes        TEXT[] NOT NULL DEFAULT '{}',          -- 사전 정의 사유 코드 (body_missing / choices_missing / latex_error / figure_error / answer_wrong / other_distortion)
+  reason_text         TEXT,                                  -- 자유 입력 (선택)
+  resolved            BOOL NOT NULL DEFAULT false,           -- 관리자 검토 완료
+  resolved_at         TIMESTAMPTZ,
+  resolved_by         UUID,
+  resolved_note       TEXT,                                  -- 관리자 메모 (선택)
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- 한 사용자 + 한 문제 = 한 피드백만 (UPSERT 패턴, like → dislike 변경 가능)
+  UNIQUE (ocr_problem_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_test
+  ON ocr_feedback(test_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_scrap
+  ON ocr_feedback(rating, resolved, created_at DESC)
+  WHERE rating = 'dislike';
+CREATE INDEX IF NOT EXISTS idx_feedback_tenant
+  ON ocr_feedback(tenant_id, rating, resolved)
+  WHERE tenant_id IS NOT NULL AND rating = 'dislike';
+
+DROP TRIGGER IF EXISTS feedback_touch ON ocr_feedback;
+CREATE TRIGGER feedback_touch
+  BEFORE UPDATE ON ocr_feedback
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+ALTER TABLE ocr_feedback ENABLE ROW LEVEL SECURITY;
+
+-- 본인 (자신의 피드백 read/write) + tenant_admin (같은 tenant 의 dislike 만 read)
+-- + system_admin (전체).
+DROP POLICY IF EXISTS feedback_select_role ON ocr_feedback;
+CREATE POLICY feedback_select_role ON ocr_feedback
+  FOR SELECT TO anon, authenticated
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
+
+DROP POLICY IF EXISTS feedback_insert_role ON ocr_feedback;
+CREATE POLICY feedback_insert_role ON ocr_feedback
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+  );
+
+-- UPDATE: 본인은 자신의 피드백 (rating 변경 / 사유 추가), admin 은 resolved/resolved_note 수정
+DROP POLICY IF EXISTS feedback_update_role ON ocr_feedback;
+CREATE POLICY feedback_update_role ON ocr_feedback
+  FOR UPDATE TO anon, authenticated
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
+
+-- DELETE: 본인만 (자신의 피드백 취소). admin 은 미허용 — 스크랩 기록 보존.
+DROP POLICY IF EXISTS feedback_delete_own ON ocr_feedback;
+CREATE POLICY feedback_delete_own ON ocr_feedback
+  FOR DELETE TO anon, authenticated
+  USING (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+
+-- ============================================================================
 -- Storage Buckets — 대시보드 Storage 탭에서 *직접* 생성 (SQL 로 안 됨)
 -- ----------------------------------------------------------------------------
 -- 1. `pdfs` — private, MIME: application/pdf, size limit: 50MB
