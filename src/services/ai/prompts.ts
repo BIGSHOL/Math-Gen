@@ -929,6 +929,15 @@ RULES FOR EACH "items" ENTRY
        ① \$1\$ ② \$2\$ ③ \$3k\$ ④ \$4k\$ ⑤ \$5k\$
        The renderer auto-formats this into a 2-column adaptive grid. Do NOT split options across multiple markdown lines. Do NOT wrap ①②③④⑤ themselves in \$.
 
+       🚨 **연립방정식·시스템 보기 — \\begin{cases} 필수 (사용자 보고 — 반복 발생)**:
+         보기 (① 또는 본문) 안에 *두 개 이상의 등식·부등식 묶음* (연립방정식, 다중 조건, case 정의) 이 있으면 반드시 한 \$...\$ 안에 \\begin{cases}...\\end{cases} 로 묶어 *세로 정렬*. 콤마 분리 / 줄바꿈 분리 / \$...\$ 두 개로 쪼개기 — *전부 금지*.
+         사용자 실제 보고 사례: 보기 ① 의 연립방정식이 보기번호와 *따로 놀게* (분리된 두 줄 또는 \$ 두 개로 쪼개짐) 렌더 → 학생이 "①" 가 어느 식에 붙는지 모름.
+         · 잘못됨: "① \$3x-y=5, 2x+y=3\$"   (콤마 분리 — 연립인지 식별 X)
+         · 잘못됨: "① \$3x-y=5\$ \$2x+y=3\$"   (\$ 두 개 — ① 우측 식이 가로로 두 개 떨어짐)
+         · 잘못됨: "① \$3x-y=5\\\\ 2x+y=3\$"  (cases 없이 줄바꿈만 — KaTeX 의 \\\\ 가 \$...\$ 안에서 정렬 깨짐)
+         · 올바름: "① \$\\begin{cases} 3x-y=5 \\\\ 2x+y=3 \\end{cases}\$"   ← 보기번호 ① 바로 우측에 세로 2 줄로 묶여 출력.
+         같은 규칙: 부등식 묶음, 조각함수 (\$f(x) = \\begin{cases} x^2 & (x \\geq 0) \\\\ -x & (x < 0) \\end{cases}\$), 좌표 set, 다중 조건 모두 \\begin{cases} 으로.
+
    4c. **박스·테두리 영역의 4-way 분류 — CRITICAL** (사용자 보고 반복 발생 — 박스 무차별 wrap 으로 *본문이 사라지고 조건만 남는* 케이스):
 
        원본에 *테두리/배경색* 으로 둘러싸인 박스가 보이면 *내용을 먼저 읽고* 다음 4 종류로 분류:
@@ -1107,6 +1116,22 @@ RULES FOR EACH "items" ENTRY
        **Text labels — overlap is forbidden, and the renderer enforces a white outline as a backstop**:
        - Every <text> attribute set: font-family="Times New Roman, serif" font-style="italic" font-size="14" (11–13 for dense diagrams). The renderer auto-adds paint-order/white-stroke so labels stay readable, but you MUST still position labels so their bounding boxes do not touch any line, curve, or other label.
        - Unicode only (π θ √ α β …). Never LaTeX inside <text>.
+
+       🚨 **숫자 라벨 ≠ 변수 라벨 — 폰트 분리 (사용자 보고 CRITICAL)**:
+         사용자 보고: "수직선 숫자 처리가 매우 아쉬운데, 왜 일반적인 문항과 보기의 폰트와 다르지? 같게 처리할것." → SVG 안 *순수 숫자* 가 italic Times 로 빠져나와 본문 KaTeX 의 직립 숫자와 *시각 불일치*.
+         원칙: **변수는 italic, 숫자는 upright (직립)**. 한국 교과서 / KaTeX 와 동일 관행.
+         - **변수 라벨** (x, y, A, B, P, f, g, h, n, k 단일 알파벳, A(2,1) 의 A 같은 점 라벨): italic *유지* — font-style 생략 또는 \`font-style="italic"\`.
+         - **순수 숫자 라벨** (수직선 tick "-3 -2 -1 0 1 2 3", 좌표축 눈금 "1 2 3", 치수 라벨 중 숫자만 "8" "6", 분수 numerator·denominator "3" "4"): **반드시** \`font-style="normal"\` 명시.
+         - **혼합 라벨** (변수 + 숫자 — "5y", "3x", "2a"): 통째로 italic 유지 (default). 변수와 숫자 시각 단위 보존.
+         예시 — 수직선 (number line) 의 tick 라벨:
+           <text x="60" y="80" text-anchor="middle" dominant-baseline="middle" font-family="Times New Roman, serif" font-style="normal" font-size="13">-3</text>
+           <text x="90" y="80" text-anchor="middle" dominant-baseline="middle" font-family="Times New Roman, serif" font-style="normal" font-size="13">-2</text>
+           ... (모든 숫자 tick 동일하게 font-style="normal")
+         예시 — 변수 점 라벨 (italic):
+           <text x="120" y="50" font-family="Times New Roman, serif" font-style="italic" font-size="14">A</text>
+         예시 — 치수 라벨 (혼합 "5y" italic 유지):
+           <text x="210" y="38" text-anchor="middle" dominant-baseline="middle" font-size="14">5y</text>
+         체크리스트: 라벨 emit 직전 — 이 라벨이 *순수 숫자* 인가? → \`font-style="normal"\` 추가. *변수만 또는 변수 + 숫자* 인가? → italic 유지.
 
        **MINIMUM CLEARANCE — non-negotiable, pre-emit check**: every <text> element's bounding box (estimate width ≈ char_count × 7 px, height ≈ font_size + 2 px) MUST be **at least 6 px** away from EVERY other element (line endpoint, curve sample, dot, other text). Before emitting any <text>, mentally project a 6 px margin around it and confirm no line/curve passes through that margin. If conflict found, MOVE the label, do NOT just trust the white stroke.
 

@@ -353,7 +353,11 @@ const preWrapLatexHeavyLines = (text: string): string =>
       // PRESERVE_MARK 안에 있는 줄 (SVG/표 placeholder) 도 skip.
       if (line.includes(PRESERVE_MARK)) return line;
       const cmds = line.match(LATEX_HEAVY_CMD);
-      if (!cmds || cmds.length < 2) return line;
+      // 사용자 보고 (2026-05-26): `\displaystyle 2x(...) \dfrac{2}{3}y를 계산하면?`
+      // 같은 *2 cmd* 라인도 raw 노출. 원인 정밀 추적 안 됨 — 안전망으로
+      // `< 2` → `< 1` 완화. 단일 `\frac` 만 있는 라인도 wrap. 부작용 없음:
+      // 이미 `$` 있는 줄 skip / PRESERVE_MARK skip / 한글 boundary 정확히 분리.
+      if (!cmds || cmds.length < 1) return line;
       // marker prefix 보존 (① 1, ㄴ. \frac…, 1. \displaystyle…)
       const m = line.match(/^(\s*(?:>\s?)?(?:[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+\.|\d+\)|-|\*)?\s*)([\s\S]+?)$/);
       const prefix = m ? m[1] : "";

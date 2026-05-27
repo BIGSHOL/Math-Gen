@@ -52,6 +52,7 @@ export const WizardScreen = () => {
   const next = useWizardStore((s) => s.next);
   const prev = useWizardStore((s) => s.prev);
   const reset = useWizardStore((s) => s.reset);
+  const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
   const pages = useWizardStore((s) => s.pages);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
@@ -149,7 +150,7 @@ export const WizardScreen = () => {
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        next();
+        handleNext();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -158,8 +159,21 @@ export const WizardScreen = () => {
 
   const canAdvance = step === 0 ? pages.length > 0 : true;
 
+  /**
+   * Step 1 (검수) → Step 2 (OCR) transition 시 미검토 페이지 *자동 일괄 완료*.
+   * 사용자 결정 (§23-7 #2): 검수는 선택, 건너뛰기 가능. 그러나 cropInspected=false
+   * 인 채로 next() 하면 Phase I-7b 의 cropped Pass 2 가 조건 불충족으로 트리거
+   * 안 됨 → Pass 1 (whole-page) 결과만 보여 정확도 손해. handleNext 가 "다음"
+   * 클릭/단축키 양쪽 진입점에서 silent markAllCropInspected → Pass 2 활성화.
+   * 사용자가 *명시적으로* 박스를 편집하지 않은 경우 = AI 결과 신뢰 의미로 해석.
+   */
+  const handleNext = () => {
+    if (step === 1) markAllCropInspected();
+    next();
+  };
+
   return (
-    <div className="w-full h-full flex flex-col bg-bg">
+    <div className="w-full h-full flex flex-col bg-bg min-w-[1024px]">
       {/* `wizard-chrome` 클래스는 `@media print` 에서 일괄 숨김 — Step 5
           인쇄/PDF 시 topbar / stepper / footer 가 출력물에 누수되지 않도록. */}
       <div className="wizard-chrome">
@@ -196,7 +210,8 @@ export const WizardScreen = () => {
 
       {/* Stepper */}
       <div className="px-8 py-4 border-b border-line bg-surface wizard-chrome">
-        <div className="max-w-[920px] mx-auto">
+        {/* max-w 2200 — QHD (2560) 까지 활용, 좌우 여백 ~180px (사용자 결정 2026-05-26) */}
+        <div className="max-w-[2200px] mx-auto">
           <Stepper steps={STEPS} current={step} onJump={setStep} />
         </div>
       </div>
@@ -224,7 +239,7 @@ export const WizardScreen = () => {
             step={step}
             totalSteps={STEPS.length}
             onPrev={prev}
-            onNext={next}
+            onNext={handleNext}
             canAdvance={canAdvance}
           />
         </div>

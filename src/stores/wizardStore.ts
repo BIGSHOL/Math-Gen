@@ -112,6 +112,13 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
 export interface CropBox {
   id: string;
   class: "problem" | "figure" | "table";
+  /**
+   * 문항 유형 — cropDetect 가 추정. "choice"=객관식 (보기 ①②③④⑤ 있음) /
+   * "essay"=서술형·단답형 (보기 없음, (N점) 마커). 박스 라벨에 "객관"/"서술"
+   * prefix 로 표시. undefined = kind 미설정 (구버전 session 또는 사용자가 수동
+   * 추가한 박스) → "문제" fallback.
+   */
+  kind?: "choice" | "essay";
   bbox: [number, number, number, number];
   verified: boolean;
   source: "ai" | "user" | "edited";

@@ -279,7 +279,7 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
         : { tone: "neutral", label: "대기" };
 
   return (
-    <div className="max-w-[920px] mx-auto px-6 py-8">
+    <div className="max-w-[2200px] mx-auto px-6 py-8">
       <Heading
         level="h1"
         sub="PDF를 업로드하면 페이지별 이미지로 변환합니다. 최대 50 MB · 20 페이지."
@@ -471,11 +471,11 @@ export const Step1Upload = ({ onComplete }: { onComplete: () => void }) => {
             </div>
           )}
 
-          <div className="mt-6 flex justify-end">
-            <Btn kind="accent" iconRight="arrow-right" onClick={onComplete}>
-              OCR 단계로
-            </Btn>
-          </div>
+          {/*
+            카드 안 "OCR 단계로" 버튼 제거 (사용자 요청, 2026-05-26) — wizard
+            글로벌 우하단 "다음 →" 버튼과 동일 기능이라 중복. onComplete prop
+            은 다른 진입점 대비 유지 (현재 미사용).
+          */}
         </Card>
       )}
     </div>

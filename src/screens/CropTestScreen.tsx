@@ -13,7 +13,8 @@ import {
 } from "@app/lib/pdfProcessor";
 import { detectCropBoxes, type DetectedCrop } from "@app/services/ai/cropDetect";
 import { extractPageProblems } from "@app/services/ai/ocr";
-import { GEMINI_3_FLASH } from "@app/services/ai/gemini";
+import { GEMINI_3_FLASH, GEMINI_3_1_PRO } from "@app/services/ai/gemini";
+import { GPT_5_5 } from "@app/services/ai/openai";
 import type { TestPaper } from "@app/types";
 import type { PageRow, OcrProblemRow } from "@app/services/api/mappers";
 import type { OCRProblem } from "@app/stores/wizardStore";
@@ -29,8 +30,25 @@ import type { OCRProblem } from "@app/stores/wizardStore";
 
 type Mode = "library" | "upload";
 
+/** 크롭 재OCR 모델 후보 — 베이스라인(Flash) vs cropped Pass 2 후보 비교용. */
+const CROP_OCR_MODELS = [
+  { id: GEMINI_3_FLASH, short: "Gemini 3 Flash" },
+  { id: GPT_5_5, short: "GPT-5.5" },
+  { id: GEMINI_3_1_PRO, short: "Gemini 3.1 Pro" },
+] as const;
+type CropOcrModel = (typeof CROP_OCR_MODELS)[number]["id"];
+
+/** 모델 id → 짧은 표시 이름. */
+const modelShort = (id: string): string =>
+  CROP_OCR_MODELS.find((m) => m.id === id)?.short ?? id;
+
+/** (크롭 idx, 모델) → cropOcr 맵 키. 한 크롭을 여러 모델로 돌려 나란히 비교. */
+const ocrKey = (idx: number, model: string): string => `${idx}::${model}`;
+
 interface CropOcrState {
   status: "idle" | "running" | "done" | "error";
+  /** 이 결과를 낸 모델. */
+  model: CropOcrModel;
   items?: OCRProblem[];
   error?: string;
   ms?: number;
@@ -80,7 +98,8 @@ export const CropTestScreen = () => {
   const [crops, setCrops] = useState<DetectedCrop[]>([]);
   const [detecting, setDetecting] = useState(false);
   const [detectMs, setDetectMs] = useState<number | null>(null);
-  const [cropOcr, setCropOcr] = useState<Record<number, CropOcrState>>({});
+  const [cropModel, setCropModel] = useState<CropOcrModel>(GEMINI_3_FLASH);
+  const [cropOcr, setCropOcr] = useState<Record<string, CropOcrState>>({});
 
   // 보관함 시험지 목록 로드.
   useEffect(() => {
@@ -196,28 +215,33 @@ export const CropTestScreen = () => {
   // ── 크롭 1개 재OCR ───────────────────────────────────────
   const runCropOcr = async (idx: number) => {
     if (!pageBase64) return;
+    const model = cropModel;
+    const key = ocrKey(idx, model);
     const box = asBox(crops[idx]?.cropBox ?? []);
     if (!box) {
-      setCropOcr((s) => ({ ...s, [idx]: { status: "error", error: "cropBox 형식 오류" } }));
+      setCropOcr((s) => ({
+        ...s,
+        [key]: { status: "error", model, error: "cropBox 형식 오류" },
+      }));
       return;
     }
-    setCropOcr((s) => ({ ...s, [idx]: { status: "running" } }));
+    setCropOcr((s) => ({ ...s, [key]: { status: "running", model } }));
     const t0 = performance.now();
     try {
       const cropDataUrl = await cropPageImageData(pageBase64, box, { margin: 0 });
       const { items } = await extractPageProblems({
         pageBase64: cropDataUrl,
         textLayer: "",
-        model: GEMINI_3_FLASH,
+        model,
       });
       setCropOcr((s) => ({
         ...s,
-        [idx]: { status: "done", items, ms: Math.round(performance.now() - t0) },
+        [key]: { status: "done", model, items, ms: Math.round(performance.now() - t0) },
       }));
     } catch (e) {
       setCropOcr((s) => ({
         ...s,
-        [idx]: { status: "error", error: (e as Error).message },
+        [key]: { status: "error", model, error: (e as Error).message },
       }));
     }
   };
@@ -225,8 +249,8 @@ export const CropTestScreen = () => {
   // ── 전체 크롭 재OCR (순차 — 명시 트리거만) ────────────────
   const runAllCropOcr = async () => {
     for (let i = 0; i < crops.length; i++) {
-      // 이미 done 인 건 건너뜀.
-      if (cropOcr[i]?.status === "done") continue;
+      // 현재 모델로 이미 done 인 건 건너뜀.
+      if (cropOcr[ocrKey(i, cropModel)]?.status === "done") continue;
       await runCropOcr(i);
     }
   };
@@ -411,14 +435,27 @@ export const CropTestScreen = () => {
 
         {/* ── 오른쪽: 크롭별 결과 + 재OCR ──────────────────── */}
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Heading level="h2" sub="잘라낸 이미지를 재OCR 해 기존 결과와 비교.">
               크롭 결과
             </Heading>
             {crops.length > 0 && (
-              <Btn kind="ghost" size="sm" icon="play" onClick={() => void runAllCropOcr()}>
-                전체 크롭 OCR
-              </Btn>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <select
+                  value={cropModel}
+                  onChange={(e) => setCropModel(e.target.value as CropOcrModel)}
+                  className="h-8 px-2 rounded-r1 border border-line bg-surface text-caption"
+                >
+                  {CROP_OCR_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.short}
+                    </option>
+                  ))}
+                </select>
+                <Btn kind="ghost" size="sm" icon="play" onClick={() => void runAllCropOcr()}>
+                  전체 크롭 OCR
+                </Btn>
+              </div>
             )}
           </div>
 
@@ -431,7 +468,10 @@ export const CropTestScreen = () => {
           {cropImages.map((c, i) => {
             const box = asBox(c.cropBox);
             const color = PALETTE[i % PALETTE.length];
-            const ocr = cropOcr[i];
+            const runs = CROP_OCR_MODELS.map((m) => cropOcr[ocrKey(i, m.id)]).filter(
+              (r): r is CropOcrState => Boolean(r),
+            );
+            const current = cropOcr[ocrKey(i, cropModel)];
             const base = baseline.find((b) => b.problem_number === c.number);
             return (
               <Card key={i} pad={12} className="space-y-2">
@@ -460,34 +500,46 @@ export const CropTestScreen = () => {
                     size="sm"
                     icon="scan"
                     onClick={() => void runCropOcr(i)}
-                    disabled={ocr?.status === "running"}
+                    disabled={current?.status === "running"}
                   >
-                    {ocr?.status === "running" ? "OCR 중…" : "이 크롭 OCR"}
+                    {current?.status === "running"
+                      ? "OCR 중…"
+                      : `이 크롭 OCR · ${modelShort(cropModel)}`}
                   </Btn>
-                  {ocr?.status === "done" && ocr.ms != null && (
-                    <Chip tone="soft" size="sm">
-                      {ocr.ms} ms
-                    </Chip>
-                  )}
                 </div>
 
-                {ocr?.status === "error" && (
-                  <div className="text-caption text-danger">{ocr.error}</div>
-                )}
-
-                {ocr?.status === "done" && (
+                {(runs.length > 0 || base) && (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Eyebrow>크롭 재OCR</Eyebrow>
-                      <div className="border border-line rounded-r1 p-2 bg-white text-small">
-                        {(ocr.items ?? []).map((it, j) => (
-                          <MarkdownRenderer key={j} content={it.text} />
-                        ))}
-                        {(ocr.items ?? []).length === 0 && (
-                          <span className="text-muted text-caption">결과 없음</span>
-                        )}
+                    {runs.map((run) => (
+                      <div key={run.model} className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <Eyebrow>크롭 · {modelShort(run.model)}</Eyebrow>
+                          {run.status === "done" && run.ms != null && (
+                            <Chip tone="soft" size="sm">
+                              {run.ms} ms
+                            </Chip>
+                          )}
+                        </div>
+                        <div className="border border-line rounded-r1 p-2 bg-white text-small">
+                          {run.status === "running" && (
+                            <span className="text-muted text-caption">OCR 중…</span>
+                          )}
+                          {run.status === "error" && (
+                            <span className="text-danger text-caption">{run.error}</span>
+                          )}
+                          {run.status === "done" && (
+                            <>
+                              {(run.items ?? []).map((it, j) => (
+                                <MarkdownRenderer key={j} content={it.text} />
+                              ))}
+                              {(run.items ?? []).length === 0 && (
+                                <span className="text-muted text-caption">결과 없음</span>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    ))}
                     <div className="space-y-1">
                       <Eyebrow>기존 whole-page</Eyebrow>
                       <div className="border border-line rounded-r1 p-2 bg-surface2 text-small">

@@ -168,7 +168,7 @@ export const Step1_5CropInspect = () => {
     addCropBox,
   });
 
-  // 통계 — 전체 페이지 진행 상태.
+  // 통계 — 전체 페이지 진행 상태 + 총 검출 문항.
   const totalPages = pages.length;
   const inspectedCount = useMemo(
     () => pages.filter((p) => p.cropInspected).length,
@@ -176,6 +176,12 @@ export const Step1_5CropInspect = () => {
   );
   const detectingCount = useMemo(
     () => pages.filter((p) => p.cropDetectInflight).length,
+    [pages],
+  );
+  // 전체 페이지의 검출 박스 총합 — 사용자 요청 (2026-05-26): "검출 후의 총
+  // 문제수도 나오면 좋겠네". 사용자가 시험지 전체 문항 수와 즉시 비교 가능.
+  const totalDetectedBoxes = useMemo(
+    () => pages.reduce((sum, p) => sum + (p.cropBoxes?.length ?? 0), 0),
     [pages],
   );
 
@@ -284,6 +290,10 @@ export const Step1_5CropInspect = () => {
             <div className="flex justify-between">
               <span className="text-muted">전체 페이지</span>
               <span className="font-mono">{totalPages}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">총 검출 문항</span>
+              <span className="font-mono font-semibold">{totalDetectedBoxes}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted">검출 중</span>

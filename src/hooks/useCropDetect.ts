@@ -45,6 +45,9 @@ const detectedToCropBox = (d: DetectedCrop): CropBox => {
   return {
     id: crypto.randomUUID(),
     class: "problem",
+    // cropDetect 의 type ("choice"|"essay") 을 kind 로 보존 → EditableCropBox
+    // 라벨에 "객관"/"서술" prefix 로 표시. 사용자 요청 (2026-05-26).
+    kind: d.type,
     bbox: [yMin, xMin, yMax, xMax],
     verified: false,
     source: "ai",

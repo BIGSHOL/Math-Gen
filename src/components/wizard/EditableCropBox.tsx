@@ -41,6 +41,18 @@ const CLASS_COLORS: Record<CropBox["class"], { border: string; bg: string; label
   table: { border: "#F97316", bg: "rgba(249,115,22,0.08)", label: "표" },
 };
 
+/**
+ * 박스 라벨 — problem 일 때 kind 로 객관/서술 구분 (사용자 요청, 2026-05-26).
+ * figure/table 은 class 라벨 그대로. problem + kind 미설정 (구버전 session 또는
+ * 사용자 수동 추가) 시 "문제" fallback.
+ */
+const boxLabel = (box: CropBox): string => {
+  if (box.class !== "problem") return CLASS_COLORS[box.class].label;
+  if (box.kind === "choice") return "객관";
+  if (box.kind === "essay") return "서술";
+  return CLASS_COLORS.problem.label;
+};
+
 /** clamp 0–1000. */
 const clamp = (v: number) => Math.max(0, Math.min(1000, v));
 
@@ -199,7 +211,7 @@ export const EditableCropBox = ({
           pointerEvents: "none",
         }}
       >
-        {box.number !== undefined ? `${box.number}` : "?"} · {colors.label}
+        {box.number !== undefined ? `${box.number}` : "?"} · {boxLabel(box)}
       </div>
 
       {/* 우하단 resize handle — select 모드 + selected 일 때만 */}
