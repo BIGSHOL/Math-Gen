@@ -106,6 +106,24 @@ const measureSlotLength = (slot: React.ReactNode[]): number => {
   return len;
 };
 
+/**
+ * Detect whether a slot contains a "tall" KaTeX block (cases / matrix /
+ * aligned / array). prerenderAllKatex marks such placeholders with
+ * `data-katex-tall="1"`, components.span propagates it to the rendered span.
+ * Here we scan slot nodes for that flag — if any choice option contains a
+ * tall block, the whole row must drop to 1-column layout (otherwise two
+ * cases blocks side by side get cramped, and ① markers fall to vertical
+ * center). CLAUDE.md §2-18.
+ */
+const slotHasTallContent = (slot: React.ReactNode[]): boolean => {
+  for (const node of slot) {
+    if (!React.isValidElement(node)) continue;
+    const props = node.props as Record<string, unknown> | undefined;
+    if (props && props["data-katex-tall"] === "1") return true;
+  }
+  return false;
+};
+
 const renderChoiceRowOrNull = (children: React.ReactNode): React.ReactNode | null => {
   const markers = ["①", "②", "③", "④", "⑤"] as const;
   type Marker = (typeof markers)[number];
@@ -149,15 +167,17 @@ const renderChoiceRowOrNull = (children: React.ReactNode): React.ReactNode | nul
 
   // Adaptive column count based on the longest option (mathlab's rule:
   // default to 2 columns, drop to 1 when any option goes over ~25 chars).
+  // Also force 1-column when any option contains tall KaTeX content
+  // (cases/matrix/aligned) — CLAUDE.md §2-18 사용자 보고.
   const maxLen = Math.max(...slots.map(measureSlotLength));
-  const cols: 1 | 2 = maxLen <= 25 ? 2 : 1;
+  const anyTall = slots.some(slotHasTallContent);
+  const cols: 1 | 2 = anyTall || maxLen > 25 ? 1 : 2;
 
   return (
-    <div className={`choice-row cols-${cols}`}>
+    <div className={`choice-row cols-${cols}${anyTall ? " has-tall" : ""}`}>
       {slots.map((s, i) => (
         <span key={i} className="choice">
           <span className="choice-marker">{markers[i]}</span>
-          &nbsp;
           {s}
         </span>
       ))}
@@ -266,27 +286,40 @@ const renderKatex = (tex: string, displayMode: boolean): string => {
  * Returns the rewritten string AND the map of placeholder-id → HTML so the
  * caller can hand it to the components renderer.
  */
+/**
+ * Tall (multi-row) LaTeX environments. When a `$...$` contains one of these,
+ * the rendered output extends *vertically beyond a normal text line*, so the
+ * surrounding layout needs special handling — most notably the 5-option
+ * 보기 grid needs to (a) drop to 1-column layout and (b) align ① markers to
+ * the TOP of the tall block instead of baseline (which would put ① in the
+ * vertical middle of the cases). CLAUDE.md §2-18 — 사용자 보고: "보기번호
+ * 와 문항이 따로 노는것 같네 ... 실제 문제처럼 보기번호 우측에 연립방정식으로."
+ */
+const TALL_LATEX_RE =
+  /\\begin\{(cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|Bmatrix|aligned|gathered|array|split)\}/;
+
 const prerenderAllKatex = (
   text: string,
 ): { content: string; katexMap: Map<string, string> } => {
   const map = new Map<string, string>();
   let nextId = 0;
-  const reserve = (html: string, kind: "inline" | "block"): string => {
+  const reserve = (html: string, kind: "inline" | "block", tall: boolean): string => {
     const id = String(nextId++);
     map.set(id, html);
+    const tallAttr = tall ? ' data-katex-tall="1"' : "";
     return kind === "block"
-      ? `\n\n<div data-katex-id="${id}"></div>\n\n`
-      : `<span data-katex-id="${id}"></span>`;
+      ? `\n\n<div data-katex-id="${id}"${tallAttr}></div>\n\n`
+      : `<span data-katex-id="${id}"${tallAttr}></span>`;
   };
   // Block math first ($$...$$). Use a tight non-greedy match so we don't
   // accidentally swallow multiple paragraphs.
   let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) =>
-    reserve(renderKatex(tex.trim(), true), "block"),
+    reserve(renderKatex(tex.trim(), true), "block", TALL_LATEX_RE.test(tex)),
   );
   // Inline math: $...$ on a single line. We bail out on newlines so a
   // stray $ doesn't pair across paragraphs.
   out = out.replace(/\$([^$\n]+?)\$/g, (_, tex: string) =>
-    reserve(renderKatex(tex, false), "inline"),
+    reserve(renderKatex(tex, false), "inline", TALL_LATEX_RE.test(tex)),
   );
   return { content: out, katexMap: map };
 };
@@ -691,9 +724,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               (dataset?.dataKatexId as string | undefined) ??
               ((props as Record<string, unknown>)["data-katex-id"] as string | undefined);
             if (typeof katexId === "string" && katexPlaceholders.has(katexId)) {
+              // tall flag (cases/matrix/aligned 등) 를 React prop 으로 propagate
+              // — renderChoiceRowOrNull 이 1열 강제 판단에 사용. CLAUDE.md §2-18.
+              const tallFlag =
+                (dataset?.dataKatexTall as string | undefined) ??
+                ((props as Record<string, unknown>)["data-katex-tall"] as string | undefined);
               return (
                 <span
                   className="katex-inline-wrap"
+                  data-katex-tall={tallFlag === "1" ? "1" : undefined}
                   dangerouslySetInnerHTML={{ __html: katexPlaceholders.get(katexId)! }}
                 />
               );
