@@ -724,6 +724,8 @@ export const buildVariantPrompt = (
     answer?: string;
     solution?: string;
     topic?: string;
+    /** Phase #7: 원본 보기 layout — variant 가 그대로 상속할 값. */
+    choicesLayout?: string;
   },
   opts: {
     goal: ConversionGoal;
@@ -737,11 +739,14 @@ export const buildVariantPrompt = (
   const goalDirective = goalDirectiveText(opts.goal);
   const difficultyDirective = difficultyDirectiveText(opts.difficulty);
   const originalProblem = formatOriginalProblemForVariant(problem);
+  const layoutNote = problem.choicesLayout
+    ? `\n[원본 보기 배치] ${problem.choicesLayout} — output 의 choicesLayout 에 이 값을 그대로 emit (변경 금지).`
+    : "";
   return VARIANT_PROMPT.replace("{persona}", persona)
     .replace("{mathDefense}", defense)
     .replace("{goalDirective}", goalDirective)
     .replace("{difficultyDirective}", difficultyDirective)
-    .replace("{originalProblem}", originalProblem);
+    .replace("{originalProblem}", originalProblem + layoutNote);
 };
 
 /**
@@ -928,6 +933,22 @@ RULES FOR EACH "items" ENTRY
    4b. **Multiple choice (객관식)**: put all 5 options on a SINGLE line at the end, separated by single spaces, using the original circled markers:
        ① \$1\$ ② \$2\$ ③ \$3k\$ ④ \$4k\$ ⑤ \$5k\$
        The renderer auto-formats this into a 2-column adaptive grid. Do NOT split options across multiple markdown lines. Do NOT wrap ①②③④⑤ themselves in \$.
+
+       🚨 **원본 보기 배치 인식 — choicesLayout 필드 (사용자 보고)**:
+         사용자 보고: "원본의 문제별 보기번호 배치를 보고 배치가능한지 체크해볼것 예를 들어 3x2나 2x3 또는 1x5 처럼"
+         원본 페이지에서 ①②③④⑤ 가 *어떻게 배치돼있는지* 확인해 schema 의 \`choicesLayout\` 필드에 명시:
+         - **1x5** — 1 행 × 5 열 (가로 한 줄): "① $1$  ② $2$  ③ $3$  ④ $4$  ⑤ $5$" 형태로 좌→우 한 줄에 5개
+         - **2x3** — 2 행 × 3 열: 첫 행에 ①②③, 두 번째 행에 ④⑤ — 한국 시험지에 가장 흔함
+         - **3x2** — 3 행 × 2 열: 첫 행 ①②, 두 번째 행 ③④, 세 번째 행 ⑤
+         - **5x1** — 5 행 × 1 열 (세로 한 줄): 각 보기가 새 줄에 — 보기 내용이 길 때 (수식·문장)
+         - **auto** — 위 어느 것도 명확치 않거나 보기 X (서술형) — 렌더러가 자동 결정
+         판단 휴리스틱:
+         - 가로 1줄 배치 = 1x5
+         - 5개 중 2개 (또는 5번째 단독) 만 다음 줄에 = 2x3 (가장 흔함)
+         - 5개가 2씩 묶이고 5번째만 단독 = 3x2
+         - 각 보기가 자기 줄을 차지 = 5x1
+         - 모호 / 추측 / 서술형 = auto
+         text 필드의 보기는 항상 한 줄로 통합 emit (위 4b 규칙) — choicesLayout 은 *원본 시각* 만 기록. 렌더러가 이 메타데이터를 받아 동일 grid 로 표시.
 
        🚨 **연립방정식·시스템 보기 — \\begin{cases} 필수 (사용자 보고 — 반복 발생)**:
          보기 (① 또는 본문) 안에 *두 개 이상의 등식·부등식 묶음* (연립방정식, 다중 조건, case 정의) 이 있으면 반드시 한 \$...\$ 안에 \\begin{cases}...\\end{cases} 로 묶어 *세로 정렬*. 콤마 분리 / 줄바꿈 분리 / \$...\$ 두 개로 쪼개기 — *전부 금지*.

@@ -48,6 +48,19 @@ export interface DiagramSvgItem {
   size?: "small" | "medium" | "large" | "full";
 }
 
+/**
+ * 5지선다 보기 grid layout (rows × cols). 명명 = 원본 시각 매핑:
+ *   - "auto": maxLen 휴리스틱 (default — ≤25 chars → 2 cols, else 1)
+ *   - "1x5":  1 행 × 5 열 (가로)
+ *   - "2x3":  2 행 × 3 열 (3+2 split)
+ *   - "3x2":  3 행 × 2 열 (2+2+1 split)
+ *   - "5x1":  5 행 × 1 열 (세로)
+ *
+ * tall LaTeX (cases/matrix/aligned) 검출 시 layout 무관하게 5x1 강제 (cramped 회피).
+ * Phase #7 사용자 보고 — OCRProblem.choicesLayout 에서 전달.
+ */
+export type ChoicesLayoutHint = "auto" | "1x5" | "2x3" | "3x2" | "5x1";
+
 export interface MarkdownRendererProps {
   content: string;
   className?: string;
@@ -55,6 +68,11 @@ export interface MarkdownRendererProps {
   inline?: boolean;
   /** SVG strings that will replace `[그림N]` placeholders in content. */
   diagramSvgs?: DiagramSvgItem[];
+  /**
+   * Phase #7: 원본 보기 배치 hint. OCR 모델이 인식한 grid 를 그대로 렌더.
+   * 기본 "auto" — 옵션 길이 기반 자동 결정. tall LaTeX 검출 시 5x1 강제 override.
+   */
+  choicesLayout?: ChoicesLayoutHint;
 }
 
 const SIZE_STYLE: Record<NonNullable<DiagramSvgItem["size"]>, string> = {
@@ -124,7 +142,39 @@ const slotHasTallContent = (slot: React.ReactNode[]): boolean => {
   return false;
 };
 
-const renderChoiceRowOrNull = (children: React.ReactNode): React.ReactNode | null => {
+/**
+ * Phase #7: explicit layout hint → grid column count + className suffix.
+ * tall LaTeX 시 무관하게 1-col (5x1) 으로 override. auto 는 maxLen 기반.
+ */
+const resolveChoiceGrid = (
+  layout: ChoicesLayoutHint,
+  anyTall: boolean,
+  maxLen: number,
+): { cols: 1 | 2 | 3 | 5; layoutClass: string } => {
+  // tall content 검출 시 무조건 1열 (5x1) — cases blocks 가 가로로 압축되면 cramped
+  if (anyTall) return { cols: 1, layoutClass: "layout-5x1 has-tall" };
+  switch (layout) {
+    case "1x5":
+      return { cols: 5, layoutClass: "layout-1x5" };
+    case "2x3":
+      return { cols: 3, layoutClass: "layout-2x3" };
+    case "3x2":
+      return { cols: 2, layoutClass: "layout-3x2" };
+    case "5x1":
+      return { cols: 1, layoutClass: "layout-5x1" };
+    case "auto":
+    default:
+      // 기존 자동 휴리스틱 — maxLen 25 기준
+      return maxLen > 25
+        ? { cols: 1, layoutClass: "layout-auto-1" }
+        : { cols: 2, layoutClass: "layout-auto-2" };
+  }
+};
+
+const renderChoiceRowOrNull = (
+  children: React.ReactNode,
+  layout: ChoicesLayoutHint = "auto",
+): React.ReactNode | null => {
   const markers = ["①", "②", "③", "④", "⑤"] as const;
   type Marker = (typeof markers)[number];
   const isMarker = (s: string): s is Marker => (markers as readonly string[]).includes(s);
@@ -165,16 +215,14 @@ const renderChoiceRowOrNull = (children: React.ReactNode): React.ReactNode | nul
   }
   if (!seenAllInOrder) return null;
 
-  // Adaptive column count based on the longest option (mathlab's rule:
-  // default to 2 columns, drop to 1 when any option goes over ~25 chars).
-  // Also force 1-column when any option contains tall KaTeX content
-  // (cases/matrix/aligned) — CLAUDE.md §2-18 사용자 보고.
+  // Phase #7: layout hint 우선 적용. tall content 시 무관하게 5x1.
+  // Phase #2 (cases harness) 와 통합 — tall 검출은 동일 함수.
   const maxLen = Math.max(...slots.map(measureSlotLength));
   const anyTall = slots.some(slotHasTallContent);
-  const cols: 1 | 2 = anyTall || maxLen > 25 ? 1 : 2;
+  const { cols, layoutClass } = resolveChoiceGrid(layout, anyTall, maxLen);
 
   return (
-    <div className={`choice-row cols-${cols}${anyTall ? " has-tall" : ""}`}>
+    <div className={`choice-row cols-${cols} ${layoutClass}`}>
       {slots.map((s, i) => (
         <span key={i} className="choice">
           <span className="choice-marker">{markers[i]}</span>
@@ -382,6 +430,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   className = "",
   inline,
   diagramSvgs,
+  choicesLayout = "auto",
 }) => {
   // Stage 0: inline <svg>…</svg> extraction.
   //
@@ -753,7 +802,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   return <div className="my-2">{children}</div>;
                 }
                 // 5-option multiple-choice row → flex grid (see helper).
-                const choiceRow = renderChoiceRowOrNull(children);
+                // Phase #7: choicesLayout hint 전달 — OCR 모델이 인식한 grid 우선.
+                const choiceRow = renderChoiceRowOrNull(children, choicesLayout);
                 if (choiceRow) return <div className="my-2">{choiceRow}</div>;
                 return (
                   <p

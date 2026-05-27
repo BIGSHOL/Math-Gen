@@ -71,7 +71,7 @@ export interface VariantGenInput {
   /** 원본 문제 (Step 2 의 OCRProblem → GeneratedProblem 어댑터 결과). */
   problem: Pick<
     GeneratedProblem,
-    "question" | "choices" | "answer" | "solution" | "topic"
+    "question" | "choices" | "answer" | "solution" | "topic" | "choicesLayout"
   >;
   /** 변형 옵션. */
   goal: ConversionGoal;
@@ -100,6 +100,8 @@ export interface VariantGenResult {
   diagramSVG: string | null;
   /** Vector 도형 spec — Phase E. AI emit → renderDiagram. */
   diagramParams: DiagramParams[] | null;
+  /** Phase #7: 변형 보기 layout — 원본에서 상속 (또는 모델 emit). */
+  choicesLayout?: GeneratedProblem["choicesLayout"];
   modelUsed: OCRModel;
   /** Phase B — Vercel function handler 가 ai_usage 기록 후 클라이언트 응답에서 strip. */
   _usage?: import("../../lib/pricing.js").NormalizedUsage;
@@ -114,6 +116,8 @@ interface RawVariantResponse {
   difficulty: string;
   diagramSVG: string | null;
   diagramParams?: unknown;
+  /** Phase #7: 모델이 emit 한 보기 layout (enum 외 값이면 caller 에서 fallback). */
+  choicesLayout?: string;
   /** Phase B. */
   _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
@@ -467,6 +471,14 @@ const generateVariantDirect = async (
       ? (rawDiagrams as DiagramParams[])
       : null;
 
+  // Phase #7: variant 가 모델 emit 한 choicesLayout 우선, 없으면 원본 layout 유지.
+  // 잘못된 값 (enum 외) 면 원본의 layout 또는 "auto" fallback.
+  const VALID_LAYOUTS = new Set(["auto", "1x5", "2x3", "3x2", "5x1"]);
+  const rawLayout =
+    typeof parsed.choicesLayout === "string" && VALID_LAYOUTS.has(parsed.choicesLayout)
+      ? parsed.choicesLayout
+      : input.problem.choicesLayout ?? "auto";
+
   return {
     question: sanitizeText(parsed.question ?? ""),
     choices: cleanedChoices,
@@ -476,6 +488,7 @@ const generateVariantDirect = async (
     difficulty: parsed.difficulty ?? "중",
     diagramSVG: null, // deprecated — diagramParams 가 우선
     diagramParams,
+    choicesLayout: rawLayout as GeneratedProblem["choicesLayout"],
     modelUsed: model,
     _usage: parsed._usage,
   };

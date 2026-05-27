@@ -294,6 +294,28 @@ svg text {
 .choice-row.cols-1 {
   grid-template-columns: 1fr;
 }
+/* Phase #7 — explicit grid 배치 (OCR 모델이 인식한 원본 layout 직접 반영).
+   cols-N 이 column 개수 결정 + 행은 auto-flow.
+   - layout-1x5: 5열 × 1행 (가로) — 짧은 숫자형 보기에 적합
+   - layout-2x3: 3열 × 2행 (3+2 split) — 한국 시험지 표준
+   - layout-3x2: 2열 × 3행 (2+2+1 split)
+   - layout-5x1: 1열 × 5행 (세로) — 보기 길거나 cases 같은 tall content */
+.choice-row.cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+.choice-row.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 18px;
+}
+/* 좁은 화면 — 5/3-col 이 너무 압축되면 자동 wrap. iPad portrait ~768 미만에서
+   1x5 와 2x3 는 표시 폭 부족 → 2-col 로 자연스럽게 fallback. CSS-only 처리. */
+@media (max-width: 768px) {
+  .choice-row.layout-1x5,
+  .choice-row.layout-2x3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 /* tall content (cases/matrix/aligned) 한 보기에라도 있으면 옵션 세로 간격
    더 넉넉히 — 시각적 옵션 경계 분리. */
 .choice-row.has-tall {

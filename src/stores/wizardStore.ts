@@ -281,7 +281,26 @@ export interface OCRProblem {
    * 없으면 `images` (bbox crop) fallback. 본문의 `[그림N]` 마커 순서와 매핑.
    */
   diagramParams?: import("@app/lib/diagram").DiagramParams[] | null;
+  /**
+   * Phase #7: 원본 보기 (5지선다) 배치 — 사용자 보고 "원본의 문제별 보기번호
+   * 배치를 보고 배치가능한지 체크해볼것 예를 들어 3x2나 2x3 또는 1x5 처럼".
+   * OCR 모델이 원본 시각을 인식해 결정. 명명 = rows × cols:
+   *   - "1x5": 1 행 × 5 열 (가로)
+   *   - "2x3": 2 행 × 3 열 (3+2 split)
+   *   - "3x2": 3 행 × 2 열 (2+2+1 split)
+   *   - "5x1": 5 행 × 1 열 (세로)
+   *   - "auto": 보기 X 또는 모호 — 렌더러가 자동 결정
+   * MarkdownRenderer 의 choicesLayout prop 으로 전달돼 renderChoiceRowOrNull
+   * 의 grid 결정에 사용. tall LaTeX (cases) 검출 시 5x1 으로 자동 override.
+   */
+  choicesLayout?: ChoicesLayout;
 }
+
+/**
+ * 5지선다 보기 grid layout — rows × cols. "auto" 는 renderer 가 자동 결정
+ * (옵션 최대 길이 기반). #7 사용자 보고 기반.
+ */
+export type ChoicesLayout = "auto" | "1x5" | "2x3" | "3x2" | "5x1";
 
 export interface ProblemReview {
   id: string;

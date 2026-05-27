@@ -56,6 +56,12 @@ export interface GeneratedProblem {
    * 도형 없으면 null/undefined.
    */
   diagramParams?: import("@app/lib/diagram").DiagramParams[] | null;
+  /**
+   * Phase #7: 원본 보기 grid 배치 — variant 생성 시 OCR 의 choicesLayout 을
+   * 그대로 상속 (사용자 보고: "원본의 문제별 보기번호 배치를 보고 배치가능한지").
+   * 명명 = rows × cols. "auto" | "1x5" | "2x3" | "3x2" | "5x1".
+   */
+  choicesLayout?: "auto" | "1x5" | "2x3" | "3x2" | "5x1";
 }
 
 export type GenerationMode = "curriculum" | "image" | "exact" | "diagram";

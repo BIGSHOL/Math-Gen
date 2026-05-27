@@ -70,6 +70,12 @@ export const VARIANT_SCHEMA = {
         additionalProperties: true,
       },
     },
+    choicesLayout: {
+      type: "string",
+      enum: ["auto", "1x5", "2x3", "3x2", "5x1"],
+      description:
+        "Phase #7: Original 보기 grid layout — INHERIT from the original problem (do NOT re-decide). User provides this in input under 'originalChoicesLayout'; copy it verbatim. 'auto' if original has no layout info or is 주관식.",
+    },
   },
-  required: ["question", "choices", "answer", "solution", "topic", "difficulty", "diagramSVG"],
+  required: ["question", "choices", "answer", "solution", "topic", "difficulty", "diagramSVG", "choicesLayout"],
 } as const;

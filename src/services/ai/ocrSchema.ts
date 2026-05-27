@@ -73,8 +73,19 @@ export const OCR_PAGE_SCHEMA = {
               "high: text and formulas all clear. medium: some ambiguous symbols / faint glyphs. " +
               "low: page damaged, cut off, or contains diagrams that couldn't be transcribed.",
           },
+          choicesLayout: {
+            type: "string",
+            enum: ["auto", "1x5", "2x3", "3x2", "5x1"],
+            description:
+              "Original 보기 layout (rows × cols). " +
+              "Set this ONLY when the page has ①②③④⑤ options AND their grid is clearly visible. " +
+              "Naming: '1x5' = 1 row × 5 cols (all horizontal), '2x3' = 2 rows × 3 cols (① ② ③ / ④ ⑤), " +
+              "'3x2' = 3 rows × 2 cols (① ② / ③ ④ / ⑤), '5x1' = 5 rows × 1 col (vertical stack). " +
+              "If no choices OR you cannot tell the layout, return 'auto' (renderer decides). " +
+              "For 서술형 (no choices), always 'auto'.",
+          },
         },
-        required: ["number", "text", "topic", "images", "confidence"],
+        required: ["number", "text", "topic", "images", "confidence", "choicesLayout"],
       },
     },
   },

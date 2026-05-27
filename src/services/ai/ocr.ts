@@ -299,6 +299,8 @@ interface RawOcrItem {
   confidence: "high" | "medium" | "low";
   /** Phase F: vector 도형 spec — optional (느슨한 array, 런타임 normalizeDiagram 보정). */
   diagramParams?: unknown;
+  /** Phase #7: 원본 보기 grid 배치 (rows × cols) — "auto" | "1x5" | "2x3" | "3x2" | "5x1" */
+  choicesLayout?: string;
 }
 
 interface RawOcrResponse {
@@ -427,6 +429,8 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
         Array.isArray(raw.diagramParams) && raw.diagramParams.length > 0
           ? (raw.diagramParams as OCRProblem["diagramParams"])
           : undefined,
+      // Phase #7: 원본 보기 grid 배치 (enum 외 값이면 "auto" fallback)
+      choicesLayout: normalizeChoicesLayout(raw.choicesLayout),
       // 본문 또는 보기 누락은 confidence 와 무관하게 강제 warn — 사용자 검토 필수.
       status:
         bodyMissing || choicesMissing
@@ -437,6 +441,16 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
       reviewed: false,
     };
   });
+
+/**
+ * Phase #7: 모델이 emit 한 choicesLayout 을 ChoicesLayout enum 으로 normalize.
+ * 잘못된 값 / 없음 → "auto" (renderer 자동 결정).
+ */
+const VALID_LAYOUTS = new Set<string>(["auto", "1x5", "2x3", "3x2", "5x1"]);
+const normalizeChoicesLayout = (raw: unknown): OCRProblem["choicesLayout"] => {
+  if (typeof raw !== "string") return "auto";
+  return (VALID_LAYOUTS.has(raw) ? raw : "auto") as OCRProblem["choicesLayout"];
+};
 
 /**
  * Generic JSON parser with truncation-aware error messages. Exported so the

@@ -91,12 +91,13 @@ export const ProblemBody = ({
         </div>
       )}
 
-      {/* Choices grid */}
+      {/* Choices grid — Phase #7: original 보기 layout 상속 (auto fallback 시 길이 휴리스틱). */}
       {!hideChoices && problem.choices && problem.choices.length > 0 && (
         <div
-          className={`grid gap-x-4 gap-y-2 text-slate-700 mt-1.5 ${
-            resolveChoiceCols(problem.choices) === 1 ? "grid-cols-1" : "grid-cols-2"
-          }`}
+          className={`grid gap-x-4 gap-y-2 text-slate-700 mt-1.5 ${printGridClass(
+            problem.choices,
+            problem.choicesLayout,
+          )}`}
           style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }}
         >
           {problem.choices.map((choice, ci) => {
@@ -116,6 +117,31 @@ export const ProblemBody = ({
       )}
     </div>
   );
+};
+
+/**
+ * Phase #7: 원본 choicesLayout 을 print Tailwind grid class 로 변환.
+ * "auto" 또는 누락 시 기존 resolveChoiceCols 휴리스틱 (1 또는 2 col) fallback.
+ */
+const printGridClass = (
+  choices: string[] | undefined,
+  layout: GeneratedProblem["choicesLayout"] | undefined,
+): string => {
+  switch (layout) {
+    case "1x5":
+      return "grid-cols-5";
+    case "2x3":
+      return "grid-cols-3";
+    case "3x2":
+      return "grid-cols-2";
+    case "5x1":
+      return "grid-cols-1";
+    case "auto":
+    default:
+      return resolveChoiceCols(choices ?? []) === 1
+        ? "grid-cols-1"
+        : "grid-cols-2";
+  }
 };
 
 export default ProblemBody;

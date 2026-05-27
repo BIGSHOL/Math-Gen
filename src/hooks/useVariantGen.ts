@@ -140,6 +140,10 @@ export const useVariantGen = (): {
             topic: result.topic || p.original.topic,
             difficulty: result.difficulty,
             diagramSVG: null, // 도형은 원본 유지 (이번 phase)
+            // Phase #7: 원본 보기 grid 배치 상속 — variant 가 원본과 동일 layout.
+            // result.choicesLayout 우선 (모델이 변경 시), 없으면 원본 그대로.
+            choicesLayout:
+              result.choicesLayout ?? p.original.choicesLayout ?? "auto",
           };
           updateProblem(p.id, {
             variant,

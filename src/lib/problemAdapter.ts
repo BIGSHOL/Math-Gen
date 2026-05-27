@@ -93,5 +93,7 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     topic: it.topic ?? "",
     difficulty: "중",
     diagramSVG: null,
+    // Phase #7: OCR 원본 보기 배치 상속 — 변형 카드에서도 원본과 동일 grid.
+    choicesLayout: it.choicesLayout ?? "auto",
   };
 };

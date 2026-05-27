@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   topic               TEXT,
   text                TEXT NOT NULL,
   choices             JSONB,                                 -- string[] (객관식 5지) | null (주관식)
+  choices_layout      TEXT DEFAULT 'auto',                   -- Phase #7: 'auto' | '1x5' | '2x3' | '3x2' | '5x1'
   answer              TEXT,
   solution            TEXT,
   solution_model      TEXT,
@@ -82,6 +83,8 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   images              JSONB,                                 -- OCRImage[] { box [4], label }
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Phase #7: 기존 행 마이그레이션 (멱등) — column 없으면 추가
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';
 CREATE INDEX IF NOT EXISTS idx_problems_page
   ON ocr_problems(page_id, problem_number);
 

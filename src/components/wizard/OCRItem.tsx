@@ -301,7 +301,11 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               </div>
             </div>
           )}
-          <MarkdownRenderer content={item.text} diagramSvgs={vectorDiagrams} />
+          <MarkdownRenderer
+            content={item.text}
+            diagramSvgs={vectorDiagrams}
+            choicesLayout={item.choicesLayout}
+          />
         </div>
       )}
 

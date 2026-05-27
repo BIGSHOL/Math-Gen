@@ -70,6 +70,8 @@ export interface OcrProblemRow {
   topic: string | null;
   text: string;
   choices: string[] | null;
+  /** Phase #7: 원본 보기 grid 배치. nullable — 옛 데이터 / 서술형 (auto). */
+  choices_layout: string | null;
   answer: string | null;
   solution: string | null;
   solution_model: string | null;
@@ -233,6 +235,7 @@ export const ocrProblemToInsert = (
   topic: item.topic ?? null,
   text: item.text,
   choices: null,
+  choices_layout: item.choicesLayout ?? "auto",
   answer: item.answer ?? null,
   solution: item.solution ?? null,
   solution_model: item.solutionModel ?? null,
@@ -269,6 +272,12 @@ export const reviewToInsert = (
  * 그대로 받을 수 있는 형태. in-flight 휘발 필드는 모두 undefined — Detail
  * view 에선 *읽기 전용* 이라 generating / startedAt 의미 없음.
  */
+const VALID_CHOICES_LAYOUTS = new Set(["auto", "1x5", "2x3", "3x2", "5x1"]);
+const layoutFromRow = (raw: string | null): OCRProblem["choicesLayout"] => {
+  if (!raw) return "auto";
+  return (VALID_CHOICES_LAYOUTS.has(raw) ? raw : "auto") as OCRProblem["choicesLayout"];
+};
+
 export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
   id: row.id,
   number: row.problem_number,
@@ -284,6 +293,8 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
   solutionModel: row.solution_model ?? undefined,
   solutionWarnings: row.solution_warnings ?? undefined,
   ocrModel: row.ocr_model ?? undefined,
+  // Phase #7: 옛 row 는 null/undefined → "auto" fallback
+  choicesLayout: layoutFromRow(row.choices_layout),
 });
 
 /**
