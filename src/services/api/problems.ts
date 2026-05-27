@@ -17,6 +17,37 @@ import {
  * DB 의 `id UUID PRIMARY KEY` 와 그대로 매핑.
  */
 
+/**
+ * Phase #7 신규 컬럼 (choices_layout) 이 DB schema 에 적용 안 된 경우 PostgREST
+ * 가 PGRST204 (schema cache miss) 를 던진다. 사용자에게 SQL 마이그레이션 안내
+ * 후, 이번 insert 는 컬럼 빼고 자동 재시도.
+ */
+const SCHEMA_CACHE_MISS_RE = /(PGRST204|schema cache)/i;
+const isSchemaCacheMiss = (msg: string): boolean => SCHEMA_CACHE_MISS_RE.test(msg);
+
+// 알려진 후속 컬럼 — schema 미적용 시 stripped 대상
+const OPTIONAL_COLUMNS = ["choices_layout"] as const;
+const stripOptionalColumns = (rows: OcrProblemInsert[]): OcrProblemInsert[] =>
+  rows.map((row) => {
+    const clone = { ...row } as Record<string, unknown>;
+    for (const col of OPTIONAL_COLUMNS) delete clone[col];
+    return clone as OcrProblemInsert;
+  });
+
+// 한 번만 경고 (콘솔 스팸 방지)
+let warnedSchema = false;
+const warnSchemaMigration = (col: string) => {
+  if (warnedSchema) return;
+  warnedSchema = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[api/problems] 'ocr_problems.${col}' 컬럼 없음 — Phase #7 마이그레이션 필요.\n` +
+      "Supabase SQL Editor 에서 다음 실행 (멱등):\n" +
+      "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';\n" +
+      "임시 우회: 컬럼 없이 insert/update 자동 재시도 — 보기 배치 정보 미저장.",
+  );
+};
+
 export const upsertOcrProblems = async (
   pageId: string,
   items: OCRProblem[],
@@ -41,6 +72,20 @@ export const upsertOcrProblems = async (
   const payloads = items.map((it) => ocrProblemToInsert(pageId, it));
   const { error } = await supabase.from("ocr_problems").insert(payloads);
   if (error) {
+    // Phase #7 schema 미적용 fallback — choices_layout 빼고 재시도
+    if (isSchemaCacheMiss(error.message)) {
+      warnSchemaMigration("choices_layout");
+      const stripped = stripOptionalColumns(payloads);
+      const { error: retryError } = await supabase
+        .from("ocr_problems")
+        .insert(stripped);
+      if (retryError) {
+        console.warn(
+          `[api/problems] upsertOcrProblems retry failed: ${retryError.message} (code: ${retryError.code ?? "-"})`,
+        );
+      }
+      return;
+    }
     console.warn(
       `[api/problems] upsertOcrProblems insert failed: ${error.message} (code: ${error.code ?? "-"})`,
     );
@@ -76,6 +121,22 @@ export const updateOcrProblem = async (
   }
   const { error } = await supabase.from("ocr_problems").update(patch).eq("id", id);
   if (error) {
+    // Phase #7 schema 미적용 fallback — choices_layout 빼고 재시도
+    if (isSchemaCacheMiss(error.message)) {
+      warnSchemaMigration("choices_layout");
+      const stripped = { ...(patch as Record<string, unknown>) };
+      for (const col of OPTIONAL_COLUMNS) delete stripped[col];
+      if (Object.keys(stripped).length === 0) return true; // 컬럼만 빼면 update 항목 X
+      const { error: retryError } = await supabase
+        .from("ocr_problems")
+        .update(stripped)
+        .eq("id", id);
+      if (retryError) {
+        console.warn("[api/problems] updateOcrProblem retry failed:", retryError.message);
+        return false;
+      }
+      return true;
+    }
     console.warn("[api/problems] updateOcrProblem failed:", error.message);
     return false;
   }

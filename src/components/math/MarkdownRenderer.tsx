@@ -374,16 +374,27 @@ const prerenderAllKatex = (
 
 /**
  * Phase #10: SVG <text> content 분석 후 font-style 자동 결정.
- * 본문 KaTeX 의 uprightGeometryLabels 와 *완전 일관*:
- *  - 점 라벨 (단일 대문자, A', P_1, A2 등) → 직립 (font-style="normal")
- *  - 순수 숫자·상수 (-3, 1/2, π, °) → 직립
- *  - 변수 (소문자, 다중 문자, 혼합) → italic (default)
+ * 본문 KaTeX 의 uprightGeometryLabels (textPreprocess.ts) 와 *완전 일관*:
+ *  - 점 라벨 (단일 또는 다중 대문자 + 옵션 prime: A, ABCD, A', P'') → 직립
+ *  - 점 라벨 + 숫자 첨자 (P1, A2, X3) → 직립
+ *  - 순수 숫자·상수 (-3, 1/2, 0.5, π, °) → 직립
+ *  - 변수 / 다중 문자 변수 표현 / 혼합 (x, sin, 5y) → italic (default)
  *
- * 사용자 보고 (2026-05-27): "여전히 문제 내의 글자와 그림으로 표현된 글자가
- * 폰트가 달라. 폰트 일치화 작업할것."
+ * 사용자 보고 (2026-05-27 재): "여전히 문제 내의 글자와 그림으로 표현된
+ * 글자가 폰트가 달라. 폰트 일치화 작업할것."
+ *
+ * **본문 KaTeX 와의 정합성 검증 (2026-05-27 검토)**:
+ *   본문 PURE_LABEL_REGEX = /^\s*([A-Z][A-Z']*)\s*$/
+ *   본문은 `$ABCD$` 같은 다중 대문자도 `\mathrm{ABCD}` 로 직립 wrap.
+ *   따라서 SVG POINT_LABEL_RE 도 단일이 아니라 다중 대문자 매치해야 함.
+ *   (이전 정규식은 단일 대문자만 매치 → 본문 ABCD 직립 vs SVG ABCD italic
+ *   불일치 발생.)
  */
-const POINT_LABEL_RE = /^[A-Z][′'′]?[0-9]?$/;
-const PURE_NUMERIC_RE = /^-?\d+(?:[./]\d+)?$|^[π°√±∞∅]$/;
+// 단일/다중 대문자 + 옵션 prime + 옵션 1자리 숫자 첨자 (P1, A2).
+// 본문 uprightGeometryLabels 의 PURE_LABEL_REGEX 와 동일 패턴.
+const POINT_LABEL_RE = /^[A-Z][A-Z'′]*[0-9]?$/;
+// 정수, 음수, 소수, 분수 표기, π·°·√·± 같은 상수 기호.
+const PURE_NUMERIC_RE = /^-?\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?$|^[π°√±∞∅]$/;
 
 const defaultFontStyleForText = (textContent: string): "normal" | "italic" => {
   const t = textContent.trim();

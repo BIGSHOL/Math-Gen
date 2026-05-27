@@ -1216,11 +1216,12 @@ RULES FOR EACH "items" ENTRY
            "5y", "3x", "2a", "ax²" 등 — 변수 포함이면 통째로 italic (한국 교과서 관행).
 
          🎯 **자동 후처리 — 사용자가 누락해도 안전망**:
-         MarkdownRenderer 의 \`normalizeInlineSvgs\` Pass A 가 *모델이 font-style 안 적은 경우* 다음 로직으로 default 결정:
-         - text content 가 \`/^[A-Z]['′]?[0-9]?$/\` 매치 → font-style="normal" (점 라벨)
-         - text content 가 \`/^-?\\d+(?:[./]\\d+)?$|^[π°√]$/\` 매치 → font-style="normal" (순수 숫자/상수)
+         MarkdownRenderer 의 normalizeInlineSvgs Pass A 가 *모델이 font-style 안 적은 경우* 다음 로직으로 default 결정:
+         - text content 가 정규식 ^[A-Z][A-Z'′]*[0-9]?$ 매치 → font-style="normal" (점 라벨 — 단일/다중 대문자 + prime + 숫자 첨자)
+         - text content 가 ^-?\\d+(?:\\.\\d+)?(?:/\\d+(?:\\.\\d+)?)?$ 또는 ^[π°√±∞∅]$ 매치 → font-style="normal" (순수 숫자/상수)
          - 그 외 → font-style="italic" (변수 default)
          모델이 직접 emit 한 font-style 은 *존중* (override X).
+         본문 KaTeX uprightGeometryLabels 의 PURE_LABEL_REGEX 와 동일 패턴 (단일/다중 대문자 모두 직립).
 
          예시 — 점 라벨 (직립 Roman, *본문과 일관*):
            <text x="120" y="50" font-family="Times New Roman, serif" font-style="normal" font-size="14">A</text>

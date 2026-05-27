@@ -276,10 +276,17 @@ export const Step2OCRReview = () => {
             <SkipBanner onForceOcr={forcePageOcr} />
           )}
 
-          {/* In-flight skeleton — only when actually waiting on a call */}
-          {!activePage.ocrComplete && (activePage.isProblemPage || activePage.forceOcr) && (
-            <PendingSkeletons />
-          )}
+          {/* In-flight skeleton — only when actually waiting on a call AND
+              결과가 하나도 없을 때만. 사용자 보고 (2026-05-27): "1페이지에서
+              재인식 누르고 2페이지 이동하면 1페이지의 스켈레톤페이지가 2페이지에
+              그대로 남아 공간차지" — Pass 1 결과 카드 + skeleton 동시 표시되는
+              함정. ocrResult.length === 0 추가 가드로 *진짜 빈 상태* 일 때만 표시.
+              (Pass 2 cropped 진행 중은 ocrComplete=true + 카드 있음 — skeleton X) */}
+          {!activePage.ocrComplete &&
+            activePage.ocrResult.length === 0 &&
+            (activePage.isProblemPage || activePage.forceOcr) && (
+              <PendingSkeletons />
+            )}
 
           {/* Per-page error */}
           {activePage.ocrError && (
