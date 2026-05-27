@@ -208,17 +208,40 @@ export const Step1_5CropInspect = () => {
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="flex items-center justify-between mb-2">
           <Eyebrow>페이지 {activeIndex + 1} 검수</Eyebrow>
-          <span className="text-caption text-muted">
-            {activePage.cropDetectInflight && "검출 중..."}
-            {activePage.cropDetectError && (
-              <span className="text-danger">{activePage.cropDetectError}</span>
-            )}
-            {activePage.cropBoxes && !activePage.cropDetectError && (
-              <span>박스 {boxes.length}개</span>
-            )}
-          </span>
+          {/* 상태 라벨 — 사용자 보고 (2026-05-27): "검출 중" 이 너무 약해서 멈춘 것처럼 보임.
+              검출 중일 때는 accent 색 + spinner + bouncing dots + pulse 로 강화. */}
+          {activePage.cropDetectInflight ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-r2 bg-accent-soft text-accent border border-accent/30 text-small font-semibold animate-loud-pulse">
+              <Icon name="circle-notch" size={13} className="animate-spin" />
+              AI가 문항 검출 중
+              <span className="inline-flex gap-0.5 ml-0.5">
+                <span
+                  className="w-1 h-1 rounded-full bg-accent animate-loud-pulse"
+                  style={{ animationDelay: "0ms" }}
+                />
+                <span
+                  className="w-1 h-1 rounded-full bg-accent animate-loud-pulse"
+                  style={{ animationDelay: "200ms" }}
+                />
+                <span
+                  className="w-1 h-1 rounded-full bg-accent animate-loud-pulse"
+                  style={{ animationDelay: "400ms" }}
+                />
+              </span>
+            </span>
+          ) : activePage.cropDetectError ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-r2 bg-warn-soft text-warnInk border border-warn/30 text-small font-medium">
+              <Icon name="warning" size={13} weight="fill" />
+              {activePage.cropDetectError}
+            </span>
+          ) : activePage.cropBoxes ? (
+            <span className="inline-flex items-center gap-1 text-caption text-muted">
+              <Icon name="check-circle" size={12} weight="fill" className="text-ok" />
+              박스 {boxes.length}개 검출
+            </span>
+          ) : null}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto bg-surface2 rounded-r2 p-3">
+        <div className="flex-1 min-h-0 overflow-auto bg-surface2 rounded-r2 p-3 relative">
           {pageImageUrl ? (
             <div
               ref={imageContainerRef}
@@ -236,6 +259,41 @@ export const Step1_5CropInspect = () => {
                 style={{ display: "block", maxWidth: "100%", userSelect: "none" }}
                 draggable={false}
               />
+              {/* 검출 진행 중 — 이미지 위 *중앙 오버레이*. 사용자 보고
+                  (2026-05-27): 검출 중인지 멈춘건지 인지 안 됨 → 큰 오버레이
+                  + spinner + 강한 텍스트 + diagonal shimmer 로 한눈에 알게.
+                  박스가 이미 있어도 inflight 면 표시 (재검출 시나리오). */}
+              {activePage.cropDetectInflight && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                    background:
+                      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(14,165,233,0.06) 25%, rgba(14,165,233,0.18) 50%, rgba(14,165,233,0.06) 75%, rgba(14,165,233,0.18) 100%)",
+                    backgroundSize: "200% 200%",
+                    backdropFilter: "blur(0.5px)",
+                  }}
+                  className="animate-detect-shimmer"
+                >
+                  <div className="flex flex-col items-center gap-2.5 px-5 py-4 rounded-r3 bg-white/95 shadow-lg border-2 border-accent/40 animate-loud-pulse">
+                    <Icon
+                      name="circle-notch"
+                      size={28}
+                      className="text-accent animate-spin"
+                    />
+                    <div className="text-body font-bold text-accent">
+                      AI가 문항을 검출하고 있어요
+                    </div>
+                    <div className="text-caption text-muted">
+                      약 3~5초 — 잠시만 기다려주세요
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* 박스 overlay */}
               {containerSize.width > 0 &&
                 boxes.map((box) => (
@@ -271,9 +329,9 @@ export const Step1_5CropInspect = () => {
               )}
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-muted text-small">
-              <Icon name="image" size={20} weight="duotone" />
-              <span className="ml-2">이미지 로드 중...</span>
+            <div className="flex h-full items-center justify-center gap-2 text-muted text-small">
+              <Icon name="image" size={20} weight="duotone" className="animate-pulse" />
+              <span>이미지 로드 중...</span>
             </div>
           )}
         </div>
@@ -295,9 +353,28 @@ export const Step1_5CropInspect = () => {
               <span className="text-muted">총 검출 문항</span>
               <span className="font-mono font-semibold">{totalDetectedBoxes}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted">검출 중</span>
-              <span className={`font-mono ${detectingCount > 0 ? "text-accent" : ""}`}>
+            {/* 검출 중 row — 0 이면 muted, > 0 이면 accent-soft 배경 + 스피너 + pulse.
+                사용자 보고 (2026-05-27): 진행 중인지 시각적으로 즉시 알 수 있게. */}
+            <div
+              className={
+                detectingCount > 0
+                  ? "flex justify-between items-center px-2 -mx-2 py-1 rounded-r1 bg-accent-soft border border-accent/30 animate-loud-pulse"
+                  : "flex justify-between"
+              }
+            >
+              <span
+                className={`flex items-center gap-1.5 ${
+                  detectingCount > 0 ? "text-accent font-semibold" : "text-muted"
+                }`}
+              >
+                {detectingCount > 0 && (
+                  <Icon name="circle-notch" size={11} className="animate-spin" />
+                )}
+                검출 중
+              </span>
+              <span
+                className={`font-mono ${detectingCount > 0 ? "text-accent font-bold" : ""}`}
+              >
                 {detectingCount}
               </span>
             </div>

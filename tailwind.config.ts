@@ -117,6 +117,19 @@ export default {
           "0%": { opacity: "0" },
           "100%": { opacity: "1" },
         },
+        /* 검출 진행 표시 — accent 색 dot 3 개가 좌→우 순서 점멸. "..." 같은
+           ASCII 줄임표보다 시각적으로 훨씬 강함. 사용자 보고 2026-05-27:
+           "아무생각없이 보다가 검출된지도 모르고 멈춘줄 알겠네." */
+        loudPulse: {
+          "0%, 100%": { opacity: "1", transform: "scale(1)" },
+          "50%": { opacity: "0.55", transform: "scale(1.06)" },
+        },
+        /* 이미지 위 오버레이의 다이아고날 줄무늬가 우→좌로 흐름.
+           "AI 가 일하는 중" 강한 시각 신호. */
+        detectShimmer: {
+          "0%": { backgroundPosition: "0% 0%" },
+          "100%": { backgroundPosition: "200% 0%" },
+        },
       },
       animation: {
         "wiz-slide-in-right": "wizSlideInRight 300ms cubic-bezier(.2,.9,.3,1) both",
@@ -124,6 +137,8 @@ export default {
         "fade-in-up": "fadeInUp 280ms ease both",
         "modal-enter": "modalEnter 260ms cubic-bezier(.2,.9,.3,1.1) both",
         "backdrop-fade": "backdropFade 220ms ease both",
+        "loud-pulse": "loudPulse 1.2s ease-in-out infinite",
+        "detect-shimmer": "detectShimmer 2.4s linear infinite",
       },
     },
   },
