@@ -220,6 +220,33 @@ const improperToMixed = (math: string): string =>
   );
 
 /**
+ * 인접 박스 행 auto-split harness — 사용자 보고 (2026-05-27, CLAUDE.md §26-6).
+ *
+ * 원본에 *분리된 N 개 박스* `[A][B][C][D]` (순열·배치 문제의 자리 표시) 인데
+ * OCR 이 한 박스로 합쳐서 `\boxed{ABCD}` 로 emit 하는 케이스. OCR_PAGE_PROMPT
+ * 의 4d-2 룰만으로 100% 차단 어려워 *후처리 안전망* 으로 자동 분리.
+ *
+ * **보수적 휴리스틱** — false positive 위험 최소화:
+ *  - **2-6 개 연속 *순수 대문자 라틴* 만** 매치 (`\boxed{ABCD}`, `\boxed{XY}`).
+ *  - 소문자 (`\boxed{xy}` = 변수 곱, 미적용), 숫자 (`\boxed{42}` = 단일 답, 미적용),
+ *    연산자·LaTeX 명령어 (`\boxed{A+B}`, `\boxed{\phantom{0}}`) 포함 시 미적용.
+ *  - 1 글자 (`\boxed{X}`) 는 이미 정상 — 미적용.
+ *  - 7+ 글자 (`\boxed{ANSWER}`) 는 단어/약자 가능성 — 미적용.
+ *
+ * 결과: `\boxed{ABCD}` → `\boxed{A}\boxed{B}\boxed{C}\boxed{D}`
+ *
+ * **호출 순서 주의**: `uprightGeometryLabels` 이전에 실행 — uprightGeometry 가
+ * `\boxed{A}` 의 단일 A 를 `\mathrm{A}` 로 wrap 한 *후* 에는 정규식 매치 안 됨.
+ */
+const splitMultiLetterBoxed = (math: string): string =>
+  math.replace(/\\boxed\{([A-Z]{2,6})\}/g, (_match, letters: string) =>
+    letters
+      .split("")
+      .map((ch) => `\\boxed{${ch}}`)
+      .join(""),
+  );
+
+/**
  * 모델이 자주 emit 하는 malformed LaTeX 패턴을 정리 — KaTeX 가 통째로
  * 에러 fallback (빨간 텍스트) 으로 가는 걸 막는다. 사용자 보고 (14번, 8번):
  * `\left\left\{ ... \right\right\}` 가 통째로 빨간 raw 로 노출. KaTeX 는
@@ -284,6 +311,9 @@ const applyMathInnerNormalization = (inner: string): string => {
   // improperToMixed 가 `\frac` 와 `\dfrac` 둘 다 매치, 반환은 `\frac` 표준화.
   // 그 뒤 단계 6 에서 모두 `\dfrac` 로 업그레이드.
   s = improperToMixed(s);
+  // 인접 박스 행 안전망 — `\boxed{ABCD}` → `\boxed{A}\boxed{B}\boxed{C}\boxed{D}`.
+  // uprightGeometryLabels *이전* 에 호출 — \mathrm{} wrap 후엔 매치 안 됨.
+  s = splitMultiLetterBoxed(s);
   s = uprightGeometryLabels(s);
   s = autoSizeBrackets(s);
   // 6) `\frac` → `\dfrac` 강제 업그레이드.

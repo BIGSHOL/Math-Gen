@@ -3303,3 +3303,98 @@ compatible). 옛 row 의 class="problem" 또는 누락 모두 정상 hydrate.
   생성 시도 *경고* — 회화 reference 는 저작권 + 정확도 문제. confirm modal 에 별도
   warn banner 추가.
 
+### 26-6. 인접 박스 행 패턴 — `\boxed{ABCD}` → `\boxed{A}\boxed{B}\boxed{C}\boxed{D}`
+
+**사용자 보고 (2026-05-27)**: 원본은 4 개 *분리* 박스 `[A][B][C][D]` (순열 / 배치
+/ 자리 표시 문제) 인데 OCR 이 한 박스 `\boxed{ABCD}` 로 합침. KaTeX `\boxed{}` 가
+content 통째로 한 박스에 감싸기 때문에 4 글자가 한 박스로 렌더.
+
+**원인**: 모델이 *시각적 분리* (박스 사이 내부 border) 를 인지 못하고 일반적인
+`\boxed{}` 표기로 합침. Korean 교과서의 *칸당 1 글자* 표기 관행 미숙지.
+
+**이중 방어선 (CLAUDE.md §7-5 패턴)**:
+
+**(1) OCR_PAGE_PROMPT 4d-2 룰** (`src/services/ai/prompts.ts`):
+```
+인접 박스 행 (Row of separate small boxes):
+  잘못된 출력: $\boxed{ABCD}$
+  올바른 출력: $\boxed{A}\boxed{B}\boxed{C}\boxed{D}$
+
+  판단 기준: 박스 사이 내부 구분선 (border 가 칸마다 따로) → 분리 박스 → 칸당
+  \boxed{}. 외곽선만 하나 → \boxed{전체}.
+```
+
+**(2) Runtime auto-split harness** (`src/lib/textPreprocess.ts`, §26-7).
+
+### 26-7. Runtime auto-split harness — `splitMultiLetterBoxed`
+
+prompt 룰만으로 *100% 차단 불가* — 모델이 가끔 한 박스로 합쳐서 emit. 후처리에서
+*보수적 자동 분리* 로 안전망:
+
+```ts
+const splitMultiLetterBoxed = (math: string): string =>
+  math.replace(/\\boxed\{([A-Z]{2,6})\}/g, (_match, letters: string) =>
+    letters.split("").map((ch) => `\\boxed{${ch}}`).join(""),
+  );
+```
+
+**보수적 휴리스틱** (false positive 회피 우선):
+- ✅ `\boxed{ABCD}` → 4 박스 분리 (순수 2-6 대문자 라틴)
+- ✅ `\boxed{XY}` → 2 박스 분리
+- ❌ `\boxed{42}` → 미적용 (단일 숫자 답 — false positive 위험)
+- ❌ `\boxed{xy}` → 미적용 (소문자 = 변수 곱)
+- ❌ `\boxed{\phantom{0}}` → 미적용 (LaTeX 명령어 포함)
+- ❌ `\boxed{ABCDEFGH}` → 미적용 (7+ = 단어/약자 가능성)
+- ❌ `\boxed{A+B}` → 미적용 (연산자 포함)
+
+**호출 순서 — 중요**: `applyMathInnerNormalization` 안에서 `improperToMixed` 이후,
+`uprightGeometryLabels` *이전* 에 호출. uprightGeometry 가 `\boxed{A}` 의 단일 A 를
+`\mathrm{A}` 로 wrap 한 후엔 정규식 `\\boxed\{([A-Z]{2,6})\}` 매치 안 됨.
+
+```ts
+// applyMathInnerNormalization 순서:
+//   1. cleanMalformedLatex
+//   2. UNICODE_MATH_MAP
+//   3. improperToMixed (가분수 → 대분수)
+//   4. splitMultiLetterBoxed  ← NEW (uprightGeometryLabels 이전)
+//   5. uprightGeometryLabels (점 라벨 직립)
+//   6. autoSizeBrackets
+//   7. \frac → \dfrac
+//   8. injectDisplayStyle
+```
+
+**원칙 — 시각 패턴 분리는 prompt + runtime 이중 방어선** (CLAUDE.md §2-17, §16-1
+패턴과 동일):
+- prompt 만 → 모델 컨디션 변동으로 leak 가능
+- runtime 만 → false positive 위험 (보수적 휴리스틱 필요)
+- 둘 다 → prompt 가 *대다수 케이스* 차단 + runtime 이 *최종 안전망* 으로 leak 케이스
+  복구
+
+새 시각 패턴 (예: 6각형 배치 `[A][B][C]\n[D][E][F]`, 표 형식 박스 등) 발견 시
+같은 *prompt 룰 + runtime auto-split* 이중 방어선 패턴 따를 것.
+
+### 26-8. 이번 PR + 후속 PR 변경 파일 통합 정리
+
+이번 세션의 *artwork class + 손글씨 폰트 방어 + 인접 박스 행* 통합 (commits
+`fbaa3dc`, `eba282f`):
+
+| 파일 | 변경 | 영역 |
+|---|---|---|
+| `src/stores/wizardStore.ts` | CropBox.class union 4-way | artwork |
+| `src/components/wizard/EditableCropBox.tsx` | CLASS_COLORS + artwork 보라 | artwork |
+| `src/services/ai/cropDetect.ts` | DetectedCrop.class + schema + prompt | artwork + 손글씨 |
+| `src/hooks/useCropDetect.ts` | model.class whitelist | artwork |
+| `src/services/ai/prompts.ts` | OCR_PAGE_PROMPT Tier 4 + 4d-2 | 손글씨 + 인접 박스 |
+| `src/lib/textPreprocess.ts` | splitMultiLetterBoxed harness | 인접 박스 (runtime) |
+| `CLAUDE.md` | §26 카탈로그 8 sub-section | 문서화 |
+
+DB schema 변경 0. 옛 row 모두 backward compatible.
+
+**검증 체크리스트**:
+- [x] tsc exit 0 (api/export-pdf 제외)
+- [x] CropBox.class 옛 enum (problem/figure/table) 모두 정상 처리
+- [x] splitMultiLetterBoxed false positive 휴리스틱 (\boxed{42} 보존)
+- [x] uprightGeometryLabels 호출 순서 (splitMultiLetterBoxed 가 *이전*)
+- [ ] Chrome MCP 시각 검증 — `\boxed{ABCD}` 가 4 박스로 렌더 (사용자 위임)
+- [ ] 실 시험지 OCR end-to-end (artwork class + 손글씨 방어) — 사용자 위임
+
