@@ -191,6 +191,9 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
   // Phase F (dedup): diagram_params 변경 시 sync — Pass 2 가 새 도형 emit 시.
   if (prev.diagramParams !== next.diagramParams)
     patch.diagram_params = next.diagramParams ?? null;
+  // Phase #12/#13: images 변경 sync — 사용자 크롭 / AI 생성 결과 영구 저장.
+  // 이전 누락 버그: 사용자가 박스 편집해도 새로고침 후 사라짐.
+  if (prev.images !== next.images) patch.images = next.images ?? null;
   // Phase G (dedup): 자동 재시도 가드 — 한 번 fail 후 무한 retry 차단.
   if (prev.solutionAutoRetried !== next.solutionAutoRetried)
     patch.solution_auto_retried = next.solutionAutoRetried ?? false;

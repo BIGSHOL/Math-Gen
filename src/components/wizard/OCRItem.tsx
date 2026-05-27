@@ -10,9 +10,14 @@ import {
   renderDiagram,
   validateDiagramParams,
 } from "@app/lib/diagram";
-import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
+import {
+  useWizardStore,
+  type OCRProblem,
+  type OCRImage,
+} from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
 import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
+import { DiagramFallbackPanel } from "./DiagramFallbackPanel";
 
 /**
  * Step 2 — a single extracted problem card.
@@ -60,30 +65,69 @@ export interface OCRItemProps {
  * that image rather than tank the card render — the user can edit and add
  * the figure manually.
  */
+/**
+ * 본문에 `[그림N]` 마커 존재 여부 — DiagramFallbackPanel 표시 트리거.
+ * 도형이 없거나 사용자 편집 후에도 마커는 본문에 남아 있을 수 있음.
+ */
+const hasMarker = (t: string | undefined): boolean =>
+  !!t && /\[그림\d+\]/.test(t);
+
+/**
+ * Phase #12/#13: source 별 분기 — 재크롭 비용 회피.
+ *  - "user-crop": dataUrl 그대로 (사용자가 이미 크롭 — 재크롭 불필요)
+ *  - "ai-gen":    url 그대로 (DALL-E 영구 URL — 재크롭 X)
+ *  - else (ai-crop default): cropPageImageData 호출 — 기존 동작
+ */
+interface DisplayCrop {
+  src: string;
+  label: string;
+  source: "ai-crop" | "user-crop" | "ai-gen";
+  originalImage: OCRImage;
+}
+
 const useCroppedImages = (
   images: OCRProblem["images"],
   pageImageDataUrl: string | null | undefined,
-): Array<{ dataUrl: string; label: string }> => {
-  const [crops, setCrops] = useState<Array<{ dataUrl: string; label: string }>>([]);
+): DisplayCrop[] => {
+  const [crops, setCrops] = useState<DisplayCrop[]>([]);
   // Stable cache key — re-cropping is expensive (canvas + paint) and
-  // unnecessary when only sibling state changes.
+  // unnecessary when only sibling state changes. 신규 필드 (source/url/dataUrl)
+  // 도 변경 시 재계산 트리거.
   const bboxKey = useMemo(
-    () => JSON.stringify(images?.map((i) => i.box) ?? []),
+    () =>
+      JSON.stringify(
+        images?.map((i) => ({
+          box: i.box,
+          source: i.source,
+          url: i.url,
+          hasDataUrl: !!i.dataUrl,
+        })) ?? [],
+      ),
     [images],
   );
 
   useEffect(() => {
-    if (!pageImageDataUrl || !images || images.length === 0) {
+    if (!images || images.length === 0) {
       setCrops([]);
       return;
     }
     let cancelled = false;
     (async () => {
-      const out: Array<{ dataUrl: string; label: string }> = [];
+      const out: DisplayCrop[] = [];
       for (const im of images) {
+        const source: DisplayCrop["source"] = im.source ?? "ai-crop";
         try {
-          const dataUrl = await cropPageImageData(pageImageDataUrl, im.box, { margin: 0.04 });
-          out.push({ dataUrl, label: im.label });
+          if (source === "user-crop" && im.dataUrl) {
+            out.push({ src: im.dataUrl, label: im.label, source, originalImage: im });
+          } else if (source === "ai-gen" && im.url) {
+            out.push({ src: im.url, label: im.label, source, originalImage: im });
+          } else if (pageImageDataUrl) {
+            // ai-crop (default) — bbox 기반 cropPageImageData
+            const dataUrl = await cropPageImageData(pageImageDataUrl, im.box, {
+              margin: 0.04,
+            });
+            out.push({ src: dataUrl, label: im.label, source: "ai-crop", originalImage: im });
+          }
         } catch (err) {
           // eslint-disable-next-line no-console
           console.warn("[OCRItem] diagram crop skipped:", (err as Error).message);
@@ -129,6 +173,10 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
   const [draftText, setDraftText] = useState(item.text);
   const [draftNumber, setDraftNumber] = useState(String(item.number));
   const [draftTopic, setDraftTopic] = useState(item.topic ?? "");
+
+  // Phase #12/#13: "원본 보기" toggle — true 일 때 사용자 크롭 / AI 생성 무시,
+  // 원본 (ai-crop bbox) 만 표시. DiagramFallbackPanel 이 setShowOriginal 호출.
+  const [showOriginal, setShowOriginal] = useState(false);
 
   const crops = useCroppedImages(item.images, pageImageDataUrl);
 
@@ -309,24 +357,78 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
         </div>
       )}
 
-      {/* bbox crop fallback — vectorDiagrams 가 있으면 표시 X (이미 본문 [그림N] 치환됨). */}
-      {!vectorDiagrams && crops.length > 0 && !editing && (
-        <div className="mt-3 flex flex-wrap gap-3">
-          {crops.map((c, i) => (
-            <figure key={i} className="border border-line rounded-r2 bg-white p-2 max-w-[280px]">
-              <img
-                src={c.dataUrl}
-                alt={c.label || `도형 ${i + 1}`}
-                className="max-w-full h-auto block"
-              />
-              {c.label && (
-                <figcaption className="mt-1.5 text-caption text-muted text-center">
-                  {c.label}
-                </figcaption>
-              )}
-            </figure>
-          ))}
-        </div>
+      {/* 도형 표시 — Phase #12/#13 우선순위:
+          (a) 사용자가 "원본 보기" toggle off (default) + source="ai-gen" 있으면 ai-gen 만
+          (b) showOriginal=false + source="user-crop" 있으면 user-crop 만
+          (c) vectorDiagrams 있으면 본문 [그림N] 치환 (이 영역은 표시 X)
+          (d) else: bbox crop (source="ai-crop") 모두 표시
+       */}
+      {!editing && (() => {
+        const displayCrops = showOriginal
+          ? crops.filter((c) => c.source === "ai-crop")
+          : (() => {
+              const aiGen = crops.filter((c) => c.source === "ai-gen");
+              if (aiGen.length > 0) return aiGen;
+              const userCrop = crops.filter((c) => c.source === "user-crop");
+              if (userCrop.length > 0) return userCrop;
+              return vectorDiagrams ? [] : crops.filter((c) => c.source === "ai-crop");
+            })();
+        if (displayCrops.length === 0) return null;
+        return (
+          <div className="mt-3 flex flex-wrap gap-3">
+            {displayCrops.map((c, i) => (
+              <figure
+                key={i}
+                className={cn(
+                  "border rounded-r2 bg-white p-2 max-w-[280px]",
+                  c.source === "ai-gen"
+                    ? "border-accent/40 ring-1 ring-accent/20"
+                    : c.source === "user-crop"
+                      ? "border-ok/40 ring-1 ring-ok/20"
+                      : "border-line",
+                )}
+              >
+                <img
+                  src={c.src}
+                  alt={c.label || `도형 ${i + 1}`}
+                  className="max-w-full h-auto block"
+                />
+                {(c.label || c.source !== "ai-crop") && (
+                  <figcaption className="mt-1.5 text-caption text-muted text-center flex items-center justify-center gap-1">
+                    {c.source === "ai-gen" && (
+                      <Chip size="sm" tone="accent">
+                        <Icon name="sparkle" size={9} className="inline-block mr-0.5" />
+                        AI 생성
+                      </Chip>
+                    )}
+                    {c.source === "user-crop" && (
+                      <Chip size="sm" tone="ok">
+                        <Icon name="crop" size={9} className="inline-block mr-0.5" />
+                        사용자 크롭
+                      </Chip>
+                    )}
+                    {c.label && <span>{c.label}</span>}
+                  </figcaption>
+                )}
+              </figure>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* DiagramFallbackPanel — 도형 액션 toolbar (박스 편집 / AI 생성 / 원본 toggle) */}
+      {!editing && !readonly && (item.images || hasMarker(item.text)) && (
+        <DiagramFallbackPanel
+          item={item}
+          pageImageDataUrl={pageImageDataUrl ?? null}
+          testId={testId ?? null}
+          hasValidVector={!!vectorDiagrams}
+          showOriginal={showOriginal}
+          onToggleOriginal={setShowOriginal}
+          onUpdateImages={(next) =>
+            updateOCRItem(pageId, item.id, { images: next })
+          }
+        />
       )}
 
       {isWarn && !editing && (

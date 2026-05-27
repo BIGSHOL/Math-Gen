@@ -199,6 +199,22 @@ export interface OCRImage {
   box: [number, number, number, number];
   /** Short Korean label (e.g. "정사각형 ABCD", "거북이 이동 경로"). */
   label: string;
+  /**
+   * Phase #12/#13: 이미지 출처 — backward-compatible. 옛 row 는 source 없음 →
+   * reader 가 "ai-crop" default 적용.
+   *  - "ai-crop"  (default): AI bbox + cropPageImageData 자동 크롭
+   *  - "user-crop": 사용자가 박스 직접 그려서 크롭한 결과
+   *  - "ai-gen":   DALL-E 3 가 생성한 도형 이미지 (raster PNG)
+   */
+  source?: "ai-crop" | "user-crop" | "ai-gen";
+  /** user-crop 시 inline 보관 (base64 PNG, ~50KB). 옛 ai-crop 도 일부 보관 가능. */
+  dataUrl?: string;
+  /** ai-gen 시 Supabase Storage 영구 URL (page-images bucket). DALL-E URL 만료 회피. */
+  url?: string;
+  /** ai-gen 시 사용된 prompt (한국어 또는 영어). 재생성 가능. */
+  prompt?: string;
+  /** ai-gen timestamp (ms). dedupe 캐시 + UI 표시. */
+  generatedAt?: number;
 }
 
 export interface OCRProblem {
