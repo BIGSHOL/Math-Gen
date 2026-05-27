@@ -2756,3 +2756,248 @@ negative 가 큰 시간 손실 (이 경우 3-4주 추정 → 실제 1주).
 ? XViaApi : XDirect` — 이 한 줄이 마이그레이션의 핵심. import 측은 무변경, 실제
 호출이 빌드 환경에 따라 자동 전환. *훅이 fetch 를 직접 안 부른다*는 표면 관찰이
 정확하지만 결론 (마이그레이션 미완) 은 틀림.
+
+---
+
+## 24. Phase I-7b — Pass 2 per-box cropped OCR 함정 카탈로그 (commit `d8771c7`)
+
+usePageOcr Pass 2 워커를 *전체 페이지 image* 에서 *Step 1.5 에서 검증한
+cropBox 별 cropped image* 로 전환하면서 부딪힌 함정 + 패턴. 다음 *fan-out
+hook 의 sub-call 단위화* 작업 시 첫번째로 읽을 섹션.
+
+### 24-1. 기존 util 재사용 — 새 cropImage.ts 신설 금지
+
+처음에는 `lib/cropImage.ts` 신설 계획 (Canvas API + bbox 변환 + dataURL 입출
+력). 그러나 `lib/pdfProcessor.ts` 의 **`cropPageImageData`** 가 이미 동일
+시그니처 + degeneracy / area-ratio 안전 검사까지 갖춤:
+
+```ts
+export const cropPageImageData = async (
+  dataUrl: string,
+  bbox: [number, number, number, number], // [yMin, xMin, yMax, xMax] 0-1000
+  opts: { margin?: number } = {},
+): Promise<string> => { ... };
+```
+
+**원칙**: 새 util 신설 전 *반드시* 기존 `lib/`, `services/` grep — 동일
+기능의 util 이 이미 있을 가능성 높음. mathg-gen 은 `cropTestScreen` /
+`Step5Export` / `OCRItem` 가 모두 이 함수를 사용 중. *내가 모르고 있던*
+공유 인프라가 거의 항상 있다. 새로 짜기 전 5 분 grep.
+
+cropPageImageData 의 `margin` 기본값은 4% (`opts.margin ?? 0.04`). 우리
+case (Step 1.5 user-padded bbox + cropDetect 의 LEFT_PAD/RIGHT_PAD 추가
+적용된 박스) 는 **이미 패딩이 충분** — `margin: 0.02` (2%) 명시로 *추가
+오버크롭* 만 안전망 수준으로 더함.
+
+### 24-2. closure 변수 `page` 의 stale snapshot 정책 (의도된 동작)
+
+Pass 2 워커는 `pages.forEach((page) => { ... void pass2Limit(async () => {
+... }); })` 패턴. 워커 안에서 outer `page` 는 *워커 시작 시점의 snapshot*
+— `setPageOCR` 가 store 의 pages 를 갱신해도 closure 의 `page` 는 그대로.
+
+```ts
+const pass1Items = page.ocrResult; // ← 워커 시작 시점의 Pass 1 결과 capture
+// ... 워커 도중 다른 곳에서 setPageOCR 호출돼도 pass1Items 는 안 바뀜.
+```
+
+**왜 의도된가**:
+- *원본* Pass 1 결과를 안전히 보존. Pass 2 결과 merge 시 비교 baseline.
+- 워커 도중 사용자가 OCR item 을 reviewed=true 로 만지면? — 그건
+  *eligibility filter* 가 사전에 막음 (`!page.ocrResult.some(it =>
+  it.reviewed)`). 워커 시작 후에는 사용자 편집이 *덮어쓰지* 않음 (워커가
+  setPageOCR 으로 merged 를 write). 사용자 보고가 발생하면 그때 별도 정책
+  검토.
+
+**원칙**: fan-out hook 의 워커 안 closure 변수는 *snapshot* 으로 취급.
+*최신 store state 필요* 시 `useWizardStore.getState()` 명시적 호출. 둘을
+혼동하면 silent stale read.
+
+### 24-3. per-box for-loop 의 *부분 실패 정책* — 한 box 실패는 fatal X
+
+새 패턴:
+```ts
+for (const figItem of figureItems) {
+  // ... matching box 찾기 + crop + 모델 체인 시도
+  if (!upgradedByNumber.has(figItem.number) && lastErr) {
+    console.warn(`item ${figItem.number} 전 체인 실패 — Pass 1 유지`);
+    // continue — 다음 box 처리
+  }
+}
+```
+
+**원칙 정리**:
+- *한 box 실패* → 그 item 만 Pass 1 결과 보존, 다음 box 시도.
+- *모든 box 실패* → page.ocrModel 도 Pass 1 모델 유지 (lastModelUsed === null).
+- *outer 전체 실패* (이미지 로드 X 등) → upgrading=false 로 spinner 해제,
+  Pass 1 결과 그대로.
+
+이전 페이지 단위 Pass 2 는 *전체 페이지 결과 replace*. 한 페이지가 실패하면
+전체 페이지가 영향. per-box 로 바꾸며 *granular 실패* 가능 — 사용자 관점에서
+"5 박스 중 4 개만 upgrade 됨" 같은 부분 성공이 자연스럽게 처리됨.
+
+### 24-4. number 매칭 우선 + fallback items[0] — 모델 misread 방어
+
+크롭된 이미지 = 1 문제. 모델이 `items: [{number: 5, ...}]` 로 emit 하면
+matching by number 가 자연스럽다. 하지만 모델이 *박스 안 인쇄된 번호* 를
+잘못 읽을 가능성:
+- 박스 안 "5." 가 잘림 → 모델은 number=1 으로 추측
+- 박스에 번호가 안 보임 (헤더만 잘림) → 모델 임의 number 부여
+
+**해결**: 두 단계 매칭:
+```ts
+const matched =
+  result.items.find((it) => it.number === figItem.number) ??
+  result.items[0];
+if (matched) {
+  upgradedByNumber.set(figItem.number, {
+    ...matched,
+    number: figItem.number, // ← 원래 번호 강제 (모델 misread 정정)
+    ocrModel: model,
+  });
+}
+```
+
+`number: figItem.number` 으로 *원래 번호 강제 재할당*. merge 시 일관성 보장.
+
+### 24-5. legacy v2 fallback 정책 — silent no-op + 자연스러운 마이그레이션 경로
+
+legacy v2 세션은 `cropBoxes === undefined` (Step 1.5 미경유). eligibility 의
+`cropInspectionOK` 는 `cropInspected === undefined || === true` 라 통과.
+하지만 워커 안에서 problemBoxes 가 빈 배열 → 각 figureItem 의 matching
+box 조회 실패 → `continue` → upgradedByNumber 비어있음 → 모든 item Pass 1
+유지.
+
+**효과**: legacy 세션은 *Pass 2 효과 없이 워커가 완료* (silent no-op). 사용자
+입장에서 "Pass 1 결과 그대로" — 회귀로 보일 수 있다.
+
+**왜 명시적 fallback (전체 페이지 Pass 2) path 를 추가하지 않았나**:
+- 코드 복잡도 증가 (두 path 유지)
+- legacy 세션 hydrate 흐름: 사용자가 wizard 진입 → 자동으로 Step 1.5 mount
+  → useCropDetect 가 자동 populate → 한 번 검수 통과하면 새 path 활성
+- 사실상 *legacy 세션은 1-time 마이그레이션 후 v3 path 로 자연 흡수*
+
+**원칙**: 마이그레이션 brace path 가 *사용자 워크플로* (Step 1.5 자동 방문)
+에 의해 자연스럽게 해소되면, 코드에 별도 fallback 안 만든다. 명시적 fallback
+은 *사용자 워크플로로 해결 불가능* 한 경우만 (legacy DB schema 변환 등).
+
+### 24-6. textLayer hint 의 cropped call 에서 empty string 정책
+
+기존 Pass 1 은 `extractPageProblems` 에 `textLayer: page.textLayer` (전체
+페이지 PDF text layer) 전달. cropped Pass 2 에서는?
+
+**선택**: `textLayer: ""` 전달 (빈 hint).
+
+**이유**:
+- page.textLayer 는 *전체 페이지* 텍스트 concat. 박스 영역만 추출하는
+  정밀 매칭 없음 (textLayer 는 PDF 의 text-coordinate 정보 X, 단순 concat).
+- 전체 page text 를 cropped image OCR call 에 넣으면 모델이 *다른 문제의
+  텍스트* 까지 보고 hallucination 위험 (예: 박스 #5 OCR 인데 텍스트
+  hint 에 #6 의 식이 보임 → 식 혼동).
+- 박스 안 텍스트는 *cropped image 안에* 이미 존재 — 모델이 vision 으로
+  직접 OCR. text hint 없어도 충분.
+
+**원칙**: cropped 영역 OCR 시 *영역 외 text hint 는 노이즈*. 정밀 매칭이
+없으면 empty 가 안전. 향후 PDF 의 text-coordinate 정보 (예: pdfjs 의
+`page.getTextContent()` 의 transform matrix) 로 박스와 overlap 되는 텍스트만
+추출하는 헬퍼 가능 — 후속 phase 검토.
+
+### 24-7. dev 환경에서 API 키 미노출 → SDK 호출 hang 가능성 (CRITICAL, 검증 중)
+
+**증상** (Chrome MCP 일회성 관찰): dev (USE_API=false) 에서 Step 1.5 일괄
+완료 → Pass 2 트리거 → `extractPageProblems` 호출. 브라우저 renderer 가
+**30+ 초** 동안 unresponsive. CDP `Input.dispatchMouseEvent` / `Runtime.evaluate`
+모두 45s 타임아웃. Fresh tab 로딩은 정상 (일회성).
+
+**의심 원인**: `vite.config.ts` 의 보안 조치 (`command === "serve"` 분기로
+AI key define 제거 — CLAUDE.md §13 / task #69 참고). dev 빌드에서
+`VITE_OPENAI_API_KEY` / `VITE_GEMINI_API_KEY` 미노출 → SDK 가 *키 없이*
+fetch 시도 → 401 응답 또는 *별도 path* (SDK 내부의 키 검증 throw / 무한
+재시도 / response 파싱 hang?) 에서 main thread block.
+
+**가능성**:
+1. OpenAI SDK 의 `messages.stream({...}).finalMessage()` 가 키 없이 호출되면
+   *동기 throw 가 아니라* 비동기 promise resolution 으로 처리되며, 어떤
+   상태에서 promise 가 settle 안 되고 main thread 미세 task 가 누적.
+2. `withRetry` 의 `isRetryable` 패턴 (`429|529|503|...`) 에 401 매칭 안 되어
+   바로 throw. catch 에서 다음 model 시도. Gemini 도 마찬가지. 그 뒤에서
+   뭔가 무한 루프 가능성.
+3. 다른 fan-out hook 의 setState cascade + setPageOCR 의 ocrStartedAt
+   (Date.now() — 매 호출 다른 값) 로 React 가 *정상 commit* 만 반복하지만
+   누적 work 가 30s 분 main thread 점유.
+
+**검증 갭 (사용자 위임)**:
+- **API 키 활성 환경에서 검증** — Vercel preview 배포 또는 dev 에 `VITE_*_API_KEY`
+  명시. 그러면 SDK 가 정상 API call 하고 fail 안 함. 실제 cropped Pass 2
+  동작 시간 / token 절감 측정.
+- **CLAUDE.md §22-6 에 기록** — production 환경에서 검증 후 함정 확정 시
+  여기 update.
+
+**원칙**: dev 환경의 *API 키 노출 정책* (vite define 제거) 으로 *AI 호출
+경로* 의 *모든* 직접 SDK call 이 *production 에서만* 동작. dev 에서는
+USE_API=true 강제 (`VITE_USE_API=true`) + Vercel function path 사용 권장.
+또는 dev 에서도 *최소 한 키* 명시해 fail-fast — Pass 1 호출 자체가 401 로
+빠르게 종료. *fail-fast 가 silent hang 보다 압도적으로 낫다*.
+
+### 24-8. 한 page 의 figureItems vs problemBoxes 매핑 정책
+
+Pass 2 의 핵심 매칭: *Pass 1 figureItems* (도형 검출된 item) ↔ *problemBoxes*
+(Step 1.5 사용자 검증 박스). 매칭 key = `number`.
+
+**왜 problemBoxes (class="problem") 만**:
+- Step 1.5 에는 3 class 가능: `problem` / `figure` / `table`
+- `figure` / `table` 은 *문제 내부* 의 sub-region 마크 (단순 참조용, 후속
+  Phase K 에서 활용)
+- *OCR 결과의 한 item* = *한 문항* = `class="problem"` box 1 개. 1:1 매핑.
+
+**verified 필드는 사용 안 함** (CLAUDE.md §I-1 — `verified` 는 후속 phase
+reserved). 페이지 단위 `cropInspected=true` 가 검수 완료 신호. *모든*
+class="problem" + `typeof number === "number"` 박스가 매칭 대상.
+
+```ts
+const problemBoxes = (page.cropBoxes ?? []).filter(
+  (b) => b.class === "problem" && typeof b.number === "number",
+);
+```
+
+`typeof number === "number"` 체크는 새 박스가 *number 없이* 추가됐을 때
+방어선. cropDetect 결과는 모두 number 부여 — 사용자가 Step 1.5 에서 *수동
+추가* 한 박스는 number 부여 UX 가 후속 phase. 그때까지 numberless box 는
+Pass 2 skip (안전).
+
+### 24-9. 워커의 setPageOCR 빈도 — *spinner 단위 정확도* 우선
+
+내가 짠 코드는 worker 안에서 `setPageOCR` 를 다음 4 곳에서 호출:
+1. `{ upgrading: true }` — worker 시작
+2. `{ imageRef: restored.ref }` — Storage 복원 후 (조건부)
+3. `{ ocrInflightModel: model, ocrStartedAt: Date.now() }` — 각 모델 chain
+   attempt 시작 (per-box × per-model)
+4. `{ ocrInflightModel: undefined, ocrStartedAt: undefined }` — 각 box 끝
+5. `{ ocrResult: merged, ocrModel, upgrading: false }` — 최종
+
+**총 호출**: 1 (upgrading) + (0~1 imageRef) + N×M (inflightModel set) +
+N (inflightModel clear) + 1 (final) ≈ 6~12 회 (N=figureItems, M=pass2Chain).
+
+각 호출 = 1 store update + 1 re-render queue. React batch 와 microtask 로
+*수십 ms* 안에 commit 완료. 30+초 hang 의 원인이 *이 빈도* 만으로 설명되진
+않음.
+
+**원칙**: spinner / inflight UI 의 *반응성* 우선. setPageOCR 빈도 자체보다는
+*각 setPageOCR 의 새 reference* (Date.now() 변경) 가 *components 의 *제대로
+된 메모화* 가 안 돼있을 때 비효율*. 새 fan-out hook 추가 시 *어느
+컴포넌트가 setPageOCR 마다 re-render 되는지* 한 번 확인 (React DevTools
+Profiler) — render count 가 비정상이면 selector / useMemo 보강.
+
+### 24-10. 회귀 방지 checklist — fan-out hook 의 Pass N 화
+
+새 fan-out hook 도입 시 (Pass 3 / 별도 분석 단계 등):
+- [ ] `dispatched` Set membership 만 cancel 신호 (no AbortController — CLAUDE.md §1-6-b)
+- [ ] `pLimit(N)` 으로 concurrency 제한 — N 은 모델 RPM / TPM 한도 보수적으로
+- [ ] eligibility check 의 `!page.upgrading` (또는 동등) 으로 *self-skip 무한 dispatch* 방지
+- [ ] worker 내부 await 직후마다 `isCancelled(id)` 재체크
+- [ ] `finally` 에서 dispatched 마커 + inflightModel 양쪽 clear
+- [ ] `resetDispatch(pageId)` callback export — 사용자 명시적 재시도 path
+- [ ] partialize 에서 휘발성 필드 (inflight / startedAt) strip — 새로고침 후 stuck 방지
+- [ ] DEV-only console.debug 로 시작 / 완료 / 경과 시간 로그 — 사용자 보고 시 추적
+- [ ] 회귀 테스트: tsc + Chrome MCP fresh tab (Maximum update depth 없음)
+- [ ] API 키 활성 환경에서 *실제 호출* 검증 — dev key 미노출 환경 hang 가능성
+  (§24-7) 회피
