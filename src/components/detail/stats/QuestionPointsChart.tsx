@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -6,7 +6,6 @@ import {
   ComposedChart,
   Line,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -35,6 +34,23 @@ export interface QuestionPointsChartProps {
 const LINE_COLOR = "#8B5CF6"; // violet-500
 
 export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => {
+  // 직접 width 측정 — recharts ResponsiveContainer 가 부모 폭 측정 못함 fix
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(800);
+
+  useEffect(() => {
+    const update = () => {
+      if (containerRef.current) {
+        const w = containerRef.current.clientWidth;
+        if (w > 0) setContainerWidth(w);
+      }
+    };
+    update();
+    const obs = new ResizeObserver(update);
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+
   const { chartData, maxPoints, gapItems, aiComment } = useMemo(() => {
     const sorted = [...questions].sort((a, b) => {
       const aNum =
@@ -139,7 +155,7 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
       <Eyebrow icon="chart-bar">문항별 배점</Eyebrow>
 
       {/* 범례 */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 mb-3">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 mb-1">
         {(["1", "2", "3", "4", "5"] as DifficultyBand[]).map((d) => (
           <span key={d} className="flex items-center gap-1.5 text-caption">
             <span
@@ -158,12 +174,13 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
         </span>
       </div>
 
-      {/* 차트 */}
-      <div style={{ width: "100%", height: 280 }}>
-      <ResponsiveContainer>
+      {/* 차트 — 직접 측정 (ResponsiveContainer 미사용) */}
+      <div ref={containerRef} style={{ width: "100%", minWidth: 0 }}>
         <ComposedChart
+          width={containerWidth}
+          height={280}
           data={chartData}
-          margin={{ top: 8, right: 35, bottom: 4, left: -10 }}
+          margin={{ top: 12, right: 40, bottom: 8, left: 0 }}
         >
           <CartesianGrid
             strokeDasharray="3 3"
@@ -172,14 +189,14 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
           />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
+            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Pretendard Variable", sans-serif', fontStyle: "normal" }}
             tickLine={false}
             axisLine={{ stroke: "#E2E8F0" }}
             interval={0}
           />
           <YAxis
             yAxisId="points"
-            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
+            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Pretendard Variable", sans-serif', fontStyle: "normal" }}
             tickLine={false}
             axisLine={false}
             domain={[0, Math.ceil(maxPoints * 1.15)]}
@@ -193,7 +210,7 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
           <YAxis
             yAxisId="difficulty"
             orientation="right"
-            tick={{ fontSize: 10, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
+            tick={{ fontSize: 10, fill: "#94A3B8", fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Pretendard Variable", sans-serif', fontStyle: "normal" }}
             tickLine={false}
             axisLine={false}
             domain={[0.5, 5.5]}
@@ -227,8 +244,9 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
           <Bar
             yAxisId="points"
             dataKey="points"
-            barSize={chartData.length > 25 ? 12 : 20}
             radius={[3, 3, 0, 0]}
+            isAnimationActive={false}
+            maxBarSize={36}
           >
             {chartData.map((entry, index) => (
               <Cell
@@ -244,6 +262,7 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
             dataKey="diffLevel"
             stroke={LINE_COLOR}
             strokeWidth={2}
+            isAnimationActive={false}
             dot={{
               r: 3,
               fill: LINE_COLOR,
@@ -258,7 +277,6 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
             }}
           />
         </ComposedChart>
-      </ResponsiveContainer>
       </div>
 
       {/* AI 코멘트 */}
