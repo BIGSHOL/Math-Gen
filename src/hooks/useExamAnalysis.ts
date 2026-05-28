@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { analyzeExam } from "@app/services/ai/examAnalysis";
+import { analyzeCommentary } from "@app/services/ai/examCommentary";
 import {
   fetchExamAnalysis,
   upsertExamAnalysis,
@@ -112,6 +113,25 @@ export const useExamAnalysis = (
           (output._usage as {
             cache_creation_input_tokens?: number;
           } | undefined)?.cache_creation_input_tokens ?? null;
+
+        // Phase N+3: 기본 분석 후 commentary 도 호출 (graceful — 실패해도 분석은 저장)
+        let commentary = undefined;
+        try {
+          const commentaryOut = await analyzeCommentary({
+            basic: output.result,
+            grade,
+            examCategory: examCategory ?? null,
+          });
+          commentary = commentaryOut.result;
+        } catch (err) {
+          if (import.meta.env?.DEV) {
+            console.warn(
+              "[useExamAnalysis] commentary 실패 (분석은 유지):",
+              (err as Error).message,
+            );
+          }
+        }
+
         const persisted = await upsertExamAnalysis({
           testId,
           result: output.result,
@@ -119,6 +139,7 @@ export const useExamAnalysis = (
           inputPageCount: pageImages.length,
           cacheReadTokens,
           cacheWriteTokens,
+          commentary,
         });
         // DB 저장 실패해도 메모리 캐시는 유지 — UX 끊김 방지
         if (persisted) {
@@ -137,6 +158,7 @@ export const useExamAnalysis = (
             input_page_count: pageImages.length,
             cache_read_tokens: cacheReadTokens,
             cache_write_tokens: cacheWriteTokens,
+            commentary,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });

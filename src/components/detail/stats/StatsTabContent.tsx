@@ -12,6 +12,7 @@ import { EssayAnalysisSection } from "./EssayAnalysisSection";
 import { QuestionPointsChart } from "./QuestionPointsChart";
 import { DiscriminationSection } from "./DiscriminationSection";
 import { AnalysisCommentSection } from "./AnalysisCommentSection";
+import { AICommentaryCard } from "./AICommentaryCard";
 
 type StatsSubTab = "basic" | "comment" | "strategy";
 
@@ -252,6 +253,12 @@ export const StatsTabContent = ({
       {/* === 기본 분석 === */}
       {subTab === "basic" && (
         <>
+          {/* AI 시험 총평 (Phase N+3) */}
+          <AICommentaryCard
+            commentary={record.commentary}
+            inflight={inflight}
+          />
+
           {/* 4 차트 — grid 2x2 */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>

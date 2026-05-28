@@ -11,8 +11,22 @@
 import { supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
 import type {
   BasicAnalysisResult,
+  CommentaryResult,
   ExamAnalysisRecord,
 } from "@app/types/examAnalysis";
+
+// Phase N+3: commentary 컬럼 graceful fallback — schema 마이그레이션 안 됐을 때.
+const COMMENTARY_COL_MISSING_RE = /(column.*commentary|PGRST204|schema cache)/i;
+const isCommentaryColMissing = (err: { message?: string }): boolean =>
+  COMMENTARY_COL_MISSING_RE.test(err.message ?? "");
+let warnedCommentaryCol = false;
+const warnCommentaryColMissing = (): void => {
+  if (warnedCommentaryCol) return;
+  warnedCommentaryCol = true;
+  console.warn(
+    "[examAnalyses] commentary 컬럼이 없습니다 — schema.sql 의 exam_analyses ALTER 안내. 마이그레이션 전까지 commentary 비활성.",
+  );
+};
 
 // ════════════════════════════════════════════════════════════════════
 // §1. graceful fallback — 테이블 미마이그레이션 시
@@ -112,6 +126,8 @@ export interface UpsertExamAnalysisInput {
   inputPageCount: number;
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
+  /** Phase N+3 — AI 시험 총평. graceful fallback (컬럼 없으면 retry without). */
+  commentary?: CommentaryResult | null;
 }
 
 /**
@@ -123,7 +139,7 @@ export const upsertExamAnalysis = async (
 ): Promise<ExamAnalysisRecord | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   const userId = await currentUserId();
-  const payload = {
+  const basePayload = {
     test_id: input.testId,
     user_id: userId,
     tenant_id: input.tenantId ?? null,
@@ -136,6 +152,12 @@ export const upsertExamAnalysis = async (
     cache_write_tokens: input.cacheWriteTokens ?? null,
     updated_at: new Date().toISOString(),
   };
+  // commentary 가 있으면 함께 저장 시도
+  const payload =
+    input.commentary !== undefined
+      ? { ...basePayload, commentary: input.commentary }
+      : basePayload;
+
   const { data, error } = await supabase
     .from("exam_analyses")
     .upsert(payload, { onConflict: "test_id" })
@@ -145,6 +167,20 @@ export const upsertExamAnalysis = async (
     if (isTableMissing(error)) {
       warnSchemaMigration();
       return null;
+    }
+    // commentary 컬럼 없음 → fallback retry without commentary
+    if (input.commentary !== undefined && isCommentaryColMissing(error)) {
+      warnCommentaryColMissing();
+      const { data: retryData, error: retryErr } = await supabase
+        .from("exam_analyses")
+        .upsert(basePayload, { onConflict: "test_id" })
+        .select("*")
+        .single();
+      if (retryErr) {
+        console.warn(`[examAnalyses] upsert retry failed: ${retryErr.message}`);
+        return null;
+      }
+      return retryData as ExamAnalysisRecord;
     }
     console.warn(`[examAnalyses] upsert failed: ${error.message}`);
     return null;

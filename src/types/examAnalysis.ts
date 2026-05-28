@@ -154,6 +154,129 @@ export interface AnalyzeExamOutput {
   };
 }
 
+// ════════════════════════════════════════════════════════════════════
+// §3. Commentary (V3/V4) — Phase N+3 / N+5
+// ════════════════════════════════════════════════════════════════════
+
+/** 주목할 만한 문항 — AI 가 특정 번호 + 자연어 코멘트. */
+export interface NotableQuestion {
+  question_number: number | string;
+  comment: string;
+}
+
+/** 단원별 지도 권장 — 우선순위 1~5. */
+export interface TeachingRecommendation {
+  topic: string;
+  priority: number;
+  reason: string;
+}
+
+/** 점수 전략 — 등급 + 목표 + 포인트. */
+export interface ScoreStrategy {
+  grade: string;
+  target: string;
+  strategy?: string;
+  points?: string[];
+}
+
+/**
+ * Commentary 결과 (mathlab `CommentaryResult` carry-over).
+ *
+ * 두 영역:
+ *  - 기본 (overall_comment / strength / improvement / notable / teaching) — Phase N+3 활성
+ *  - V4 학원 블로그 (v4_*) — Phase N+5, *비활성 상태* (사용자 결정 2026-05-28)
+ *
+ * V3 (블로그 헤드라인 + Q&A) carry-over 안 함 (사용자 결정).
+ */
+export interface CommentaryResult {
+  // ── 기본 (Phase N+3 활성) ──
+  overall_comment?: string;
+  exam_characteristics?: string[];
+  score_strategy?: string;
+  score_strategies?: ScoreStrategy[];
+  strength_areas?: string[];
+  improvement_areas?: string[];
+  notable_questions?: NotableQuestion[];
+  teaching_recommendations?: TeachingRecommendation[];
+  nearby_comparison?: string;
+  study_priority?: TeachingRecommendation[];
+  encouragement?: string;
+
+  // ── V4 학원 블로그 (Phase N+5, 비활성 상태로 추가) ──
+  v4_exam_overview?: {
+    title: string;
+    grade: string;
+    school?: string | null;
+    range: string;
+    total_questions: number;
+    total_points: number;
+    avg_difficulty_label: string;
+    peak_difficulty: string;
+    essay_summary?: string;
+    expected_grade_cut?: string;
+    one_liner: string;
+  };
+  v4_intro?: string;
+  v4_academy_strategy?: Array<{ title: string; body: string }>;
+  v4_difficulty_rows?: Array<{
+    question_number: string | number;
+    topic: string;
+    sub_topic?: string;
+    difficulty: DifficultyBand;
+    points: number;
+    analysis_short?: string;
+  }>;
+  v4_exam_features?: { headline: string; body: string };
+  v4_main_analysis?: Array<{ heading: string; body: string }>;
+  v4_previous_comparison?: { headline: string; body: string };
+  v4_key_questions?: Array<{
+    question_number: string | number;
+    title: string;
+    body: string;
+  }>;
+  v4_final_strategy?: Array<{
+    area: string;
+    current_status: string;
+    action: string;
+  }>;
+}
+
+/** analyzeCommentary() input — 기본 분석 결과 + 학년 등 메타. */
+export interface AnalyzeCommentaryInput {
+  /** 기본 분석 결과 (analyzeExam 후) — questions/summary/exam_info. */
+  basic: BasicAnalysisResult;
+  /** 한국어 학년 ("중1"~"고3"). */
+  grade: string;
+  /** 고등학교 선택 과목 (있으면). */
+  examCategory?: string | null;
+  /** 학교명 (있으면 — 학교 비교 Q&A 활성화). */
+  schoolName?: string | null;
+  /** 시험명 (예: "1학기 중간고사"). */
+  examName?: string | null;
+  /** 주변 학교 비교 가능 여부 (Q1 동적 분기용). */
+  includeNearby?: boolean;
+  /** 연도 비교 가능 여부 (Q1 동적 분기용). */
+  includeYearCompare?: boolean;
+  /** cancel signal. */
+  signal?: AbortSignal;
+}
+
+/** analyzeCommentary() 반환. */
+export interface AnalyzeCommentaryOutput {
+  result: CommentaryResult;
+  modelUsed: string;
+  _usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// §4. DB record
+// ════════════════════════════════════════════════════════════════════
+
 /** DB row → 클라이언트 hydrate 시 사용. exam_analyses 테이블 매핑. */
 export interface ExamAnalysisRecord {
   id: string;
@@ -167,6 +290,8 @@ export interface ExamAnalysisRecord {
   input_page_count: number;
   cache_read_tokens: number | null;
   cache_write_tokens: number | null;
+  /** Commentary (V3 + V4) — Phase N+3/N+5. graceful fallback (컬럼 없으면 undefined). */
+  commentary?: CommentaryResult | null;
   created_at: string;
   updated_at: string;
 }

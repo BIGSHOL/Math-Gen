@@ -416,9 +416,13 @@ CREATE TABLE IF NOT EXISTS exam_analyses (
   input_page_count    INT NOT NULL DEFAULT 0,                -- 분석에 사용한 페이지 수 (Vision token 추정용)
   cache_read_tokens   INT,                                   -- Anthropic usage.cache_read_input_tokens (모니터링)
   cache_write_tokens  INT,                                   -- Anthropic usage.cache_creation_input_tokens
+  commentary          JSONB,                                 -- Phase N+3: AI 시험 총평 (overall_comment / strength / improvement / notable / teaching / score_strategies + v4_* 비활성)
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase N+3 migration — 기존 row 호환 (commentary 컬럼 추가)
+ALTER TABLE exam_analyses ADD COLUMN IF NOT EXISTS commentary JSONB;
 CREATE INDEX IF NOT EXISTS idx_exam_analyses_user
   ON exam_analyses(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exam_analyses_tenant
