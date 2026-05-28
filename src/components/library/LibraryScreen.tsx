@@ -26,7 +26,9 @@ import {
   type GradeKey,
   type SortKey,
 } from "@app/lib/libraryFilter";
+import { fetchAnalysesByTestIds } from "@app/services/api/examAnalyses";
 import { useAppStore } from "@app/stores/appStore";
+import { useExamAnalysisStore } from "@app/stores/examAnalysisStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { LibrarySidebar } from "./LibrarySidebar";
 import { StatsStrip } from "./StatsStrip";
@@ -80,6 +82,20 @@ export const LibraryScreen = () => {
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrated, hydrate]);
+
+  // Library hydrate 직후 *분석 결과 batch fetch* — 카드 chip 표시용. Phase N-6.
+  // exam_analyses 테이블 missing 시 빈 배열 (graceful fallback).
+  const setAnalysis = useExamAnalysisStore((s) => s.setAnalysis);
+  const analysisFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (tests.length === 0) return;
+    if (analysisFetchedRef.current) return;
+    analysisFetchedRef.current = true;
+    void fetchAnalysesByTestIds(tests.map((t) => t.id)).then((records) => {
+      for (const rec of records) setAnalysis(rec.test_id, rec);
+    });
+  }, [hydrated, tests, setAnalysis]);
 
   // Ctrl/Cmd+K → 검색 focus, Esc → 검색 clear + blur.
   useEffect(() => {

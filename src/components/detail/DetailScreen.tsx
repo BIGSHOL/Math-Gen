@@ -32,6 +32,7 @@ import { PageThumbnails } from "./PageThumbnails";
 import { HeroCard } from "./HeroCard";
 import { ProblemTabs, TabPlaceholder, type DetailTab } from "./ProblemTabs";
 import { DetailMetaSidebar } from "./DetailMetaSidebar";
+import { StatsTabContent } from "./stats/StatsTabContent";
 // CtaBanner 는 더 이상 사용 안 함 (DetailMetaSidebar 의 액션 섹션으로 통합).
 
 const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
@@ -216,8 +217,13 @@ export const DetailScreen = () => {
                 {activeTab === "history" && (
                   <HistoryTab history={detail.history} reviews={detail.reviews} />
                 )}
-                {activeTab === "stats" && (
-                  <TabPlaceholder icon="chart-bar" message="통계 탭 (mock)" />
+                {activeTab === "stats" && selectedTestId && (
+                  <StatsTabContent
+                    testId={selectedTestId}
+                    grade={test?.grade ?? ""}
+                    pages={detail.pages}
+                    problems={detail.problems}
+                  />
                 )}
               </>
             )}

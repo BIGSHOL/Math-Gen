@@ -16,7 +16,13 @@ import { computeCost, type NormalizedUsage } from "../src/lib/pricing.js";
 export interface LogAiUsageInput {
   userId: string | null;
   tenantId: string | null;
-  endpoint: "ai-ocr" | "ai-solution" | "ai-variant" | "ai-image" | "export-pdf";
+  endpoint:
+    | "ai-ocr"
+    | "ai-solution"
+    | "ai-variant"
+    | "ai-image"
+    | "ai-exam-analysis"
+    | "export-pdf";
   provider: "anthropic" | "gemini" | "openai" | "puppeteer";
   model: string;
   usage: NormalizedUsage;

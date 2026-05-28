@@ -173,11 +173,42 @@ const analyzeExamDirect = async (
 void normalizeAnthropicUsage;
 
 // ════════════════════════════════════════════════════════════════════
-// §3. USE_API switch — production 빌드는 Vercel function 경유
+// §3. analyzeExamViaApi — Vercel function 경유 (production)
 // ════════════════════════════════════════════════════════════════════
 
-// Phase N-3 에서 추가 예정: analyzeExamViaApi (fetch wrapper) 가 prod 에서 활성.
-// 현재는 direct SDK 만 — N-2 검증용.
+/**
+ * `/api/ai-exam-analysis` 호출 wrapper. PROD 빌드에서 자동 활성 (USE_API=true).
+ * - Authorization Bearer 자동 첨부 (Supabase access token)
+ * - 응답에서 _usage strip (server 가 ai_usage 에 기록)
+ */
+const analyzeExamViaApi = async (
+  input: AnalyzeExamInput,
+): Promise<AnalyzeExamOutput> => {
+  if (input.signal?.aborted) {
+    throw new DOMException("Aborted before request", "AbortError");
+  }
+  const { signal, ...body } = input;
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch("/api/ai-exam-analysis", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
+
+// ════════════════════════════════════════════════════════════════════
+// §4. USE_API switch — production 빌드는 Vercel function 경유
+// ════════════════════════════════════════════════════════════════════
+
 const USE_API: boolean =
   typeof window !== "undefined" &&
   typeof import.meta !== "undefined" &&
@@ -187,9 +218,11 @@ const USE_API: boolean =
 
 /**
  * 시험지 분석 메인 entry — direct SDK / fetch wrapper 자동 분기.
+ * USE_API=true (PROD 또는 VITE_USE_API=true) → fetch.
+ * 그 외 → direct SDK (dev 환경 — VITE_ANTHROPIC_API_KEY 필요).
  *
  * @example
- * const { result, modelUsed, _usage } = await analyzeExam({
+ * const { result, modelUsed } = await analyzeExam({
  *   pageImages: [pageImg1, pageImg2],
  *   grade: "중3",
  *   examCategory: null,
@@ -197,18 +230,12 @@ const USE_API: boolean =
  *   examScope: ["중3 수학 > 이차방정식"],
  * });
  */
-export const analyzeExam = async (
+export const analyzeExam: (
   input: AnalyzeExamInput,
-): Promise<AnalyzeExamOutput> => {
-  if (USE_API) {
-    // N-3 추가 시 동적 import (`./api/examAnalysis`) 로 fetch wrapper 호출
-    throw new Error(
-      "[examAnalysis] USE_API 경로는 Phase N-3 (Vercel function) 후 활성화됩니다",
-    );
-  }
-  return analyzeExamDirect(input);
-};
+) => Promise<AnalyzeExamOutput> = USE_API
+  ? analyzeExamViaApi
+  : analyzeExamDirect;
 
-// Re-export — 테스트 / 토큰 측정 스크립트 등에서 직접 호출.
-export { analyzeExamDirect };
+// Re-export — 테스트 / 토큰 측정 스크립트 등에서 직접 호출 가능.
+export { analyzeExamDirect, analyzeExamViaApi };
 export type { AnalyzeExamInput, AnalyzeExamOutput };

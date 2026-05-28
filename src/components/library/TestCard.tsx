@@ -1,4 +1,5 @@
 import { Card, Chip, Icon, type ChipTone } from "@app/components/ui";
+import { useExamAnalysisStore } from "@app/stores/examAnalysisStore";
 import type { TestPaper, TestStatus } from "@app/types";
 
 export interface TestCardProps {
@@ -12,6 +13,14 @@ const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
   draft: "neutral",
 };
 
+const TYPE_KO: Record<string, string> = {
+  number: "수와 연산",
+  algebra: "대수",
+  function: "함수",
+  geometry: "기하",
+  statistics: "확률과 통계",
+};
+
 /**
  * Library grid card — mirrors `TestCardHF` from hifi/library.jsx.
  *
@@ -22,7 +31,15 @@ const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
  *  - Meta block: title (h3, single-line ellipsis) + footer row with
  *    문항 count on the left and the "time" string on the right.
  */
-export const TestCard = ({ test, onClick }: TestCardProps) => (
+export const TestCard = ({ test, onClick }: TestCardProps) => {
+  // Phase N-6: 분석 결과 있으면 dominant_type chip 표시 (LibraryScreen 이 batch fetch).
+  const analysis = useExamAnalysisStore((s) => s.byTest[test.id]);
+  const dominantTopic = analysis?.summary?.dominant_type
+    ? TYPE_KO[analysis.summary.dominant_type] ?? analysis.summary.dominant_type
+    : null;
+  const avgDifficulty = analysis?.summary?.average_difficulty;
+
+  return (
   <Card pad={0} interactive onClick={onClick} className="overflow-hidden">
     {/* Header — mini paper preview */}
     <div
@@ -85,8 +102,22 @@ export const TestCard = ({ test, onClick }: TestCardProps) => (
         </span>
         <span>{test.time}</span>
       </div>
+      {/* Phase N-6: 분석 결과 chip (있을 때만) */}
+      {dominantTopic && (
+        <div className="mt-2 flex items-center gap-1 flex-wrap">
+          <Chip tone="accent" size="sm" icon="chart-pie">
+            {dominantTopic}
+          </Chip>
+          {avgDifficulty && (
+            <Chip tone="soft" size="sm">
+              난이도 {avgDifficulty}
+            </Chip>
+          )}
+        </div>
+      )}
     </div>
   </Card>
-);
+  );
+};
 
 export default TestCard;
