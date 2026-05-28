@@ -118,6 +118,31 @@ svg text {
   stroke-linecap: round;
 }
 
+/* ── recharts 차트 text override ──
+   위 `svg text` 룰은 *수학 도형 SVG 변수 italic* 의도. recharts 차트 (난이도 분포 /
+   단원 분포 / 사고력 / 문항별 배점) 의 축 라벨 + tick + legend 도 SVG <text> 라
+   동일 룰 적용 → 차트 글자 italic + serif (가독성 떨어짐).
+   recharts 의 모든 text 는 sans-serif normal 로 강제. */
+.recharts-wrapper text,
+.recharts-surface text,
+.recharts-text,
+.recharts-cartesian-axis-tick text,
+.recharts-cartesian-axis-tick tspan,
+.recharts-polar-angle-axis-tick text,
+.recharts-polar-radius-axis-tick text,
+.recharts-legend-item text,
+.recharts-label text,
+.recharts-tooltip-label,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Pretendard Variable",
+    "Pretendard", sans-serif !important;
+  font-style: normal !important;
+  paint-order: normal;
+  stroke: none !important;
+  stroke-width: 0 !important;
+}
+
 /* ── 본문 인라인 SVG 크기 강제 제한 ──
    모델이 viewBox만 지정하고 width/height를 안 주면 브라우저는 컨테이너
    전체 폭에 SVG를 채워버린다. 카드 안에서 그림 하나가 50%를 차지하면

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -6,11 +6,12 @@ import {
   ComposedChart,
   Line,
   ReferenceLine,
+  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, Eyebrow } from "@app/components/ui";
+import { Card, Eyebrow, Icon } from "@app/components/ui";
 import {
   DIFFICULTY_COLORS,
   DIFFICULTY_LABELS,
@@ -34,23 +35,6 @@ export interface QuestionPointsChartProps {
 const LINE_COLOR = "#8B5CF6"; // violet-500
 
 export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => {
-  // 직접 width 측정 — recharts ResponsiveContainer 가 부모 폭 측정 못함 fix
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(800);
-
-  useEffect(() => {
-    const update = () => {
-      if (containerRef.current) {
-        const w = containerRef.current.clientWidth;
-        if (w > 0) setContainerWidth(w);
-      }
-    };
-    update();
-    const obs = new ResizeObserver(update);
-    if (containerRef.current) obs.observe(containerRef.current);
-    return () => obs.disconnect();
-  }, []);
-
   const { chartData, maxPoints, gapItems, aiComment } = useMemo(() => {
     const sorted = [...questions].sort((a, b) => {
       const aNum =
@@ -174,11 +158,10 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
         </span>
       </div>
 
-      {/* 차트 — 직접 측정 (ResponsiveContainer 미사용) */}
-      <div ref={containerRef} style={{ width: "100%", minWidth: 0 }}>
+      {/* 차트 — 다른 차트 (DifficultyDonut/UnitBarChart/DomainRadar) 와 동일 패턴 */}
+      <div className="w-full" style={{ height: 280 }}>
+        <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
-          width={containerWidth}
-          height={280}
           data={chartData}
           margin={{ top: 12, right: 40, bottom: 8, left: 0 }}
         >
@@ -277,14 +260,22 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
             }}
           />
         </ComposedChart>
+        </ResponsiveContainer>
       </div>
 
-      {/* AI 코멘트 */}
+      {/* AI 코멘트 — 강조 박스 */}
       {aiComment && (
-        <p className="mt-3 pt-3 border-t border-line text-caption text-muted leading-relaxed">
-          <span className="text-accent font-semibold mr-1">AI</span>
-          {aiComment}
-        </p>
+        <div className="mt-4 px-3.5 py-2.5 rounded-r2 bg-accent-soft border-l-[3px] border-accent flex items-start gap-2">
+          <div className="w-5 h-5 rounded-full bg-accent grid place-items-center shrink-0 mt-0.5">
+            <Icon name="sparkle" size={11} weight="fill" className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] font-bold text-accent uppercase tracking-wide mb-0.5">
+              AI 분석
+            </div>
+            <p className="text-small text-text leading-relaxed">{aiComment}</p>
+          </div>
+        </div>
       )}
 
       {/* 배점-난이도 갭 분석 */}
