@@ -49,12 +49,7 @@ export const AnalysisCommentSection = ({
     <Card>
       {/* 상단 — 안내 + 난이도 근거 토글 */}
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div>
-          <Eyebrow icon="chat-circle-text">AI 코멘트</Eyebrow>
-          <p className="text-caption text-muted mt-1">
-            AI 가 각 문항에 대해 분석한 코멘트입니다.
-          </p>
-        </div>
+        <Eyebrow icon="table">문항별 상세 분석</Eyebrow>
         <button
           type="button"
           onClick={() => setShowDiffReason((v) => !v)}
@@ -64,17 +59,17 @@ export const AnalysisCommentSection = ({
               : "bg-surface2 text-muted hover:text-text"
           }`}
         >
-          난이도 근거 ({questions.length})
+          난이도 근거 {showDiffReason ? "숨김" : "표시"}
         </button>
       </div>
 
       {/* 표 */}
       <div className="border border-line rounded-r2 overflow-hidden">
         {/* 헤더 */}
-        <div className="grid grid-cols-[52px_140px_1fr] bg-surface2/50 px-3 py-2 border-b border-line text-caption font-medium text-muted">
+        <div className="grid grid-cols-[44px_120px_1fr] bg-surface2/50 px-3 py-1.5 border-b border-line text-[10px] font-semibold uppercase tracking-wide text-muted">
           <span className="text-center">번호</span>
           <span>단원</span>
-          <span>AI 코멘트</span>
+          <span>분석</span>
         </div>
 
         {/* 행들 */}
@@ -91,7 +86,7 @@ export const AnalysisCommentSection = ({
 
       {sortedQuestions.length === 0 && (
         <div className="text-center py-12 text-small text-muted">
-          AI 코멘트 없음
+          분석 데이터 없음
         </div>
       )}
     </Card>
@@ -118,58 +113,52 @@ const CommentRow = ({
   const typeColor = QUESTION_TYPE_COLORS[q.question_type] || "#94A3B8";
 
   return (
-    <div className="grid grid-cols-[52px_140px_1fr] px-3 py-2.5 hover:bg-surface2/40 items-start">
+    <div className="grid grid-cols-[44px_120px_1fr] px-3 py-2 hover:bg-surface2/40 items-start gap-x-2">
       {/* 번호 */}
       <span className="text-small font-bold text-text text-center pt-0.5 font-mono">
         {q.question_number}
       </span>
 
       {/* 단원 */}
-      <span className="text-caption text-text2 pt-1 pr-2 leading-snug">
+      <span className="text-caption text-text2 pt-1 leading-snug truncate">
         {shortTopic}
       </span>
 
       {/* AI 코멘트 */}
-      <div>
-        {/* chip 행 */}
-        <div className="flex items-center gap-1 mb-2 flex-wrap">
-          <span className="text-[10px] font-medium text-muted">난이도</span>
+      <div className="min-w-0">
+        {/* chip 행 — 라벨 제거, chip 만 */}
+        <div className="flex items-center gap-1 mb-1 flex-wrap">
           <span
             className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold text-white font-mono"
             style={{ backgroundColor: DIFFICULTY_COLORS[diff] }}
+            title="난이도"
           >
-            {diff}
+            Lv{diff}
           </span>
-          <span className="text-[10px] text-muted/40 mx-0.5">·</span>
-          <span className="text-[10px] font-medium text-muted">유형</span>
           <span
             className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold"
             style={{
               backgroundColor: `${typeColor}20`,
               color: typeColor,
             }}
+            title="유형"
           >
             {QUESTION_TYPE_LABELS[q.question_type] || q.question_type}
           </span>
-          <span className="text-[10px] text-muted/40 mx-0.5">·</span>
-          <span className="text-[10px] font-medium text-muted">능력</span>
           <span
             className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold"
             style={{
               backgroundColor: `${domainColor}20`,
               color: domainColor,
             }}
+            title="능력 영역"
           >
             {ABILITY_DOMAIN_LABELS[domain] || domain}
           </span>
           {q.points != null && (
-            <>
-              <span className="text-[10px] text-muted/40 mx-0.5">·</span>
-              <span className="text-[10px] font-medium text-muted">배점</span>
-              <span className="text-[10px] font-bold text-text2 font-mono">
-                {q.points}점
-              </span>
-            </>
+            <span className="text-[10px] font-bold text-muted font-mono ml-auto">
+              {q.points}점
+            </span>
           )}
         </div>
 

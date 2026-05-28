@@ -159,10 +159,11 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
       </div>
 
       {/* 차트 */}
-      <ResponsiveContainer width="100%" height={260}>
+      <div style={{ width: "100%", height: 280 }}>
+      <ResponsiveContainer>
         <ComposedChart
           data={chartData}
-          margin={{ top: 8, right: 35, bottom: 4, left: 0 }}
+          margin={{ top: 8, right: 35, bottom: 4, left: -10 }}
         >
           <CartesianGrid
             strokeDasharray="3 3"
@@ -171,14 +172,14 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
           />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: "#94A3B8" }}
+            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
             tickLine={false}
             axisLine={{ stroke: "#E2E8F0" }}
             interval={0}
           />
           <YAxis
             yAxisId="points"
-            tick={{ fontSize: 11, fill: "#94A3B8" }}
+            tick={{ fontSize: 11, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
             tickLine={false}
             axisLine={false}
             domain={[0, Math.ceil(maxPoints * 1.15)]}
@@ -186,13 +187,13 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
               value: "배점",
               position: "insideTopLeft",
               offset: 10,
-              style: { fontSize: 10, fill: "#94A3B8" },
+              style: { fontSize: 10, fill: "#94A3B8", fontFamily: "inherit" },
             }}
           />
           <YAxis
             yAxisId="difficulty"
             orientation="right"
-            tick={{ fontSize: 10, fill: "#94A3B8" }}
+            tick={{ fontSize: 10, fill: "#94A3B8", fontFamily: "inherit", fontStyle: "normal" }}
             tickLine={false}
             axisLine={false}
             domain={[0.5, 5.5]}
@@ -258,6 +259,7 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
           />
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
 
       {/* AI 코멘트 */}
       {aiComment && (

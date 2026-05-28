@@ -180,44 +180,38 @@ export const StatsTabContent = ({
   // 4. 분석 결과 — 4 차트 + 표
   return (
     <div className="space-y-5">
-      {/* 헤더 — 시험지 메타 + 난이도 Level + 신뢰도 + 재분석 */}
+      {/* 헤더 — 컴팩트 1 row: 좌(요약+chip+숫자) / 우(Level + 재분석) */}
       <Card>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1 min-w-[280px]">
-            <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* 좌측: Eyebrow + 신뢰도 chip + 학교명 + 총문항/배점 */}
+          <div className="flex items-center gap-4 flex-wrap min-w-0">
+            <div className="flex items-center gap-2">
               <Eyebrow icon="chart-bar">분석 요약</Eyebrow>
               <ConfidenceChip questions={questions} />
             </div>
-            <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <div className="text-caption text-muted">총 문항</div>
-                <div className="text-h3 font-mono text-text">
+            {exam_info.school_name && (
+              <span className="text-small text-text2 font-[550] truncate">
+                {exam_info.school_name}
+              </span>
+            )}
+            <div className="flex items-center gap-4">
+              <div className="flex items-baseline gap-1">
+                <span className="text-h3 font-mono text-text">
                   {exam_info.total_questions}
-                </div>
+                </span>
+                <span className="text-caption text-muted">문항</span>
               </div>
-              <div>
-                <div className="text-caption text-muted">총 배점</div>
-                <div className="text-h3 font-mono text-text">
+              <div className="flex items-baseline gap-1">
+                <span className="text-h3 font-mono text-text">
                   {exam_info.total_points}
-                  <span className="text-small text-muted ml-1">점</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-caption text-muted">평균 난이도</div>
-                <div className="text-h3 font-mono text-text">
-                  {summary.average_difficulty}
-                  <span className="text-small text-muted ml-1">단계</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-caption text-muted">학교명</div>
-                <div className="text-[14px] text-text font-[550] truncate">
-                  {exam_info.school_name ?? "—"}
-                </div>
+                </span>
+                <span className="text-caption text-muted">점</span>
               </div>
             </div>
           </div>
-          <div className="flex-shrink-0 flex flex-col items-end gap-2">
+
+          {/* 우측: Level chip + 재분석 (인라인) */}
+          <div className="flex items-center gap-3 shrink-0">
             <DifficultyLevelChip summary={summary} />
             <Btn
               kind="ghost"
@@ -232,13 +226,10 @@ export const StatsTabContent = ({
             >
               재분석
             </Btn>
-            <div className="text-caption text-muted">
-              {record.input_page_count}페이지 · {record.model}
-            </div>
           </div>
         </div>
-        {/* 신뢰도 색 범례 */}
-        <div className="mt-3 pt-3 border-t border-line flex justify-end">
+        {/* 신뢰도 색 범례 — 우측 한 줄 (border 분리 X) */}
+        <div className="mt-2 flex justify-end">
           <ConfidenceLegend />
         </div>
       </Card>

@@ -49,10 +49,15 @@ export const DomainRadar = ({ data }: DomainRadarProps) => {
           <PolarGrid stroke="#E5E7EB" />
           <PolarAngleAxis
             dataKey="domain"
-            tick={{ fontSize: 11, fill: "#374151" }}
+            tick={{
+              fontSize: 11,
+              fill: "#374151",
+              fontFamily: "inherit",
+            }}
           />
           <PolarRadiusAxis
-            tick={{ fontSize: 10, fill: "#9CA3AF" }}
+            tick={false}
+            axisLine={false}
             allowDecimals={false}
           />
           <Radar
