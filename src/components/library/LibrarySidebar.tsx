@@ -1,61 +1,141 @@
-import { useState } from "react";
-import { Chip, Eyebrow, Icon, NavList, Progress } from "@app/components/ui";
+import { Eyebrow, Icon, NavList, Progress } from "@app/components/ui";
+import type { Collection, GradeKey } from "@app/lib/libraryFilter";
 
-export type Collection = "전체" | "모의평가" | "수능 기출" | "학교 시험" | "내가 만든 변형";
+export type { Collection, GradeKey };
 
 export interface LibrarySidebarProps {
   collection: Collection;
   onCollectionChange: (next: Collection) => void;
+  grade: GradeKey | undefined;
+  onGradeChange: (next: GradeKey | undefined) => void;
+  selectedTags: ReadonlySet<string>;
+  onTagToggle: (tag: string) => void;
+  /** 노출할 컬렉션 리스트 + 각 카운트 — 데이터 기준 동적 (count=0 컬렉션은 부모가 미포함). */
+  visibleCollections: ReadonlyArray<{
+    id: Collection;
+    label: string;
+    icon: string;
+    count: number;
+  }>;
+  /**
+   * 노출할 학년 chip — 데이터 기준 동적 (실 grade 값만, 학년 자연 순서).
+   *
+   * `grade` = 필터 매칭용 raw 값 (DB enum, 예: "middle1").
+   * `label` = display (예: "중1"). 영어/한국어 enum 둘 다 같은 chip 으로.
+   */
+  gradeOptions: ReadonlyArray<{
+    grade: string;
+    label: string;
+    count: number;
+    icon: string;
+  }>;
+  /** 대표 태그 + 카운트 (실시간 계산). */
+  tagOptions: ReadonlyArray<{ tag: string; count: number }>;
 }
 
-const COLLECTIONS: { id: Collection; label: string; icon: string; count: number }[] = [
-  { id: "전체", label: "전체", icon: "stack", count: 47 },
-  { id: "모의평가", label: "모의평가", icon: "chart-line", count: 12 },
-  { id: "수능 기출", label: "수능 기출", icon: "exam", count: 8 },
-  { id: "학교 시험", label: "학교 시험", icon: "buildings", count: 18 },
-  { id: "내가 만든 변형", label: "내가 만든 변형", icon: "sparkle", count: 9 },
-];
-
-const GRADES = [
-  { id: "고1", label: "고1", icon: "circle", count: 12 },
-  { id: "고2", label: "고2", icon: "circle", count: 18 },
-  { id: "고3 · 재수", label: "고3 · 재수", icon: "circle-half", count: 17 },
-];
-
-const TAGS = ["미적분", "확통", "기하", "공통수학1", "수능 직전"];
-
 /**
- * Library left sidebar — collections, grade filters, tag chips, usage card.
+ * Library 왼쪽 사이드바 — controlled + *데이터 기반 동적 카탈로그*.
  *
- * For now, only the collection picker is wired up; grade filter and tags
- * are display-only (Phase 2 mock). Grade-driven filtering lands in the
- * Phase 6 backend rewrite.
+ * 이전: COLLECTIONS / GRADES 가 hard-coded 5+3 union → mock 8 개 vs 실
+ * 데이터 mismatch (예: 중학교 시험지만 있어도 "고1 0/고2 0/고3 0" chip
+ * 군집 노출).
+ *
+ * 현재: 부모가 *현재 tests 배열* 기준 visibleCollections / gradeOptions /
+ * tagOptions 계산해서 props 로 전달. 사이드바는 dumb 렌더링만.
+ *
+ * **컬렉션 / 학년 / 태그 모두 토글식**: 학년·태그는 같은 값 재선택 시 해제.
+ * 컬렉션은 "전체" default 라 항상 1 개 선택 (라디오).
+ *
+ * **태그 chip 은 자체 `<button>`** — Chip 컴포넌트가 `<span>` 이라 onClick
+ * 없음 (CLAUDE.md §13-3). 동일 스타일로 button 직접 구현.
  */
-export const LibrarySidebar = ({ collection, onCollectionChange }: LibrarySidebarProps) => {
-  const [grade, setGrade] = useState<string | undefined>(undefined);
+export const LibrarySidebar = ({
+  collection,
+  onCollectionChange,
+  grade,
+  onGradeChange,
+  selectedTags,
+  onTagToggle,
+  visibleCollections,
+  gradeOptions,
+  tagOptions,
+}: LibrarySidebarProps) => {
+  // 학년 동일 값 재선택 → 해제 (토글 라디오).
+  const handleGradeChange = (next: string) => {
+    onGradeChange(grade === next ? undefined : next);
+  };
 
   return (
     <aside className="w-[232px] flex-shrink-0 px-3.5 py-[18px] border-r border-line bg-surface overflow-auto">
       <Eyebrow className="mb-2 pl-2">컬렉션</Eyebrow>
-      <NavList items={COLLECTIONS} current={collection} onChange={onCollectionChange} />
+      <NavList
+        items={visibleCollections.map((c) => ({ ...c }))}
+        current={collection}
+        onChange={onCollectionChange}
+      />
 
-      <div className="mt-[22px]">
-        <Eyebrow className="mb-2 pl-2">학년</Eyebrow>
-        <NavList items={GRADES} current={grade} onChange={setGrade} />
-      </div>
+      {gradeOptions.length > 0 && (
+        <div className="mt-[22px]">
+          <Eyebrow className="mb-2 pl-2">학년</Eyebrow>
+          <NavList
+            items={gradeOptions.map((g) => ({
+              id: g.grade,
+              label: g.label,
+              icon: g.icon,
+              count: g.count,
+            }))}
+            current={grade}
+            onChange={handleGradeChange}
+          />
+        </div>
+      )}
 
       <div className="mt-[22px] pl-2">
         <Eyebrow className="mb-2">태그</Eyebrow>
-        <div className="flex flex-wrap gap-1">
-          {TAGS.map((t) => (
-            <Chip key={t} tone="soft" size="sm">
-              #{t}
-            </Chip>
-          ))}
-        </div>
+        {tagOptions.length === 0 ? (
+          <div className="text-caption text-muted px-1">
+            표시할 태그 없음
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {tagOptions.map(({ tag, count }) => {
+              const selected = selectedTags.has(tag);
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => onTagToggle(tag)}
+                  className={
+                    "inline-flex items-center whitespace-nowrap rounded-full border font-[550] leading-[1.4] px-2 py-0.5 text-[11.5px] gap-1.5 transition-colors cursor-pointer " +
+                    (selected
+                      ? "bg-accent-soft text-accent-ink border-accent-soft-strong"
+                      : "bg-surface text-text2 border-line hover:bg-surface2")
+                  }
+                  aria-pressed={selected}
+                >
+                  #{tag}
+                  <span className={selected ? "text-accent" : "text-muted"}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {selectedTags.size > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              for (const tag of selectedTags) onTagToggle(tag);
+            }}
+            className="mt-2 text-caption text-muted hover:text-text underline-offset-2 hover:underline cursor-pointer"
+          >
+            선택 해제 ({selectedTags.size})
+          </button>
+        )}
       </div>
 
-      {/* Usage card */}
+      {/* Usage card — Phase 6 에서 ai_usage 테이블 연결 */}
       <div className="mt-7 p-3 bg-surface2 rounded-r3 border border-line">
         <div className="flex items-center gap-1.5 mb-1">
           <Icon name="lightning" size={13} color="#0EA5E9" weight="fill" />
