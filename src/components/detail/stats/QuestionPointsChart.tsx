@@ -158,9 +158,11 @@ export const QuestionPointsChart = ({ questions }: QuestionPointsChartProps) => 
         </span>
       </div>
 
-      {/* 차트 — 다른 차트 (DifficultyDonut/UnitBarChart/DomainRadar) 와 동일 패턴 */}
-      <div className="w-full" style={{ height: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
+      {/* 차트 — mathlab 패턴 정확 carry-over: div className 없음, ResponsiveContainer
+           height={pixel} + minHeight={pixel}. height="100%" 가 측정 실패 시 0 으로
+           fallback 되는 알려진 recharts 버그 회피. */}
+      <div>
+        <ResponsiveContainer width="100%" height={280} minHeight={280}>
         <ComposedChart
           data={chartData}
           margin={{ top: 12, right: 40, bottom: 8, left: 0 }}
