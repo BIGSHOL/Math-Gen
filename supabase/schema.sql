@@ -398,5 +398,69 @@ CREATE POLICY feedback_delete_own ON ocr_feedback
 --   - 이렇게 하면 file path 의 첫 segment (`{user_id}/...`) 가 본인 UUID 일 때만 접근.
 -- ============================================================================
 
+-- ============================================================================
+-- §9 exam_analyses — 시험지 분석 결과 영구 저장 (Phase N)
+-- ----------------------------------------------------------------------------
+-- mathlab 의 ExamAnalysis 패턴 흡수 — blank paper (기출 원본) 만 분석.
+-- 1 시험지 = 1 분석 (UNIQUE test_id). 재분석은 UPSERT 로 갱신.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS exam_analyses (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  test_id             UUID NOT NULL UNIQUE REFERENCES tests(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+  tenant_id           UUID,                                  -- tests.tenant_id 복사 (admin filter 효율)
+  exam_info           JSONB NOT NULL,                        -- { total_questions, total_points, school_name, format_distribution }
+  summary             JSONB NOT NULL,                        -- { difficulty_distribution, type_distribution, average_difficulty, dominant_type }
+  questions           JSONB NOT NULL,                        -- AnalyzedQuestion[] (10필드, student 제외)
+  model               TEXT NOT NULL,                         -- "claude-sonnet-4-6" 또는 모델 식별자
+  input_page_count    INT NOT NULL DEFAULT 0,                -- 분석에 사용한 페이지 수 (Vision token 추정용)
+  cache_read_tokens   INT,                                   -- Anthropic usage.cache_read_input_tokens (모니터링)
+  cache_write_tokens  INT,                                   -- Anthropic usage.cache_creation_input_tokens
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_exam_analyses_user
+  ON exam_analyses(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exam_analyses_tenant
+  ON exam_analyses(tenant_id, created_at DESC)
+  WHERE tenant_id IS NOT NULL;
+
+DROP TRIGGER IF EXISTS exam_analyses_touch ON exam_analyses;
+CREATE TRIGGER exam_analyses_touch
+  BEFORE UPDATE ON exam_analyses
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+ALTER TABLE exam_analyses ENABLE ROW LEVEL SECURITY;
+
+-- 본인 + tenant_admin (같은 tenant) + system_admin (전체)
+DROP POLICY IF EXISTS exam_analyses_select_role ON exam_analyses;
+CREATE POLICY exam_analyses_select_role ON exam_analyses
+  FOR SELECT TO anon, authenticated
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR (auth_role() = 'tenant_admin' AND tenant_id IS NOT NULL AND tenant_id = auth_tenant())
+    OR auth_role() = 'system_admin'
+  );
+
+DROP POLICY IF EXISTS exam_analyses_insert_role ON exam_analyses;
+CREATE POLICY exam_analyses_insert_role ON exam_analyses
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+  );
+
+DROP POLICY IF EXISTS exam_analyses_update_role ON exam_analyses;
+CREATE POLICY exam_analyses_update_role ON exam_analyses
+  FOR UPDATE TO anon, authenticated
+  USING (
+    user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID)
+    OR auth_role() = 'system_admin'
+  );
+
+DROP POLICY IF EXISTS exam_analyses_delete_own ON exam_analyses;
+CREATE POLICY exam_analyses_delete_own ON exam_analyses
+  FOR DELETE TO anon, authenticated
+  USING (user_id = COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::UUID));
+
 -- 검증: 다음 query 가 빈 결과 반환하면 schema apply 성공.
 SELECT 'Schema apply OK. 다음 단계: Storage 탭에서 3 buckets 생성.' AS status;
