@@ -158,9 +158,14 @@ export const LibraryScreen = () => {
   };
 
   // 사이드바 라벨 (헤더 제목용) — 컬렉션 우선, 학년/태그/검색 있으면 부제로.
+  // 학년은 *한국어 label* 사용 (DB raw enum "middle2" 가 부제에 노출되는 함정 회피).
   const filterSummary = (() => {
     const parts: string[] = [];
-    if (grade) parts.push(grade);
+    if (grade) {
+      const gradeLabel =
+        gradeOptions.find((g) => g.grade === grade)?.label ?? grade;
+      parts.push(gradeLabel);
+    }
     if (selectedTags.size > 0) {
       parts.push(
         Array.from(selectedTags).map((t) => `#${t}`).join(" "),
