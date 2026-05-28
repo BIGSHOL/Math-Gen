@@ -160,10 +160,10 @@ svg text {
    `margin: 8px auto`로 인해 인라인 수식 한가운데에서 줄바꿈이 일어나고
    `width: auto`가 KaTeX의 `min-width: 0.853em` 호스트 span을 무시해 SVG
    슬롯이 0으로 줄어든다. 그래서 KaTeX 내부 SVG에는 절대 적용 안 한다. */
-.prose svg:not(:where(.katex *)),
-.prose-slate svg:not(:where(.katex *)),
-.text-body svg:not(:where(.katex *)),
-.text-text svg:not(:where(.katex *)) {
+.prose svg:not(:where(.katex *)):not(:where(.recharts-wrapper *)):not(.recharts-surface),
+.prose-slate svg:not(:where(.katex *)):not(:where(.recharts-wrapper *)):not(.recharts-surface),
+.text-body svg:not(:where(.katex *)):not(:where(.recharts-wrapper *)):not(.recharts-surface),
+.text-text svg:not(:where(.katex *)):not(:where(.recharts-wrapper *)):not(.recharts-surface) {
   /* Robust sizing for viewBox-only SVGs.
      모델이 emit한 SVG는 보통 viewBox만 있고 width/height 속성이 없다.
      `width: auto; height: auto` 로 두면 일부 브라우저가 0×0 또는 300×150
