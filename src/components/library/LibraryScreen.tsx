@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { UserMenu } from "@app/components/auth";
 import {
   Btn,
@@ -18,6 +18,7 @@ import {
   gradesPresent,
   matchesCollection,
   matchesGrade,
+  matchesQuery,
   matchesTags,
   sortTests,
   topTagsByFrequency,
@@ -34,11 +35,16 @@ import { TestList } from "./TestList";
 
 type ViewKey = "grid" | "list";
 
+/**
+ * TopBar 좌측 페이지 nav. `on:false` 는 *미구현 페이지* — disabled 처리 +
+ * "준비 중" tooltip. 클릭해도 효과 없음 명시 (이전엔 onClick 누락 → silent
+ * no-op 으로 사용자 혼란).
+ */
 const TOP_NAV = [
-  { t: "내 시험지", icon: "books", on: true },
-  { t: "변환 작업", icon: "lightning", on: false },
-  { t: "단원 자료", icon: "graduation-cap", on: false },
-];
+  { t: "내 시험지", icon: "books", on: true, hint: undefined },
+  { t: "변환 작업", icon: "lightning", on: false, hint: "준비 중 — 변환 진행 페이지" },
+  { t: "단원 자료", icon: "graduation-cap", on: false, hint: "준비 중 — 단원별 자료 라이브러리" },
+] as const;
 
 /**
  * Library shell — TopBar + sidebar + main content grid.
@@ -67,10 +73,37 @@ export const LibraryScreen = () => {
   );
   const [sort, setSort] = useState<SortKey>("recent");
   const [view, setView] = useState<ViewKey>("grid");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocus, setSearchFocus] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrated, hydrate]);
+
+  // Ctrl/Cmd+K → 검색 focus, Esc → 검색 clear + blur.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "k"
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (
+        e.key === "Escape" &&
+        document.activeElement === searchInputRef.current
+      ) {
+        setSearchQuery("");
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Sidebar 카탈로그 — 전체 tests 기준 (필터 적용 *전*). 카운트 0 컬렉션 /
   // 데이터에 없는 학년은 자동 숨김 (mock vs 실 데이터 mismatch 함정 회피).
@@ -93,17 +126,22 @@ export const LibraryScreen = () => {
   }, [collectionCounts]);
   const gradeOptions = useMemo(() => gradesPresent(tests), [tests]);
   const tagOptions = useMemo(() => topTagsByFrequency(tests, 8), [tests]);
+  const totalProblems = useMemo(
+    () => tests.reduce((sum, t) => sum + (t.problemCount ?? 0), 0),
+    [tests],
+  );
 
-  // Filter chain: collection → grade → tags. Sort 마지막.
+  // Filter chain: collection → grade → tags → query. Sort 마지막.
   const filteredTests = useMemo(
     () =>
       tests.filter(
         (t) =>
           matchesCollection(t, collection) &&
           matchesGrade(t, grade) &&
-          matchesTags(t, selectedTags),
+          matchesTags(t, selectedTags) &&
+          matchesQuery(t, searchQuery),
       ),
-    [tests, collection, grade, selectedTags],
+    [tests, collection, grade, selectedTags, searchQuery],
   );
   const sortedTests = useMemo(
     () => sortTests(filteredTests, sort),
@@ -119,7 +157,7 @@ export const LibraryScreen = () => {
     });
   };
 
-  // 사이드바 라벨 (헤더 제목용) — 컬렉션 우선, 학년/태그가 있으면 부제로.
+  // 사이드바 라벨 (헤더 제목용) — 컬렉션 우선, 학년/태그/검색 있으면 부제로.
   const filterSummary = (() => {
     const parts: string[] = [];
     if (grade) parts.push(grade);
@@ -128,6 +166,7 @@ export const LibraryScreen = () => {
         Array.from(selectedTags).map((t) => `#${t}`).join(" "),
       );
     }
+    if (searchQuery.trim()) parts.push(`"${searchQuery.trim()}"`);
     return parts.length > 0 ? parts.join(" · ") : null;
   })();
 
@@ -139,30 +178,84 @@ export const LibraryScreen = () => {
             <Logo />
             <Divider vertical className="h-5" />
             <nav className="flex gap-0.5">
-              {TOP_NAV.map((n) => (
-                <button
-                  key={n.t}
-                  type="button"
-                  className={`flex items-center gap-1.5 px-2.5 py-[5px] rounded-r1 cursor-pointer text-[13px] font-[550] whitespace-nowrap transition-colors ${
-                    n.on ? "text-text bg-surface2" : "text-muted bg-transparent hover:bg-hover"
-                  }`}
-                >
-                  <Icon name={n.icon} size={14} weight={n.on ? "fill" : "regular"} />
-                  {n.t}
-                </button>
-              ))}
+              {TOP_NAV.map((n) => {
+                const disabled = !n.on;
+                return (
+                  <button
+                    key={n.t}
+                    type="button"
+                    disabled={disabled}
+                    title={n.hint}
+                    className={`flex items-center gap-1.5 px-2.5 py-[5px] rounded-r1 text-[13px] font-[550] whitespace-nowrap transition-colors ${
+                      n.on
+                        ? "text-text bg-surface2 cursor-default"
+                        : "text-muted-soft bg-transparent cursor-not-allowed opacity-60"
+                    }`}
+                  >
+                    <Icon
+                      name={n.icon}
+                      size={14}
+                      weight={n.on ? "fill" : "regular"}
+                    />
+                    {n.t}
+                  </button>
+                );
+              })}
             </nav>
           </>
         }
         right={
           <>
-            <div className="flex items-center gap-2 pl-2 pr-2.5 h-[30px] bg-surface2 rounded-r2 text-muted text-[12.5px] min-w-[220px]">
-              <Icon name="magnifying-glass" size={14} />
-              <span className="flex-1">검색</span>
-              <ModKey />
-              <Kbd>K</Kbd>
+            <div
+              className={`flex items-center gap-2 pl-2 pr-2.5 h-[30px] bg-surface2 rounded-r2 text-[12.5px] min-w-[260px] border transition-all duration-[140ms] ${
+                searchFocus
+                  ? "border-accent shadow-accent-glow"
+                  : "border-transparent"
+              }`}
+            >
+              <Icon
+                name="magnifying-glass"
+                size={14}
+                className={searchFocus || searchQuery ? "text-text2" : "text-muted"}
+              />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setSearchFocus(true)}
+                onBlur={() => setSearchFocus(false)}
+                placeholder="시험지 검색…"
+                aria-label="시험지 검색"
+                className="flex-1 bg-transparent border-none outline-none text-text placeholder:text-muted min-w-0"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    searchInputRef.current?.focus();
+                  }}
+                  className="flex-shrink-0 p-0.5 rounded-r1 text-muted hover:text-text hover:bg-hover transition-colors"
+                  aria-label="검색어 지우기"
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              ) : (
+                <>
+                  <ModKey />
+                  <Kbd>K</Kbd>
+                </>
+              )}
             </div>
-            <Btn kind="ghost" size="sm" icon="bell-simple" aria-label="알림" />
+            <Btn
+              kind="ghost"
+              size="sm"
+              icon="bell-simple"
+              aria-label="알림"
+              disabled
+              title="알림 — 준비 중"
+            />
             <Btn
               kind="accent"
               size="sm"
@@ -187,6 +280,8 @@ export const LibraryScreen = () => {
           visibleCollections={visibleCollections}
           gradeOptions={gradeOptions}
           tagOptions={tagOptions}
+          totalProblems={totalProblems}
+          totalTests={tests.length}
         />
 
         <main className="flex-1 overflow-auto min-w-0">
@@ -230,7 +325,7 @@ export const LibraryScreen = () => {
             </Heading>
 
             <div className="mt-[22px]">
-              <StatsStrip />
+              <StatsStrip tests={tests} />
             </div>
 
             <div className="mt-7 mb-3 flex items-center justify-between">

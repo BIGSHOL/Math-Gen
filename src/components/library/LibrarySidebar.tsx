@@ -1,4 +1,4 @@
-import { Eyebrow, Icon, NavList, Progress } from "@app/components/ui";
+import { Eyebrow, Icon, NavList } from "@app/components/ui";
 import type { Collection, GradeKey } from "@app/lib/libraryFilter";
 
 export type { Collection, GradeKey };
@@ -31,6 +31,9 @@ export interface LibrarySidebarProps {
   }>;
   /** 대표 태그 + 카운트 (실시간 계산). */
   tagOptions: ReadonlyArray<{ tag: string; count: number }>;
+  /** 사이드바 하단 누적 카드 — 라이브러리 통계 (Phase 6 의 사용량 한도와 별개). */
+  totalProblems: number;
+  totalTests: number;
 }
 
 /**
@@ -59,6 +62,8 @@ export const LibrarySidebar = ({
   visibleCollections,
   gradeOptions,
   tagOptions,
+  totalProblems,
+  totalTests,
 }: LibrarySidebarProps) => {
   // 학년 동일 값 재선택 → 해제 (토글 라디오).
   const handleGradeChange = (next: string) => {
@@ -135,17 +140,25 @@ export const LibrarySidebar = ({
         )}
       </div>
 
-      {/* Usage card — Phase 6 에서 ai_usage 테이블 연결 */}
+      {/* 라이브러리 누적 카드.
+        *
+        * 이전: 318/2,000 hardcoded (Phase 6 billing 한도). 사용자 구독 한도
+        * 추적 인프라 (ai_usage 테이블 + plan 메타) 미구현이라 *현재 시점 의미
+        * 있는 정보* 로 교체 — 라이브러리에 누적된 시험지/문항 수.
+        *
+        * Phase 6 billing 도입 시 별도 한도 chip 추가 (또는 이 카드 자리 교체).
+        */}
       <div className="mt-7 p-3 bg-surface2 rounded-r3 border border-line">
         <div className="flex items-center gap-1.5 mb-1">
-          <Icon name="lightning" size={13} color="#0EA5E9" weight="fill" />
-          <span className="text-caption text-text">이번 달 사용</span>
+          <Icon name="stack" size={13} color="#0EA5E9" weight="fill" />
+          <span className="text-caption text-text">라이브러리 누적</span>
         </div>
         <div className="text-h3 font-mono text-text">
-          318 <span className="text-muted font-normal">/ 2,000</span>
+          {totalProblems.toLocaleString()}
+          <span className="text-muted font-normal text-small ml-1">문항</span>
         </div>
-        <div className="mt-2">
-          <Progress value={318} max={2000} tone="accent" height={3} />
+        <div className="text-caption text-muted mt-1">
+          {totalTests} 시험지 변환
         </div>
       </div>
     </aside>

@@ -75,6 +75,21 @@ export const matchesTags = (
   return true;
 };
 
+/**
+ * 검색어 부분 매칭 — title / subject / tags 중 하나라도 substring 포함.
+ * 빈 query 통과. 한글·영문 모두 대소문자 무시.
+ */
+export const matchesQuery = (test: TestPaper, query: string): boolean => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (test.title.toLowerCase().includes(q)) return true;
+  if (test.subject && test.subject.toLowerCase().includes(q)) return true;
+  for (const tag of test.tags) {
+    if (tag.toLowerCase().includes(q)) return true;
+  }
+  return false;
+};
+
 /** 정렬 우선순위 — 상태별 정렬 시 검토 필요 (warn) 가 먼저. */
 const STATUS_ORDER: Record<TestStatus, number> = {
   warn: 0,
