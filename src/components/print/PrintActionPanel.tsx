@@ -277,9 +277,7 @@ export const PrintActionPanel = ({
 
         {/* 안내 */}
         <p className="text-caption text-muted leading-relaxed">
-          <Icon name="info" size={11} color="#9CA3AF" /> PDF 다운로드는 서버
-          Chromium 으로 렌더해 KaTeX·도형이 정확합니다. 첫 호출은 약 5-10 초 (콜드
-          스타트), 이후 2-3 초.
+          <Icon name="info" size={11} color="#9CA3AF" /> 서버 Chromium 렌더 — KaTeX·도형 정확.
         </p>
       </div>
 

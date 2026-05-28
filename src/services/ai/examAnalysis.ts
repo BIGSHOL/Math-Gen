@@ -38,21 +38,66 @@ import type {
 } from "@app/types/examAnalysis";
 
 // ════════════════════════════════════════════════════════════════════
-// §1. 이미지 base64 → Anthropic image block 변환
+// §1. 이미지 input → Anthropic image block 변환
 // ════════════════════════════════════════════════════════════════════
 
-/** data URI ("data:image/jpeg;base64,...") → media_type + data 분리. */
-const parseDataUri = (
+type AnthropicImageMediaType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp";
+
+/**
+ * 이미지 input 을 Anthropic vision API 가 받는 형태 (`{ media_type, data }`) 로
+ * 변환. 3 가지 input 지원:
+ *   1. data URI (`data:image/jpeg;base64,...`) — 직접 파싱
+ *   2. HTTP/HTTPS URL — fetch → blob → base64 변환 (Supabase Storage signed URL 등)
+ *   3. raw base64 (prefix 없음) — png 가정
+ *
+ * Anthropic SDK 는 source.type="url" 도 지원하지만 Supabase signed URL 의 1h
+ * TTL 이 inflight 중 만료될 수 있어 *우리 측에서 미리 base64 로 변환* 한다.
+ */
+const toAnthropicImage = async (
   input: string,
-): { media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"; data: string } => {
+): Promise<{ media_type: AnthropicImageMediaType; data: string }> => {
+  // 1. data URI 직접 파싱
   const m = input.match(/^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/);
   if (m) {
     return {
-      media_type: m[1] as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+      media_type: m[1] as AnthropicImageMediaType,
       data: m[2],
     };
   }
-  // raw base64 (no data URI prefix) — default to png
+  // 2. HTTP/HTTPS URL → fetch + base64 변환
+  if (input.startsWith("http://") || input.startsWith("https://")) {
+    const res = await fetch(input);
+    if (!res.ok) {
+      throw new Error(`이미지 fetch 실패: HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    // Uint8Array → base64. chunk 분할 (큰 이미지에서 String.fromCharCode 스택 한도 회피).
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(
+        null,
+        Array.from(bytes.subarray(i, i + chunkSize)),
+      );
+    }
+    const base64 = btoa(binary);
+    const detected = (blob.type || "image/png") as string;
+    const mediaType: AnthropicImageMediaType =
+      detected === "image/jpeg" ||
+      detected === "image/png" ||
+      detected === "image/gif" ||
+      detected === "image/webp"
+        ? (detected as AnthropicImageMediaType)
+        : "image/png";
+    return { media_type: mediaType, data: base64 };
+  }
+  // 3. raw base64 (prefix 없음) — png 가정
   return { media_type: "image/png", data: input };
 };
 
@@ -101,17 +146,23 @@ const analyzeExamDirect = async (
   }
 
   // 3. User content = 페이지 이미지들 + 분석 지시
-  const imageBlocks = input.pageImages.map((img) => {
-    const { media_type, data } = parseDataUri(img);
-    return {
-      type: "image" as const,
-      source: {
-        type: "base64" as const,
-        media_type,
-        data,
-      },
-    };
-  });
+  //    Storage signed URL → fetch + base64 변환 (병렬).
+  const imageBlocks = await Promise.all(
+    input.pageImages.map(async (img) => {
+      const { media_type, data } = await toAnthropicImage(img);
+      return {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type,
+          data,
+        },
+      };
+    }),
+  );
+  if (input.signal?.aborted) {
+    throw new DOMException("Aborted after image fetch", "AbortError");
+  }
 
   const userContent = [
     ...imageBlocks,

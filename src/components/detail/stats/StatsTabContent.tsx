@@ -1,12 +1,25 @@
-import { useMemo } from "react";
-import { Btn, Card, Eyebrow, Icon } from "@app/components/ui";
+import { useMemo, useState } from "react";
+import { Btn, Card, Eyebrow, Icon, Segmented } from "@app/components/ui";
 import { useExamAnalysis } from "@app/hooks/useExamAnalysis";
 import type { PageWithUrls } from "@app/hooks/useDetailData";
 import type { OCRProblem } from "@app/stores/wizardStore";
 import { DifficultyDonut } from "./DifficultyDonut";
 import { UnitBarChart } from "./UnitBarChart";
 import { DomainRadar } from "./DomainRadar";
-import { QuestionTable } from "./QuestionTable";
+import { DifficultyLevelChip } from "./DifficultyLevelChip";
+import { ConfidenceChip, ConfidenceLegend } from "./ConfidenceChip";
+import { EssayAnalysisSection } from "./EssayAnalysisSection";
+import { QuestionPointsChart } from "./QuestionPointsChart";
+import { DiscriminationSection } from "./DiscriminationSection";
+import { AnalysisCommentSection } from "./AnalysisCommentSection";
+
+type StatsSubTab = "basic" | "comment" | "strategy";
+
+const SUB_TAB_OPTIONS = [
+  { value: "basic" as const, label: "기본 분석", icon: "chart-bar" },
+  { value: "comment" as const, label: "AI 코멘트", icon: "chat-circle-text" },
+  { value: "strategy" as const, label: "학습 대책", icon: "target" },
+];
 
 /**
  * DB enum grade ("middle1" 등) → mathlab prompt 기준 한국어 ("중1" 등) 매핑.
@@ -42,8 +55,6 @@ export interface StatsTabContentProps {
  *   2. 없으면 "분석 시작" CTA 표시
  *   3. 사용자 클릭 → analyzeExam (Sonnet 4.6 vision + caching) → upsert → 차트
  *   4. 4 차트 + 14필드 표 노출
- *
- * 비용 추정: ~$0.05~0.10/시험지 (cache hit ratio 따라).
  */
 export const StatsTabContent = ({
   testId,
@@ -72,6 +83,8 @@ export const StatsTabContent = ({
   // 학년 — DB enum (middle1 등) → 한국어 (중1 등). mathlab prompt 가 한국어 키 사용.
   const koreanGrade = useMemo(() => toKoreanGrade(grade), [grade]);
 
+  const [subTab, setSubTab] = useState<StatsSubTab>("basic");
+
   const { record, inflight, error, trigger, clearError } = useExamAnalysis({
     testId,
     pageImages,
@@ -85,7 +98,7 @@ export const StatsTabContent = ({
   if (record === undefined && !inflight) {
     return (
       <div className="flex items-center justify-center h-[300px] text-muted text-small">
-        분석 결과를 불러오는 중...
+        불러오는 중
       </div>
     );
   }
@@ -104,8 +117,7 @@ export const StatsTabContent = ({
         </div>
         <div className="text-h3 text-text">시험지 분석</div>
         <p className="text-small text-muted mt-2 max-w-md mx-auto leading-relaxed">
-          AI가 시험지의 단원별 분포 · 난이도 구성 · 배점 · 출제 의도를 분석합니다.
-          분석에는 약 30~60초 소요됩니다 (~$0.05~0.10).
+          단원 분포 · 난이도 · 배점 · 출제 의도를 분석합니다.
         </p>
         {error && (
           <div className="mt-4 mx-auto max-w-md flex items-start gap-2 rounded-r2 bg-danger-soft border border-[#FEE2E2] text-danger text-caption px-3 py-2 text-left">
@@ -134,7 +146,7 @@ export const StatsTabContent = ({
             onClick={trigger}
           >
             {inflight
-              ? "분석 중..."
+              ? "분석 중"
               : pageImages.length === 0
                 ? "페이지 이미지 없음"
                 : "분석 시작"}
@@ -155,8 +167,7 @@ export const StatsTabContent = ({
     return (
       <div className="flex flex-col items-center justify-center h-[300px] gap-3">
         <div className="w-10 h-10 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-        <div className="text-text font-[550]">시험지 분석 중...</div>
-        <div className="text-caption text-muted">약 30~60초 소요</div>
+        <div className="text-text font-[550]">분석 중</div>
       </div>
     );
   }
@@ -167,12 +178,15 @@ export const StatsTabContent = ({
   // 4. 분석 결과 — 4 차트 + 표
   return (
     <div className="space-y-5">
-      {/* 헤더 — 시험지 메타 + 재분석 버튼 */}
+      {/* 헤더 — 시험지 메타 + 난이도 Level + 신뢰도 + 재분석 */}
       <Card>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <Eyebrow icon="chart-bar">분석 요약</Eyebrow>
-            <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-[280px]">
+            <div className="flex items-center gap-2 mb-2">
+              <Eyebrow icon="chart-bar">분석 요약</Eyebrow>
+              <ConfidenceChip questions={questions} />
+            </div>
+            <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <div className="text-caption text-muted">총 문항</div>
                 <div className="text-h3 font-mono text-text">
@@ -201,7 +215,8 @@ export const StatsTabContent = ({
               </div>
             </div>
           </div>
-          <div className="flex-shrink-0 flex flex-col items-end gap-1.5">
+          <div className="flex-shrink-0 flex flex-col items-end gap-2">
+            <DifficultyLevelChip summary={summary} />
             <Btn
               kind="ghost"
               size="sm"
@@ -220,72 +235,107 @@ export const StatsTabContent = ({
             </div>
           </div>
         </div>
+        {/* 신뢰도 색 범례 */}
+        <div className="mt-3 pt-3 border-t border-line flex justify-end">
+          <ConfidenceLegend />
+        </div>
       </Card>
 
-      {/* 4 차트 — grid 2x2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <Eyebrow icon="chart-pie">난이도 분포</Eyebrow>
-          <div className="mt-3">
-            <DifficultyDonut data={summary.difficulty_distribution} />
-          </div>
-        </Card>
-        <Card>
-          <Eyebrow icon="chart-bar">단원 영역 분포</Eyebrow>
-          <div className="mt-3">
-            <UnitBarChart data={summary.type_distribution} />
-          </div>
-        </Card>
-        <Card>
-          <Eyebrow icon="polygon">사고력 영역</Eyebrow>
-          <div className="mt-3">
-            <DomainRadar data={summary.domain_distribution} />
-          </div>
-        </Card>
-        <Card>
-          <Eyebrow icon="list-checks">문항 형식</Eyebrow>
-          <div className="mt-3 space-y-3">
-            {(["objective", "short_answer", "essay"] as const).map((fmt) => {
-              const count = exam_info.format_distribution[fmt];
-              const total = exam_info.total_questions || 1;
-              const pct = Math.round((count / total) * 100);
-              const labels = { objective: "객관식", short_answer: "단답형", essay: "서술형" };
-              const colors = { objective: "#0EA5E9", short_answer: "#8B5CF6", essay: "#F59E0B" };
-              return (
-                <div key={fmt}>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-small text-text2">{labels[fmt]}</span>
-                    <span className="text-small font-mono text-text">
-                      {count}문항{" "}
-                      <span className="text-muted">({pct}%)</span>
-                    </span>
-                  </div>
-                  <div className="h-2 bg-surface2 rounded-full overflow-hidden">
-                    <div
-                      className="h-full transition-all duration-300"
-                      style={{
-                        width: `${pct}%`,
-                        backgroundColor: colors[fmt],
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
+      {/* Sub-tab navigation */}
+      <Segmented<StatsSubTab>
+        value={subTab}
+        onChange={setSubTab}
+        options={SUB_TAB_OPTIONS}
+        full
+      />
 
-      {/* 문항 표 */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <Eyebrow icon="table">문항별 상세 분석</Eyebrow>
-          <span className="text-small text-muted">
-            행 클릭 시 ai_comment + 사고력 표시
-          </span>
-        </div>
-        <QuestionTable questions={questions} />
-      </div>
+      {/* === 기본 분석 === */}
+      {subTab === "basic" && (
+        <>
+          {/* 4 차트 — grid 2x2 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <Eyebrow icon="chart-pie">난이도 분포</Eyebrow>
+              <div className="mt-3">
+                <DifficultyDonut data={summary.difficulty_distribution} />
+              </div>
+            </Card>
+            <Card>
+              <Eyebrow icon="chart-bar">단원 영역 분포</Eyebrow>
+              <div className="mt-3">
+                <UnitBarChart data={summary.type_distribution} />
+              </div>
+            </Card>
+            <Card>
+              <Eyebrow icon="polygon">사고력 영역</Eyebrow>
+              <div className="mt-3">
+                <DomainRadar data={summary.domain_distribution} />
+              </div>
+            </Card>
+            <Card>
+              <Eyebrow icon="list-checks">문항 형식</Eyebrow>
+              <div className="mt-3 space-y-3">
+                {(["objective", "short_answer", "essay"] as const).map((fmt) => {
+                  const count = exam_info.format_distribution[fmt];
+                  const total = exam_info.total_questions || 1;
+                  const pct = Math.round((count / total) * 100);
+                  const labels = { objective: "객관식", short_answer: "단답형", essay: "서술형" };
+                  const colors = { objective: "#0EA5E9", short_answer: "#8B5CF6", essay: "#F59E0B" };
+                  return (
+                    <div key={fmt}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-small text-text2">{labels[fmt]}</span>
+                        <span className="text-small font-mono text-text">
+                          {count}문항{" "}
+                          <span className="text-muted">({pct}%)</span>
+                        </span>
+                      </div>
+                      <div className="h-2 bg-surface2 rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-300"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: colors[fmt],
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+
+          {/* 서술형 집중 분석 */}
+          <EssayAnalysisSection
+            questions={questions}
+            totalQuestions={exam_info.total_questions}
+            totalPoints={exam_info.total_points}
+          />
+
+          {/* 문항별 배점 차트 */}
+          <QuestionPointsChart questions={questions} />
+
+          {/* 변별력 분석 */}
+          <DiscriminationSection questions={questions} />
+        </>
+      )}
+
+      {/* === AI 코멘트 === */}
+      {subTab === "comment" && <AnalysisCommentSection questions={questions} />}
+
+      {/* === 학습 대책 (Phase N+4 placeholder) === */}
+      {subTab === "strategy" && (
+        <Card className="text-center py-12">
+          <div className="w-12 h-12 mx-auto rounded-full bg-accent-soft grid place-items-center mb-3">
+            <Icon name="target" size={24} className="text-accent" weight="bold" />
+          </div>
+          <div className="text-h3 text-text">학습 대책</div>
+          <p className="text-small text-muted mt-2 max-w-md mx-auto">
+            출제 영역별 상세 분석 · 학습 전략 · 시간 배분 · 자주 하는 실수 등 준비 중.
+          </p>
+        </Card>
+      )}
     </div>
   );
 };

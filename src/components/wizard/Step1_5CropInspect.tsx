@@ -524,10 +524,7 @@ export const Step1_5CropInspect = () => {
             className="text-accent animate-spin"
           />
           <div className="text-subhead font-bold text-accent">
-            AI가 문항을 검출하고 있어요
-          </div>
-          <div className="text-caption text-muted">
-            약 3~5초 — 잠시만 기다려주세요
+            문항 검출 중
           </div>
         </div>
       )}

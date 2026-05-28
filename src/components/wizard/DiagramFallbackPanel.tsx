@@ -106,7 +106,7 @@ export const DiagramFallbackPanel = ({
         setConfirmOpen(false);
         showToast({
           kind: "success",
-          message: `AI 도형 생성 완료 ($${result.costUsd.toFixed(3)})`,
+          message: "AI 도형 생성 완료",
           durationMs: 2500,
         });
       } catch (err) {
