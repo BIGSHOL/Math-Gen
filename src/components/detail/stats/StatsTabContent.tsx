@@ -13,6 +13,7 @@ import { QuestionPointsChart } from "./QuestionPointsChart";
 import { DiscriminationSection } from "./DiscriminationSection";
 import { AnalysisCommentSection } from "./AnalysisCommentSection";
 import { AICommentaryCard } from "./AICommentaryCard";
+import { StudyStrategySection } from "./StudyStrategySection";
 
 type StatsSubTab = "basic" | "comment" | "strategy";
 
@@ -331,17 +332,12 @@ export const StatsTabContent = ({
       {/* === AI 코멘트 === */}
       {subTab === "comment" && <AnalysisCommentSection questions={questions} />}
 
-      {/* === 학습 대책 (Phase N+4 placeholder) === */}
+      {/* === 학습 대책 === */}
       {subTab === "strategy" && (
-        <Card className="text-center py-12">
-          <div className="w-12 h-12 mx-auto rounded-full bg-accent-soft grid place-items-center mb-3">
-            <Icon name="target" size={24} className="text-accent" weight="bold" />
-          </div>
-          <div className="text-h3 text-text">학습 대책</div>
-          <p className="text-small text-muted mt-2 max-w-md mx-auto">
-            출제 영역별 상세 분석 · 학습 전략 · 시간 배분 · 자주 하는 실수 등 준비 중.
-          </p>
-        </Card>
+        <StudyStrategySection
+          questions={questions}
+          commentary={record.commentary}
+        />
       )}
     </div>
   );
