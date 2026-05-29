@@ -101,7 +101,13 @@ V6. 출력 텍스트 어디에도 **CALCULATION/UNDERSTANDING/PROBLEM_SOLVING/RE
   "strength_areas": ["string (잘 출제된 영역 2-3개)"],
   "improvement_areas": ["string (보완 필요 영역 2-3개)"],
   "notable_questions": [{"question_number": "서술형3", "comment": "string (출제 의도/변별력 관점 분석)"}],
-  "teaching_recommendations": [{"topic": "단원명", "priority": 1, "reason": "지도 방향 설명"}]
+  "teaching_recommendations": [{"topic": "단원명", "priority": 1, "reason": "지도 방향 설명"}],
+  "study_strategy": {
+    "grade_connections": [{"unit": "출제된 단원", "prerequisite": "복습해야 할 이전 학년 선수 개념", "importance": "critical", "warning": "이 선수 개념이 약하면 막히는 이유 1문장"}],
+    "killer_patterns": [{"unit": "고난도 출제 단원", "trap": "이 단원 고난도 문항의 전형적 함정 1문장", "solution": "함정 대응 전략 1문장"}],
+    "common_mistakes": [{"topic": "출제 단원", "mistake": "학생들이 자주 하는 실수 1문장", "prevention": "예방법 1문장"}],
+    "time_tips": {"quick": ["빠르게 풀 수 있는 유형 (출제 단원 기준)"], "caution": ["시간이 걸리는 유형"], "saving": ["시간 절약 팁"]}
+  }
 }
 
 ## 작성 지침
@@ -151,6 +157,14 @@ V6. 출력 텍스트 어디에도 **CALCULATION/UNDERSTANDING/PROBLEM_SOLVING/RE
 - priority 1(최우선)~5 순으로, topic은 교육과정 단원명을 사용하세요.
 - reason은 "왜 이 단원이 중요한지 + 어떻게 지도할 것인지"를 1-2문장으로 설명하세요.
 - 최대 5개까지 작성하세요.
+
+### study_strategy (학습 대책 — 시험지 단원 기반 맞춤 생성)
+*출제된 단원* 을 근거로만 작성. 시험 범위 밖 단원은 언급 금지.
+- **grade_connections** (선수학습 연계, 3~5개): 출제된 각 단원을 이해하려면 *이전 학년/단원* 의 어떤 개념이 선행돼야 하는지. importance 는 critical(필수)/high(중요)/recommended(권장). warning 은 "이 선수 개념이 약하면 ~에서 막힌다" 형식 1문장. 예: 중3 "근호를 포함한 식" → 중1 "유리수 사칙연산" (critical).
+- **killer_patterns** (킬러 함정, 2~4개): *난이도 4~5* 출제 단원의 전형적 함정 + 대응. trap 은 학생이 빠지는 함정, solution 은 대응 전략. 고난도 문항 없으면 빈 배열.
+- **common_mistakes** (단원별 실수, 3~6개): 출제 단원에서 학생들이 자주 하는 실수 + 예방법. 구체적으로 (예: "제곱근 계산 시 √a²=a 로 착각 → |a| 로 처리").
+- **time_tips** (시간 배분, 각 2~4개): quick(빠르게 풀 유형) / caution(시간 걸리는 유형) / saving(시간 절약 팁). 출제 단원 기준 실용적으로.
+- 모든 항목은 *출제된 단원/난이도 데이터* 에 근거. 추측·일반론 금지.
 
 ## 톤 & 스타일
 - 전문적이고 객관적인 분석 톤을 사용하세요.

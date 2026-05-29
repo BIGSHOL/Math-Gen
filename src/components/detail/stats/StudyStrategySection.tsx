@@ -23,23 +23,30 @@ import type {
 /**
  * 학습 대책 탭 (Phase N+4).
  *
- * mathlab `StudyStrategyTab.tsx` 의 10 sub-section 중 *핵심 4 섹션* carry-over.
- * (PersonalizedStrategySection 은 학생 답안 의존 — blank paper 만 → skip)
+ * mathlab `StudyStrategyTab.tsx` 의 고정 데이터(13K 줄) 대신 *AI 생성*
+ * (commentary.study_strategy) 로 대체 (사용자 결정 2026-05-29). Sonnet 이
+ * 시험지 단원 기반으로 선수학습 연계 / 킬러 함정 / 단원 실수 / 시간 팁을 생성.
+ * study_strategy 없는 구 분석은 derived/generic fallback.
  *
- * 활성:
- *  - TopicAnalysisSection (대단원 그룹핑 — 핵심대단원/고난도집중/서술형 chip)
- *  - LearningStrategiesSection (commentary.teaching_recommendations 활용)
- *  - LevelStrategiesSection (commentary.score_strategies A/B/C 활용)
- *  - KillerPatternsSection (commentary.notable_questions 활용)
- *
- * 후속 (placeholder):
- *  - EssayPreparationSection / TimeAllocationSection / CommonMistakesSection /
- *    GradeConnectionsSection / TimelineSection
+ * 섹션 (위→아래 = 분석 → 전략 → 대비 → 타임라인):
+ *  1. TopicAnalysis        (derived)              출제 영역별 상세 분석
+ *  2. GradeConnections     (study_strategy)       선수학습 연계 *AI*
+ *  3. LearningStrategies   (teaching_recommendations) 영역별 학습 전략
+ *  4. LevelStrategies      (score_strategies)     수준별 학습 전략
+ *  5. KillerPatterns       (notable_questions)    주목 문항
+ *  6. KillerPatternsAI     (study_strategy)       킬러 문항 함정 *AI*
+ *  7. EssayPreparation     (고정 체크리스트)        서술형 대비
+ *  8. CommonMistakes       (study_strategy || generic) 자주 하는 실수
+ *  9. TimeAllocation       (derived + study_strategy tips) 시험 시간 배분
+ * 10. Timeline             (고정 데이터)            4주 타임라인
  */
 export interface StudyStrategySectionProps {
   questions: AnalyzedQuestion[];
   commentary: CommentaryResult | null | undefined;
 }
+
+/** commentary.study_strategy 의 non-null shape (AI 생성 학습 대책). */
+type StudyStrategy = NonNullable<CommentaryResult["study_strategy"]>;
 
 const CHAPTER_COLORS = [
   "#3b82f6",
@@ -62,6 +69,7 @@ export const StudyStrategySection = ({
     () => deriveStudyStrategy(questions),
     [questions],
   );
+  const ss = commentary?.study_strategy;
 
   if (questions.length === 0) {
     return (
@@ -76,6 +84,9 @@ export const StudyStrategySection = ({
   return (
     <div className="space-y-4">
       <TopicAnalysis chapterGroups={chapterGroups} totalPoints={totalPoints} />
+      {ss?.grade_connections && ss.grade_connections.length > 0 && (
+        <GradeConnections connections={ss.grade_connections} />
+      )}
       {commentary?.teaching_recommendations &&
         commentary.teaching_recommendations.length > 0 && (
           <LearningStrategies
@@ -90,14 +101,75 @@ export const StudyStrategySection = ({
         commentary.notable_questions.length > 0 && (
           <KillerPatterns notable={commentary.notable_questions} />
         )}
-      {/* Phase N+4 확장 — mathlab 학습대책 carry-over (derived/고정 데이터) */}
+      {ss?.killer_patterns && ss.killer_patterns.length > 0 && (
+        <KillerPatternsAI patterns={ss.killer_patterns} />
+      )}
       <EssayPreparation questions={questions} />
-      <TimeAllocation chapterGroups={chapterGroups} totalPoints={totalPoints} />
-      <CommonMistakes questions={questions} />
+      <CommonMistakes questions={questions} aiMistakes={ss?.common_mistakes} />
+      <TimeAllocation
+        chapterGroups={chapterGroups}
+        totalPoints={totalPoints}
+        tips={ss?.time_tips}
+      />
       <Timeline />
     </div>
   );
 };
+
+// ════════════════════════════════════════════════════════════════════
+// §1b. GradeConnectionsSection — 선수학습 연계 (study_strategy, AI)
+// ════════════════════════════════════════════════════════════════════
+
+const IMPORTANCE_META: Record<
+  string,
+  { label: string; bg: string; text: string }
+> = {
+  critical: { label: "필수", bg: "bg-danger-soft", text: "text-danger" },
+  high: { label: "중요", bg: "bg-warn-soft", text: "text-warn" },
+  recommended: { label: "권장", bg: "bg-accent-soft", text: "text-accent" },
+};
+
+const GradeConnections = ({
+  connections,
+}: {
+  connections: NonNullable<StudyStrategy["grade_connections"]>;
+}) => (
+  <Card>
+    <Eyebrow icon="flow-arrow">선수학습 연계</Eyebrow>
+    <p className="text-caption text-muted mt-1 mb-3">
+      이 시험 단원을 이해하려면 먼저 다져야 할 이전 학년·단원 개념
+    </p>
+    <div className="space-y-2">
+      {connections.map((c, idx) => {
+        const meta = IMPORTANCE_META[c.importance] ?? IMPORTANCE_META.recommended;
+        return (
+          <div
+            key={idx}
+            className="rounded-r2 border border-line p-3 bg-surface2/40"
+          >
+            <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+              <span
+                className={`px-1.5 py-0.5 rounded-sm text-[10px] font-bold ${meta.bg} ${meta.text}`}
+              >
+                {meta.label}
+              </span>
+              <KaTeXInline
+                text={c.prerequisite}
+                className="text-small font-semibold text-text"
+              />
+              <Icon name="arrow-right" size={12} className="text-muted" />
+              <KaTeXInline text={c.unit} className="text-small text-text2" />
+            </div>
+            <KaTeXInline
+              text={c.warning}
+              className="text-caption text-muted leading-relaxed"
+            />
+          </div>
+        );
+      })}
+    </div>
+  </Card>
+);
 
 // ════════════════════════════════════════════════════════════════════
 // §1. TopicAnalysisSection — 대단원 그룹핑
@@ -410,6 +482,54 @@ const KillerPatterns = ({
 );
 
 // ════════════════════════════════════════════════════════════════════
+// §4b. KillerPatternsAISection — 킬러 문항 함정 (study_strategy, AI)
+// ════════════════════════════════════════════════════════════════════
+
+const KillerPatternsAI = ({
+  patterns,
+}: {
+  patterns: NonNullable<StudyStrategy["killer_patterns"]>;
+}) => (
+  <Card>
+    <Eyebrow icon="fire">킬러 문항 함정</Eyebrow>
+    <p className="text-caption text-muted mt-1 mb-3">
+      고난도 단원의 전형적 함정 + 대응 전략
+    </p>
+    <div className="space-y-2">
+      {patterns.map((p, idx) => (
+        <div
+          key={idx}
+          className="rounded-r2 border border-danger/20 p-3 bg-danger-soft/20"
+        >
+          <KaTeXInline
+            text={p.unit}
+            className="text-small font-semibold text-text block mb-1.5"
+          />
+          <div className="flex gap-1.5 mb-1.5">
+            <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold bg-danger-soft text-danger shrink-0 h-fit">
+              함정
+            </span>
+            <KaTeXInline
+              text={p.trap}
+              className="text-caption text-text2 leading-relaxed"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold bg-ok-soft text-ok shrink-0 h-fit">
+              대응
+            </span>
+            <KaTeXInline
+              text={p.solution}
+              className="text-caption text-text2 leading-relaxed"
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  </Card>
+);
+
+// ════════════════════════════════════════════════════════════════════
 // §5. EssayPreparationSection — 서술형 대비 (체크리스트, 고정 데이터)
 // ════════════════════════════════════════════════════════════════════
 
@@ -482,12 +602,25 @@ const EssayPreparation = ({ questions }: { questions: AnalyzedQuestion[] }) => {
 
 const EXAM_MINUTES = 45;
 
+const TIME_TIP_META: Array<{
+  key: "quick" | "caution" | "saving";
+  label: string;
+  icon: string;
+  color: string;
+}> = [
+  { key: "quick", label: "빠르게", icon: "lightning", color: "text-ok" },
+  { key: "caution", label: "주의", icon: "warning", color: "text-warn" },
+  { key: "saving", label: "시간 절약", icon: "timer", color: "text-accent" },
+];
+
 const TimeAllocation = ({
   chapterGroups,
   totalPoints,
+  tips,
 }: {
   chapterGroups: ChapterGroup[];
   totalPoints: number;
+  tips?: StudyStrategy["time_tips"];
 }) => {
   const allocations = useMemo(() => {
     return chapterGroups
@@ -506,6 +639,11 @@ const TimeAllocation = ({
 
   if (allocations.length === 0) return null;
   const maxMin = Math.max(...allocations.map((a) => a.minutes), 1);
+
+  const tipColumns = TIME_TIP_META.map((meta) => ({
+    ...meta,
+    items: tips?.[meta.key] ?? [],
+  })).filter((col) => col.items.length > 0);
 
   return (
     <Card>
@@ -533,6 +671,32 @@ const TimeAllocation = ({
           </div>
         ))}
       </div>
+
+      {tipColumns.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-line grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {tipColumns.map((col) => (
+            <div key={col.key}>
+              <div
+                className={`flex items-center gap-1.5 mb-1.5 text-caption font-semibold ${col.color}`}
+              >
+                <Icon name={col.icon} size={13} />
+                {col.label}
+              </div>
+              <ul className="space-y-1">
+                {col.items.map((t, i) => (
+                  <li
+                    key={i}
+                    className="text-[11px] text-text2 flex gap-1.5 leading-relaxed"
+                  >
+                    <span className={`shrink-0 ${col.color}`}>·</span>
+                    <KaTeXInline text={t} className="text-[11px] text-text2" />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 };
@@ -541,7 +705,13 @@ const TimeAllocation = ({
 // §7. CommonMistakesSection — 자주 하는 실수 (영역 기반 제네릭)
 // ════════════════════════════════════════════════════════════════════
 
-const CommonMistakes = ({ questions }: { questions: AnalyzedQuestion[] }) => {
+const CommonMistakes = ({
+  questions,
+  aiMistakes,
+}: {
+  questions: AnalyzedQuestion[];
+  aiMistakes?: StudyStrategy["common_mistakes"];
+}) => {
   const groups = useMemo(() => {
     const types = questions
       .map((q) => q.question_type as string)
@@ -549,6 +719,53 @@ const CommonMistakes = ({ questions }: { questions: AnalyzedQuestion[] }) => {
     return genericMistakesByTypes(types);
   }, [questions]);
 
+  // ── AI 생성 (study_strategy.common_mistakes) 우선 — 시험 단원 기반 구체적 ──
+  if (aiMistakes && aiMistakes.length > 0) {
+    return (
+      <Card>
+        <Eyebrow icon="warning">자주 하는 실수</Eyebrow>
+        <p className="text-caption text-muted mt-1 mb-3">
+          출제 단원별 흔한 실수 + 예방법
+        </p>
+        <div className="space-y-2">
+          {aiMistakes.map((m, i) => (
+            <div
+              key={i}
+              className="rounded-r2 border border-line p-3 bg-surface2/40"
+            >
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold bg-accent-soft text-accent">
+                  {m.topic}
+                </span>
+              </div>
+              <div className="flex gap-1.5 mb-1.5">
+                <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold bg-danger-soft text-danger shrink-0 h-fit">
+                  실수
+                </span>
+                <KaTeXInline
+                  text={m.mistake}
+                  className="text-caption text-text2 leading-relaxed"
+                />
+              </div>
+              <div className="flex gap-1.5">
+                <Icon
+                  name="lightbulb"
+                  size={12}
+                  className="text-warn shrink-0 mt-0.5"
+                />
+                <KaTeXInline
+                  text={m.prevention}
+                  className="text-[11px] text-muted leading-relaxed"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    );
+  }
+
+  // ── fallback: 영역 기반 제네릭 (구 분석 — study_strategy 없음) ──
   if (groups.length === 0) return null;
 
   return (

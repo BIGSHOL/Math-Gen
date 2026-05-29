@@ -202,6 +202,39 @@ export interface CommentaryResult {
   study_priority?: TeachingRecommendation[];
   encouragement?: string;
 
+  /**
+   * 학습 대책 — mathlab 의 curriculum-strategies (13K 고정 데이터) 를 AI 생성으로
+   * 대체 (사용자 결정 2026-05-29). Sonnet 이 시험지별 학년연계/킬러/단원실수/
+   * 시간팁 생성. 없으면 (구 분석) StudyStrategySection 이 derived fallback.
+   */
+  study_strategy?: {
+    /** 선수학습 연계 — 이 단원을 위해 복습해야 할 이전 학년 개념. */
+    grade_connections?: Array<{
+      unit: string; // 현재 단원
+      prerequisite: string; // 선수 개념
+      importance: "critical" | "high" | "recommended";
+      warning: string; // 1문장
+    }>;
+    /** 킬러 문항 함정 — 고난도 문항의 전형적 함정 + 대응. */
+    killer_patterns?: Array<{
+      unit: string;
+      trap: string; // 함정 설명 1문장
+      solution: string; // 대응 전략 1문장
+    }>;
+    /** 단원별 자주 하는 실수 + 예방. */
+    common_mistakes?: Array<{
+      topic: string;
+      mistake: string;
+      prevention: string;
+    }>;
+    /** 시험 시간 배분 팁 (빠르게 / 주의 / 절약). */
+    time_tips?: {
+      quick: string[];
+      caution: string[];
+      saving: string[];
+    };
+  };
+
   // ── V4 학원 블로그 (Phase N+5, 비활성 상태로 추가) ──
   v4_exam_overview?: {
     title: string;
