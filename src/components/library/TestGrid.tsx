@@ -4,6 +4,7 @@ import { TestCard } from "./TestCard";
 export interface TestGridProps {
   tests: TestPaper[];
   onSelect: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 /**
@@ -18,13 +19,18 @@ export interface TestGridProps {
  * `justify-start` — 마지막 행의 카드가 적게 남으면 그것들을 왼쪽 정렬
  * (CSS Grid 기본인 stretch 가 1fr 없이는 깨질 수 있어 명시).
  */
-export const TestGrid = ({ tests, onSelect }: TestGridProps) => (
+export const TestGrid = ({ tests, onSelect, onDelete }: TestGridProps) => (
   <div
     className="grid gap-3.5 justify-start"
     style={{ gridTemplateColumns: "repeat(auto-fill, 260px)" }}
   >
     {tests.map((t) => (
-      <TestCard key={t.id} test={t} onClick={() => onSelect(t.id)} />
+      <TestCard
+        key={t.id}
+        test={t}
+        onClick={() => onSelect(t.id)}
+        onDelete={onDelete ? () => onDelete(t.id) : undefined}
+      />
     ))}
   </div>
 );

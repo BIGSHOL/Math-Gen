@@ -108,6 +108,8 @@ export interface TestPaper {
   statusText: string;
   /** e.g. "오늘", "어제", "3일 전" — display only. */
   time: string;
+  /** 원본 생성 ISO timestamp — 정렬(최근순)용. mock 데이터는 없음 (optional). */
+  createdAt?: string;
   /** e.g. "공통+미적분". */
   subject: string;
   tags: string[];

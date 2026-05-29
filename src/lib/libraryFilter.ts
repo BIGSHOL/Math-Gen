@@ -100,8 +100,8 @@ const STATUS_ORDER: Record<TestStatus, number> = {
 /**
  * tests 배열 정렬. *원본 mutate X* — 새 배열 반환.
  *
- * - `recent` — 현재 mock 의 array 순서가 곧 최근순 (t1=오늘, t8=1개월 전).
- *   추후 createdAt timestamp 필드 추가 시 그걸로 변경.
+ * - `recent` — createdAt (ISO) 기준 내림차순 (최신이 먼저). createdAt 없는
+ *   row 는 맨 뒤. 동률이면 원본 순서 (stable sort).
  * - `name`   — title 의 한국어 사전순.
  * - `status` — warn → draft → ok.
  */
@@ -119,7 +119,11 @@ export const sortTests = (
       break;
     case "recent":
     default:
-      // 원본 순서 유지 (mock 기준 최근순). future: createdAt desc.
+      arr.sort((a, b) => {
+        const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
+        const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
+        return tb - ta; // 최신 먼저
+      });
       break;
   }
   return arr;

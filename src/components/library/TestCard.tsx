@@ -5,6 +5,8 @@ import type { TestPaper, TestStatus } from "@app/types";
 export interface TestCardProps {
   test: TestPaper;
   onClick?: () => void;
+  /** 삭제 핸들러 — 주어지면 hover 시 좌상단 삭제 버튼 노출. */
+  onDelete?: () => void;
 }
 
 const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
@@ -31,7 +33,7 @@ const TYPE_KO: Record<string, string> = {
  *  - Meta block: title (h3, single-line ellipsis) + footer row with
  *    문항 count on the left and the "time" string on the right.
  */
-export const TestCard = ({ test, onClick }: TestCardProps) => {
+export const TestCard = ({ test, onClick, onDelete }: TestCardProps) => {
   // Phase N-6: 분석 결과 있으면 dominant_type chip 표시 (LibraryScreen 이 batch fetch).
   const analysis = useExamAnalysisStore((s) => s.byTest[test.id]);
   const dominantTopic = analysis?.summary?.dominant_type
@@ -40,7 +42,22 @@ export const TestCard = ({ test, onClick }: TestCardProps) => {
   const avgDifficulty = analysis?.summary?.average_difficulty;
 
   return (
-  <Card pad={0} interactive onClick={onClick} className="overflow-hidden">
+  <Card pad={0} interactive onClick={onClick} className="overflow-hidden group relative">
+    {/* 삭제 버튼 — hover 시 좌상단. onClick (openTest) 와 격리. */}
+    {onDelete && (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        aria-label="시험지 삭제"
+        title="시험지 삭제"
+        className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full bg-white/90 shadow-s1 grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger-soft"
+      >
+        <Icon name="trash" size={14} className="text-danger" />
+      </button>
+    )}
     {/* Header — mini paper preview */}
     <div
       className="relative h-[132px] border-b border-line overflow-hidden"

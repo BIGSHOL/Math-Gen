@@ -175,6 +175,7 @@ export const testRowToTestPaper = (row: TestRow): TestPaper => ({
   status: row.status,
   statusText: row.status_text ?? "",
   time: formatRelativeKo(row.created_at),
+  createdAt: row.created_at,
   subject: row.subject ?? "",
   tags: row.tags ?? [],
   grade: row.grade ?? "",

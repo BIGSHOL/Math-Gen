@@ -37,6 +37,13 @@ import { TestList } from "./TestList";
 
 type ViewKey = "grid" | "list";
 
+/** 정렬 기준별 섹션 헤더 라벨 — "최근 작업" 고정 라벨이 정렬 무관 인상을 줘서 동적화. */
+const SORT_META: Record<SortKey, { icon: string; label: string }> = {
+  recent: { icon: "clock-counter-clockwise", label: "최근 등록순" },
+  name: { icon: "sort-ascending", label: "이름순" },
+  status: { icon: "funnel", label: "상태별" },
+};
+
 /**
  * TopBar 좌측 페이지 nav. `on:false` 는 *미구현 페이지* — disabled 처리 +
  * "준비 중" tooltip. 클릭해도 효과 없음 명시 (이전엔 onClick 누락 → silent
@@ -65,6 +72,7 @@ export const LibraryScreen = () => {
   const tests = useLibraryStore((s) => s.tests);
   const hydrated = useLibraryStore((s) => s.hydrated);
   const hydrate = useLibraryStore((s) => s.hydrate);
+  const removeTest = useLibraryStore((s) => s.removeTest);
   const openTest = useAppStore((s) => s.openTest);
   const startWizard = useAppStore((s) => s.startWizard);
 
@@ -171,6 +179,19 @@ export const LibraryScreen = () => {
       else next.add(tag);
       return next;
     });
+  };
+
+  // 삭제 — 확인 다이얼로그 후 removeTest (DB + Storage cascade cleanup).
+  const handleDelete = (id: string) => {
+    const t = tests.find((x) => x.id === id);
+    const name = t?.title ?? "이 시험지";
+    if (
+      window.confirm(
+        `"${name}" 을(를) 삭제합니다.\n변형 이력 · 분석 결과 · 페이지 이미지가 모두 영구 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`,
+      )
+    ) {
+      removeTest(id);
+    }
   };
 
   // 사이드바 라벨 (헤더 제목용) — 컬렉션 우선, 학년/태그/검색 있으면 부제로.
@@ -350,7 +371,9 @@ export const LibraryScreen = () => {
             </div>
 
             <div className="mt-7 mb-3 flex items-center justify-between">
-              <Eyebrow icon="clock-counter-clockwise">최근 작업</Eyebrow>
+              <Eyebrow icon={SORT_META[sort].icon}>
+                {SORT_META[sort].label}
+              </Eyebrow>
               <span className="text-small text-muted">
                 {sortedTests.length}개 표시
               </span>
@@ -371,9 +394,17 @@ export const LibraryScreen = () => {
                 </p>
               </div>
             ) : view === "grid" ? (
-              <TestGrid tests={sortedTests} onSelect={openTest} />
+              <TestGrid
+                tests={sortedTests}
+                onSelect={openTest}
+                onDelete={handleDelete}
+              />
             ) : (
-              <TestList tests={sortedTests} onSelect={openTest} />
+              <TestList
+                tests={sortedTests}
+                onSelect={openTest}
+                onDelete={handleDelete}
+              />
             )}
           </div>
         </main>
