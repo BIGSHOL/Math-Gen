@@ -9,9 +9,10 @@
  * fan-out 패턴 (CLAUDE.md §1-6-b): in-flight Set 멤버십만 cancel 신호. *AbortController 금지*.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { analyzeExam } from "@app/services/ai/examAnalysis";
 import { analyzeCommentary } from "@app/services/ai/examCommentary";
+import { analyzeV4Blog } from "@app/services/ai/examV4";
 import {
   fetchExamAnalysis,
   upsertExamAnalysis,
@@ -46,6 +47,10 @@ export interface UseExamAnalysisOutput {
    * commentary 에 nearby/year_comparison 생성.
    */
   trigger: (opts?: ReanalyzeOptions) => void;
+  /** V4 학원 블로그 생성 (Phase N+5, lazy) — commentary 에 v4_* 머지. */
+  triggerV4: () => void;
+  /** V4 생성 in-flight (기본 분석 inflight 과 별개). */
+  v4Inflight: boolean;
   /** 에러 clear. */
   clearError: () => void;
 }
@@ -197,6 +202,57 @@ export const useExamAnalysis = (
     setError,
   ]);
 
+  // ── V4 학원 블로그 (Phase N+5, lazy) — 기본 분석과 별개 in-flight ──
+  const [v4Inflight, setV4Inflight] = useState(false);
+
+  const triggerV4 = useCallback(() => {
+    if (!testId) return;
+    if (v4Inflight) return;
+    const rec = useExamAnalysisStore.getState().byTest[testId];
+    if (!rec) return;
+
+    setV4Inflight(true);
+    setError(testId, undefined);
+
+    void (async () => {
+      const basic = {
+        exam_info: rec.exam_info,
+        summary: rec.summary,
+        questions: rec.questions,
+      };
+      try {
+        const out = await analyzeV4Blog({
+          basic,
+          grade,
+          examCategory: examCategory ?? null,
+          academyName: null,
+        });
+        const mergedCommentary = { ...(rec.commentary ?? {}), ...out.result };
+        const persisted = await upsertExamAnalysis({
+          testId,
+          result: basic,
+          model: rec.model,
+          inputPageCount: rec.input_page_count,
+          cacheReadTokens: rec.cache_read_tokens,
+          cacheWriteTokens: rec.cache_write_tokens,
+          commentary: mergedCommentary,
+        });
+        if (persisted) {
+          setAnalysis(testId, persisted);
+        } else {
+          setAnalysis(testId, { ...rec, commentary: mergedCommentary });
+        }
+      } catch (err) {
+        setError(testId, friendlyError(err));
+        if (import.meta.env?.DEV) {
+          console.warn("[useExamAnalysis] V4 실패:", (err as Error).message);
+        }
+      } finally {
+        setV4Inflight(false);
+      }
+    })();
+  }, [testId, grade, examCategory, v4Inflight, setAnalysis, setError]);
+
   const clearErrorBound = useCallback(() => {
     if (testId) clearError(testId);
   }, [testId, clearError]);
@@ -206,6 +262,8 @@ export const useExamAnalysis = (
     inflight,
     error,
     trigger,
+    triggerV4,
+    v4Inflight,
     clearError: clearErrorBound,
   };
 };

@@ -23,6 +23,7 @@ export interface LogAiUsageInput {
     | "ai-image"
     | "ai-exam-analysis"
     | "ai-exam-commentary"
+    | "ai-exam-v4"
     | "export-pdf";
   provider: "anthropic" | "gemini" | "openai" | "puppeteer";
   model: string;

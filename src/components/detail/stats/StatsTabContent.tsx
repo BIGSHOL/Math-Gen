@@ -15,13 +15,18 @@ import { AnalysisCommentSection } from "./AnalysisCommentSection";
 import { AICommentaryCard } from "./AICommentaryCard";
 import { StudyStrategySection } from "./StudyStrategySection";
 import { ReanalyzeModal } from "./ReanalyzeModal";
+import { V4BlogView, V4_BLOG_ENABLED, type V4Meta } from "./V4BlogView";
 
-type StatsSubTab = "basic" | "comment" | "strategy";
+type StatsSubTab = "basic" | "comment" | "strategy" | "v4";
 
 const SUB_TAB_OPTIONS = [
   { value: "basic" as const, label: "기본 분석", icon: "chart-bar" },
   { value: "comment" as const, label: "AI 코멘트", icon: "chat-circle-text" },
   { value: "strategy" as const, label: "학습 대책", icon: "target" },
+  // Phase N+5 (비활성) — V4_BLOG_ENABLED=false 면 미노출
+  ...(V4_BLOG_ENABLED
+    ? [{ value: "v4" as const, label: "학원 블로그", icon: "newspaper" }]
+    : []),
 ];
 
 /**
@@ -89,7 +94,8 @@ export const StatsTabContent = ({
   const [subTab, setSubTab] = useState<StatsSubTab>("basic");
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
 
-  const { record, inflight, error, trigger, clearError } = useExamAnalysis({
+  const { record, inflight, error, trigger, triggerV4, v4Inflight, clearError } =
+    useExamAnalysis({
     testId,
     pageImages,
     grade: koreanGrade,
@@ -326,6 +332,26 @@ export const StatsTabContent = ({
         <StudyStrategySection
           questions={questions}
           commentary={record.commentary}
+        />
+      )}
+
+      {/* === 학원 블로그 (V4) — Phase N+5 비활성 (V4_BLOG_ENABLED) === */}
+      {subTab === "v4" && (
+        <V4BlogView
+          commentary={record.commentary}
+          meta={
+            {
+              examTitle: exam_info.school_name
+                ? `${exam_info.school_name} ${koreanGrade}`
+                : `${koreanGrade} 시험 분석`,
+              schoolName: exam_info.school_name ?? null,
+              grade: koreanGrade,
+              analyzedAt: record.created_at ?? null,
+              academyName: null,
+            } satisfies V4Meta
+          }
+          onGenerate={triggerV4}
+          generating={v4Inflight}
         />
       )}
 

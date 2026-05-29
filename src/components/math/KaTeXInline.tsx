@@ -29,7 +29,7 @@ export interface KaTeXInlineProps {
 
 const KATEX_METRIC_WARN_RE = /No character metrics for/;
 
-const renderInlineKatex = (text: string): string =>
+export const renderInlineKatex = (text: string): string =>
   text.replace(/\$([^$]+?)\$/g, (_match, tex: string) => {
     const origWarn = console.warn;
     console.warn = (...args: unknown[]) => {
