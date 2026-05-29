@@ -3925,3 +3925,131 @@ const warnSchemaMigration = (): void => {
 
 §30 의 4 함정은 *모두* 이미 알려진 패턴이었지만 새 path 에서 미적용. 새 PR 시 *CLAUDE.md 의 모든 §* 를 *전수 검색* 하는 도구·습관이 필요. 사용자 보고 → 즉시 grep 으로 *비슷한 함정* 카탈로그 매치.
 
+---
+
+## 31. 2026-05-29 세션 — Phase N+ (시험지 분석 화면 확장) + 함정 카탈로그
+
+mathlab 시험지 분석 기능을 mathg-gen 의 *통계 탭* 으로 carry-over (Phase N+1~N+4)
+하면서 부딪힌 *차트/폰트/렌더링 함정 + recharts/KaTeX 전역 CSS 충돌* 카탈로그.
+이 세션의 함정은 대부분 *전역 CSS 룰 (globals.css) 이 새 컴포넌트를 의도치 않게
+잡는* cross-cutting 형태 (§30-6 의 "함정의 전염" 변형).
+
+### 31-1. recharts 차트가 작게 그려짐 — globals.css `svg max-width: 360px` 룰 (CRITICAL)
+
+**증상** (사용자 4 차 반복 보고): 통계 탭의 *문항별 배점* (ComposedChart) 만
+카드 폭의 ~40% 로 작게 그려짐. 다른 차트 (도넛/막대/레이더) 는 정상.
+
+**잘못된 가설들** (모두 실패 — 시간 낭비):
+- ResponsiveContainer width 측정 실패 → `aspect` prop / `debounce={0}` / 직접
+  `useRef + ResizeObserver` measurement → *전부 무효*
+- `height="100%"` fallback 0 → pixel `height={280}` → *무효*
+
+**진짜 근본 원인** (Chrome DevTools DOM inspect 로 확정):
+```js
+// .recharts-surface 측정
+surfaceAttrWidth: "837"   // SVG width 속성 — recharts 정상 측정 ✓
+surfaceClientWidth: 360   // 실제 표시 폭 — CSS 가 360 으로 압축 ❌
+```
+→ `globals.css` 의 `.prose svg / .text-body svg / .text-text svg { max-width:
+360px }` (수학 도형 SVG 카드 크기 제한 의도) 이 *recharts 차트 SVG 도* 잡음.
+다른 차트는 grid 2-col 안 < 360px 라 영향 없었고, 문항별 배점만 837px →
+360px 축소.
+
+**Fix**: KaTeX 처럼 recharts 도 `:not()` 제외.
+```css
+.prose svg:not(:where(.katex *)):not(:where(.recharts-wrapper *)):not(.recharts-surface), ...
+```
+
+**교훈**: "차트가 작다" 류 증상은 *컴포넌트 코드* 가 아니라 *전역 CSS* 가 범인일
+수 있다. 추측성 코드 수정 전에 **Chrome DevTools 로 `getBoundingClientRect().width`
+(실제 표시) vs SVG `width` attribute (측정값) 를 직접 비교** — 둘이 다르면
+*CSS 압축*, 같으면 *측정 실패*. DOM inspect 없이는 영원히 못 찾는다.
+
+### 31-2. 차트 글자 italic + serif — globals.css `svg text` 전역 룰
+
+**증상**: recharts 차트의 축 라벨 / tick / legend 가 *이탤릭 + Times serif +
+흰 stroke*. 컴포넌트의 `fontFamily` prop 무시.
+
+**원인**: `globals.css` 의 `svg text { font-family: "Times New Roman" serif;
+font-style: italic; stroke: #fff 3px }` (수학 도형 변수 italic 의도) 이 *모든
+SVG text* → recharts tick 도 적용. 컴포넌트 inline style 은 전역 CSS 우선순위에
+밀림.
+
+**Fix**: `.recharts-wrapper text` / `.recharts-cartesian-axis-tick` 등 9 selector
+override — `font-family sans-serif !important; font-style normal !important;
+stroke none !important`.
+
+**교훈**: §31-1 과 동일 원형 — *수학 도형용 전역 svg 룰* 이 recharts 도 잡음.
+새 SVG-기반 라이브러리 (recharts/d3 등) 추가 시 globals.css 의 `svg`, `svg text`
+전역 룰 충돌 *반드시* 확인.
+
+### 31-3. KaTeX 다중 인스턴스 frozen — MarkdownRenderer 무거움 (CRITICAL)
+
+**증상**: AI 코멘트 탭의 ai_comment 22 문항을 *MarkdownRenderer* 로 렌더 →
+화면 frozen (CDP screenshot 30s timeout, renderer unresponsive).
+
+**원인**: MarkdownRenderer 는 SVG 추출 + placeholder + ReactMarkdown + rehype
+*full pipeline*. 한 화면 *44 인스턴스* (22 문항 × ai_comment + 난이도근거)
+동시 mount → main thread block (§21-10 무거운 reflow 변형).
+
+**Fix**: 경량 `KaTeXInline` 컴포넌트 신설 (`src/components/math/KaTeXInline.tsx`).
+- `katex.renderToString` 만으로 `$...$` 치환 — ReactMarkdown/SVG pipeline 없음
+- `applyMathInnerNormalization` (cleanMalformedLatex + 가분수→대분수 +
+  uprightGeometryLabels + dfrac) 통과 — MarkdownRenderer 와 동일 정규화
+- 44 인스턴스도 가볍게 동작
+
+**교훈**: *짧은 인라인 수식* (코멘트/라벨) 을 *표/리스트에 수십 개* 렌더할 땐
+MarkdownRenderer (무거운 블록) 대신 *KaTeXInline* (경량). MarkdownRenderer 는
+*문제 본문/해설 같은 긴 블록 1~수개* 용.
+
+### 31-4. KaTeXInline 도 도형 라벨 직립 필요 — applyMathInnerNormalization export
+
+KaTeXInline 이 처음 `cleanMalformedLatex` 만 거쳐 *uprightGeometryLabels 누락*
+→ 도형 점 라벨 ($ABCD$ 등) 이 italic (§2-10 위반: 점·선·면은 직립 Roman,
+변수만 italic). `applyMathInnerNormalization` 을 export 화 (textPreprocess.ts)
+해서 KaTeXInline 이 사용 → MarkdownRenderer 와 *동일 정규화 묶음*.
+
+**교훈**: 새 경량 렌더러 만들 때 *정규화 묶음을 빠뜨리지 말 것*. MarkdownRenderer
+의 `applyMathInnerNormalization` 이 *단일 source of truth* — 모든 KaTeX 렌더
+경로가 이걸 통과해야 일관 (도형 직립 / 가분수 / dfrac / typo 정상화).
+
+### 31-5. KaTeX 분수 가독성 — `.mfrac` 폰트 보정
+
+분자·분모가 본문 대비 작게 보임 (KaTeX 조판 관행). `\dfrac` 강제로도 완전
+해결 안 됨. `globals.css` 의 `.katex .mfrac { font-size: 1.07em }` + 중첩
+분수 누적 방지 (`.mfrac .mfrac { 1em }`). *전역* — OCR/해설/변형/분석 모든 분수.
+
+### 31-6. Phase N+ 카탈로그 (분석 화면 기능)
+
+- **차트 4종** (DifficultyDonut/UnitBarChart/DomainRadar + 문항형식) — grid 2x2.
+  DomainRadar 의 `PolarRadiusAxis tick={false} axisLine={false}` (내부 0/2/4
+  눈금 라벨 제거).
+- **derived 분석** (schema 무변경): Level chip (가중평균) / 신뢰도 (confidence
+  평균) / 서술형 집중 / 문항별 배점 (recharts ComposedChart) / 변별력 (4-bucket).
+- **commentary** (Sonnet 4.6 + caching): examCommentaryPrompts.ts (mathlab
+  buildPrompt) + examCommentary.ts + api/ai-exam-commentary.ts. exam_analyses.
+  commentary JSONB (graceful fallback §25-2). V3 블로그 X, V4 학원블로그 N+5 비활성.
+- **학습대책 8섹션**: TopicAnalysis (대단원 그룹핑) + Learning (teaching_rec) +
+  Level (score_strategies) + Killer (notable) + Essay (체크리스트) + TimeAllocation
+  (배점 derived) + Mistakes (영역 제네릭) + Timeline (4주 고정). mathlab 10 중
+  Personalized (학생 답안) / GradeConnections (curriculum 322줄) 제외.
+- **3 sub-tab** (Segmented): 기본 분석 / AI 코멘트 / 학습 대책.
+
+### 31-7. Library 정렬/삭제 (사용자 보고)
+
+- **sortTests recent no-op** → `TestPaper.createdAt` (ISO) 추가 + mapper 매핑
+  (기존엔 `time` 상대문자열만 보존) + createdAt desc 정렬. "최근 작업" 고정
+  헤더 → `SORT_META` 동적 라벨 (정렬 안 되는 인상 제거).
+- **삭제**: `libraryStore.removeTest` (DB+Storage cascade 완비) 를 UI 연결.
+  TestCard hover 좌상단 trash + window.confirm. TestList row 는 `<button>` →
+  `<div role=button>` (nested button 회피 §3-5).
+
+### 31-8. 세션 메타 — DOM inspect 우선 + mathlab 벤치마크
+
+사용자가 *"근본 원인 찾아라 / mathlab 벤치마킹"* 강조한 함정 (§31-1) 은 결국
+*Chrome DevTools DOM 측정* 으로 해결. 추측성 코드 수정 (ResponsiveContainer /
+aspect / measurement) 을 4 회 반복하며 시간 낭비. **시각 증상 (크기/위치/폰트)
+은 코드보다 *전역 CSS* 가 범인인 경우가 많고, DOM computed style 직접 측정이
+유일한 확정 수단**. "mathlab 은 되는데 우리는 안 됨" → mathlab 의 *해당 컴포넌트
++ 부모 wrapper + 전역 CSS* 3 층 모두 비교.
+
