@@ -6,6 +6,11 @@ import {
   type ChapterGroup,
 } from "@app/lib/studyStrategyDerive";
 import {
+  ESSAY_CHECKLIST,
+  FOUR_WEEK_TIMELINE,
+  genericMistakesByTypes,
+} from "@app/lib/studyStrategyData";
+import {
   DIFFICULTY_COLORS,
   DIFFICULTY_LABELS,
 } from "@app/lib/examAnalysisHelpers";
@@ -85,6 +90,11 @@ export const StudyStrategySection = ({
         commentary.notable_questions.length > 0 && (
           <KillerPatterns notable={commentary.notable_questions} />
         )}
+      {/* Phase N+4 확장 — mathlab 학습대책 carry-over (derived/고정 데이터) */}
+      <EssayPreparation questions={questions} />
+      <TimeAllocation chapterGroups={chapterGroups} totalPoints={totalPoints} />
+      <CommonMistakes questions={questions} />
+      <Timeline />
     </div>
   );
 };
@@ -395,6 +405,249 @@ const KillerPatterns = ({
           />
         </div>
       ))}
+    </div>
+  </Card>
+);
+
+// ════════════════════════════════════════════════════════════════════
+// §5. EssayPreparationSection — 서술형 대비 (체크리스트, 고정 데이터)
+// ════════════════════════════════════════════════════════════════════
+
+const EssayPreparation = ({ questions }: { questions: AnalyzedQuestion[] }) => {
+  const essayQuestions = useMemo(
+    () =>
+      questions.filter(
+        (q) =>
+          q.question_format === "essay" || q.question_format === "short_answer",
+      ),
+    [questions],
+  );
+  const totalEssayPoints = essayQuestions.reduce(
+    (s, q) => s + (q.points || 0),
+    0,
+  );
+
+  if (essayQuestions.length === 0) return null;
+
+  return (
+    <Card>
+      <Eyebrow icon="file-text">서술형 대비 전략</Eyebrow>
+      <p className="text-caption text-muted mt-1 mb-3">
+        {essayQuestions.length}문항 · 총 {totalEssayPoints}점 — 감점 방지 체크리스트
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {ESSAY_CHECKLIST.map((c) => (
+          <div
+            key={c.category}
+            className="rounded-r2 border border-line p-3 bg-surface2/40"
+          >
+            <div className="text-small font-semibold text-text mb-2">
+              {c.category}
+            </div>
+            <ul className="space-y-1 mb-2">
+              {c.checkPoints.map((p, i) => (
+                <li
+                  key={i}
+                  className="text-caption text-text2 flex gap-1.5 leading-relaxed"
+                >
+                  <Icon
+                    name="check-circle"
+                    size={12}
+                    className="text-ok shrink-0 mt-0.5"
+                  />
+                  {p}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-1">
+              {c.commonErrors.map((e) => (
+                <span
+                  key={e}
+                  className="px-1.5 py-0.5 rounded-sm text-[10px] bg-danger-soft text-danger"
+                >
+                  {e}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════
+// §6. TimeAllocationSection — 시험 시간 배분 (배점 비율 derived)
+// ════════════════════════════════════════════════════════════════════
+
+const EXAM_MINUTES = 45;
+
+const TimeAllocation = ({
+  chapterGroups,
+  totalPoints,
+}: {
+  chapterGroups: ChapterGroup[];
+  totalPoints: number;
+}) => {
+  const allocations = useMemo(() => {
+    return chapterGroups
+      .map((ch) => {
+        const basePct = totalPoints > 0 ? ch.totalPoints / totalPoints : 0;
+        const diffMult =
+          ch.avgDifficulty >= 3 ? 1.3 : ch.avgDifficulty >= 2 ? 1.1 : 0.9;
+        const minutes = Math.max(
+          1,
+          Math.round(basePct * (EXAM_MINUTES - 5) * diffMult),
+        );
+        return { name: ch.chapterName, minutes, points: ch.totalPoints };
+      })
+      .sort((a, b) => b.minutes - a.minutes);
+  }, [chapterGroups, totalPoints]);
+
+  if (allocations.length === 0) return null;
+  const maxMin = Math.max(...allocations.map((a) => a.minutes), 1);
+
+  return (
+    <Card>
+      <Eyebrow icon="clock">시험 시간 배분</Eyebrow>
+      <p className="text-caption text-muted mt-1 mb-3">
+        {EXAM_MINUTES}분 기준 · 배점 비율 + 난이도 가중 추정 (검토 5분 제외)
+      </p>
+      <div className="space-y-2.5">
+        {allocations.map((a) => (
+          <div key={a.name} className="flex items-center gap-2.5">
+            <span className="w-32 text-caption text-text2 shrink-0 truncate">
+              {a.name}
+            </span>
+            <div className="flex-1 bg-surface3 rounded-r1 h-5 overflow-hidden">
+              <div
+                className="h-full rounded-r1 bg-accent flex items-center justify-end pr-2 text-white text-[10px] font-bold transition-all"
+                style={{ width: `${Math.max((a.minutes / maxMin) * 100, 14)}%` }}
+              >
+                {a.minutes}분
+              </div>
+            </div>
+            <span className="w-10 text-right text-caption text-muted font-mono shrink-0">
+              {a.points}점
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════
+// §7. CommonMistakesSection — 자주 하는 실수 (영역 기반 제네릭)
+// ════════════════════════════════════════════════════════════════════
+
+const CommonMistakes = ({ questions }: { questions: AnalyzedQuestion[] }) => {
+  const groups = useMemo(() => {
+    const types = questions
+      .map((q) => q.question_type as string)
+      .filter((t) => Boolean(t));
+    return genericMistakesByTypes(types);
+  }, [questions]);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <Card>
+      <Eyebrow icon="warning">자주 하는 실수</Eyebrow>
+      <p className="text-caption text-muted mt-1 mb-3">
+        출제 영역별 흔한 실수 유형 + 예방법
+      </p>
+      <div className="space-y-3">
+        {groups.map((g) => (
+          <div key={g.topic}>
+            <div className="text-small font-semibold text-text mb-1.5">
+              {g.topic}
+            </div>
+            <div className="space-y-1.5">
+              {g.items.map((m, i) => (
+                <div
+                  key={i}
+                  className="rounded-r2 border border-line p-2.5 bg-surface2/40"
+                >
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-bold bg-danger-soft text-danger">
+                      {m.type}
+                    </span>
+                    <span className="text-caption text-text2">
+                      {m.description}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted flex gap-1">
+                    <Icon
+                      name="lightbulb"
+                      size={11}
+                      className="text-warn shrink-0 mt-0.5"
+                    />
+                    {m.prevention}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════
+// §8. TimelineSection — 4주 전 학습 타임라인 (고정 데이터)
+// ════════════════════════════════════════════════════════════════════
+
+const TIMELINE_COLORS = ["#3B82F6", "#8B5CF6", "#F97316", "#EF4444"];
+
+const Timeline = () => (
+  <Card>
+    <Eyebrow icon="calendar">4주 전 학습 타임라인</Eyebrow>
+    <p className="text-caption text-muted mt-1 mb-3">
+      시험 4주 전부터 체계적으로 준비하는 로드맵
+    </p>
+    <div className="space-y-3">
+      {FOUR_WEEK_TIMELINE.map((w, idx) => {
+        const color = TIMELINE_COLORS[idx % TIMELINE_COLORS.length];
+        return (
+          <div key={w.week} className="flex gap-3">
+            <div className="flex flex-col items-center shrink-0">
+              <div
+                className="w-2.5 h-2.5 rounded-full mt-1"
+                style={{ backgroundColor: color }}
+              />
+              {idx < FOUR_WEEK_TIMELINE.length - 1 && (
+                <div className="w-px flex-1 bg-line mt-1" />
+              )}
+            </div>
+            <div className="pb-1 flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 mb-1">
+                <span
+                  className="text-small font-bold"
+                  style={{ color }}
+                >
+                  {w.week}
+                </span>
+                <span className="text-caption text-text2 font-medium">
+                  {w.title}
+                </span>
+              </div>
+              <ul className="space-y-0.5">
+                {w.tasks.map((t, i) => (
+                  <li
+                    key={i}
+                    className="text-caption text-muted flex gap-1.5 leading-relaxed"
+                  >
+                    <span className="text-muted/50 shrink-0">·</span>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+      })}
     </div>
   </Card>
 );
