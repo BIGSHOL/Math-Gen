@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Card, Eyebrow } from "@app/components/ui";
+import { KaTeXInline } from "@app/components/math/KaTeXInline";
 import {
   ABILITY_DOMAIN_COLORS,
   ABILITY_DOMAIN_LABELS,
@@ -162,18 +163,19 @@ const CommentRow = ({
           )}
         </div>
 
-        {/* ai_comment */}
+        {/* ai_comment — KaTeX 렌더 ($...$ 수식 변환) */}
         {q.ai_comment && (
-          <p className="text-caption text-text2 leading-relaxed">
-            {q.ai_comment}
-          </p>
+          <KaTeXInline
+            text={q.ai_comment}
+            className="text-caption text-text2 leading-relaxed"
+          />
         )}
 
         {/* 난이도 근거 (토글) */}
         {showDiffReason && q.difficulty_reason && (
-          <p className="text-[11px] text-muted mt-1">
-            난이도 근거: {q.difficulty_reason}
-          </p>
+          <div className="text-[11px] text-muted mt-1">
+            난이도 근거: <KaTeXInline text={q.difficulty_reason} />
+          </div>
         )}
       </div>
     </div>

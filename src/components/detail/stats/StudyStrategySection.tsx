@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Card, Eyebrow, Icon } from "@app/components/ui";
+import { KaTeXInline } from "@app/components/math/KaTeXInline";
 import {
   deriveStudyStrategy,
   type ChapterGroup,
@@ -287,9 +288,10 @@ const LearningStrategies = ({
               <div className="text-small font-semibold text-text mb-0.5">
                 {rec.topic}
               </div>
-              <div className="text-caption text-text2 leading-relaxed">
-                {rec.reason}
-              </div>
+              <KaTeXInline
+                text={rec.reason}
+                className="text-caption text-text2 leading-relaxed"
+              />
             </div>
           </div>
         );
@@ -347,7 +349,7 @@ const LevelStrategies = ({
                       className="text-caption text-text2 leading-relaxed flex gap-1.5"
                     >
                       <span className="text-accent shrink-0">•</span>
-                      <span>{p}</span>
+                      <KaTeXInline text={p} className="text-caption text-text2" />
                     </li>
                   ))}
                 </ul>
@@ -387,9 +389,10 @@ const KillerPatterns = ({
           <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold text-white shrink-0 mt-0.5 font-mono bg-danger">
             {q.question_number}번
           </span>
-          <p className="text-caption text-text2 leading-relaxed flex-1">
-            {q.comment}
-          </p>
+          <KaTeXInline
+            text={q.comment}
+            className="text-caption text-text2 leading-relaxed flex-1"
+          />
         </div>
       ))}
     </div>

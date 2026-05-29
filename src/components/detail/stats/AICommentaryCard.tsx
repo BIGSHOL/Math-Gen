@@ -1,4 +1,5 @@
 import { Card, Eyebrow, Icon } from "@app/components/ui";
+import { KaTeXInline } from "@app/components/math/KaTeXInline";
 import type { CommentaryResult } from "@app/types/examAnalysis";
 
 /**
@@ -40,9 +41,10 @@ export const AICommentaryCard = ({
       )}
 
       {commentary?.overall_comment && (
-        <div className="text-small text-text2 leading-relaxed whitespace-pre-line">
-          {commentary.overall_comment}
-        </div>
+        <KaTeXInline
+          text={commentary.overall_comment}
+          className="block text-small text-text2 leading-relaxed whitespace-pre-line"
+        />
       )}
 
       {(commentary?.strength_areas?.length ||
@@ -63,7 +65,7 @@ export const AICommentaryCard = ({
                     className="text-caption text-text2 leading-relaxed flex gap-1.5"
                   >
                     <span className="text-ok shrink-0">•</span>
-                    <span>{s}</span>
+                    <KaTeXInline text={s} className="text-caption text-text2" />
                   </li>
                 ))}
               </ul>
@@ -85,7 +87,7 @@ export const AICommentaryCard = ({
                       className="text-caption text-text2 leading-relaxed flex gap-1.5"
                     >
                       <span className="text-warn shrink-0">•</span>
-                      <span>{s}</span>
+                      <KaTeXInline text={s} className="text-caption text-text2" />
                     </li>
                   ))}
                 </ul>
