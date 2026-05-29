@@ -16,11 +16,17 @@ export interface ExamAnalysisState {
   byTest: Record<string, ExamAnalysisRecord | null>;
   /** testId → in-flight 여부 (분석 실행 중). */
   inflight: Record<string, boolean>;
+  /**
+   * testId → V4 학원 블로그 생성 in-flight (Phase N+5). 기본 분석 inflight 과
+   * 별개. byTest 키라 다른 시험지/탭으로 전환 후 복귀해도 스피너 유지 (분리).
+   */
+  v4Inflight: Record<string, boolean>;
   /** testId → 에러 메시지 (실패 시 노출). */
   errors: Record<string, string | undefined>;
 
   setAnalysis: (testId: string, record: ExamAnalysisRecord | null) => void;
   setInflight: (testId: string, value: boolean) => void;
+  setV4Inflight: (testId: string, value: boolean) => void;
   setError: (testId: string, error: string | undefined) => void;
   clearError: (testId: string) => void;
   reset: () => void;
@@ -29,6 +35,7 @@ export interface ExamAnalysisState {
 export const useExamAnalysisStore = create<ExamAnalysisState>((set) => ({
   byTest: {},
   inflight: {},
+  v4Inflight: {},
   errors: {},
 
   setAnalysis: (testId, record) =>
@@ -39,6 +46,11 @@ export const useExamAnalysisStore = create<ExamAnalysisState>((set) => ({
   setInflight: (testId, value) =>
     set((state) => ({
       inflight: { ...state.inflight, [testId]: value },
+    })),
+
+  setV4Inflight: (testId, value) =>
+    set((state) => ({
+      v4Inflight: { ...state.v4Inflight, [testId]: value },
     })),
 
   setError: (testId, error) =>
@@ -53,5 +65,5 @@ export const useExamAnalysisStore = create<ExamAnalysisState>((set) => ({
       return { errors: next };
     }),
 
-  reset: () => set({ byTest: {}, inflight: {}, errors: {} }),
+  reset: () => set({ byTest: {}, inflight: {}, v4Inflight: {}, errors: {} }),
 }));

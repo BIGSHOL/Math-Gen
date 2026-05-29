@@ -9,7 +9,7 @@
  * fan-out 패턴 (CLAUDE.md §1-6-b): in-flight Set 멤버십만 cancel 신호. *AbortController 금지*.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { analyzeExam } from "@app/services/ai/examAnalysis";
 import { analyzeCommentary } from "@app/services/ai/examCommentary";
 import { analyzeV4Blog } from "@app/services/ai/examV4";
@@ -73,11 +73,15 @@ export const useExamAnalysis = (
   const inflight = useExamAnalysisStore((s) =>
     testId ? s.inflight[testId] ?? false : false,
   );
+  const v4Inflight = useExamAnalysisStore((s) =>
+    testId ? s.v4Inflight[testId] ?? false : false,
+  );
   const error = useExamAnalysisStore((s) =>
     testId ? s.errors[testId] : undefined,
   );
   const setAnalysis = useExamAnalysisStore((s) => s.setAnalysis);
   const setInflight = useExamAnalysisStore((s) => s.setInflight);
+  const setV4Inflight = useExamAnalysisStore((s) => s.setV4Inflight);
   const setError = useExamAnalysisStore((s) => s.setError);
   const clearError = useExamAnalysisStore((s) => s.clearError);
 
@@ -203,15 +207,15 @@ export const useExamAnalysis = (
   ]);
 
   // ── V4 학원 블로그 (Phase N+5, lazy) — 기본 분석과 별개 in-flight ──
-  const [v4Inflight, setV4Inflight] = useState(false);
-
+  // v4Inflight 는 store(byTest) 기반 — 다른 시험지/탭 전환 후 복귀해도 스피너 유지.
   const triggerV4 = useCallback(() => {
     if (!testId) return;
-    if (v4Inflight) return;
-    const rec = useExamAnalysisStore.getState().byTest[testId];
+    const st = useExamAnalysisStore.getState();
+    if (st.v4Inflight[testId]) return; // 이미 생성 중 (stale closure 회피 — getState)
+    const rec = st.byTest[testId];
     if (!rec) return;
 
-    setV4Inflight(true);
+    setV4Inflight(testId, true);
     setError(testId, undefined);
 
     void (async () => {
@@ -248,10 +252,10 @@ export const useExamAnalysis = (
           console.warn("[useExamAnalysis] V4 실패:", (err as Error).message);
         }
       } finally {
-        setV4Inflight(false);
+        setV4Inflight(testId, false);
       }
     })();
-  }, [testId, grade, examCategory, v4Inflight, setAnalysis, setError]);
+  }, [testId, grade, examCategory, setAnalysis, setError, setV4Inflight]);
 
   const clearErrorBound = useCallback(() => {
     if (testId) clearError(testId);
