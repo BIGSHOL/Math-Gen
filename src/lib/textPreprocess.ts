@@ -305,7 +305,7 @@ export const cleanMalformedLatex = (s: string): string =>
  *  7) injectDisplayStyle (보조 안전망 — `\sum`, `\int`, `\lim` 같은 큰
  *     연산자가 있는 식 + dfrac 안 쓰이는 외부 식에도 displaystyle 보장)
  */
-const applyMathInnerNormalization = (inner: string): string => {
+export const applyMathInnerNormalization = (inner: string): string => {
   let s = cleanMalformedLatex(inner);
   for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
   // improperToMixed 가 `\frac` 와 `\dfrac` 둘 다 매치, 반환은 `\frac` 표준화.

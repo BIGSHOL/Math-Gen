@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import katex from "katex";
-import { cleanMalformedLatex } from "@app/lib/textPreprocess";
+import { applyMathInnerNormalization } from "@app/lib/textPreprocess";
 
 /**
  * 경량 인라인 KaTeX 렌더러 (Phase N+ 보정).
@@ -14,7 +14,10 @@ import { cleanMalformedLatex } from "@app/lib/textPreprocess";
  * 가볍게 동작.
  *
  * - `$...$` (single) 만 처리 — commentary 에 display `$$` 거의 없음
- * - cleanMalformedLatex 로 모델 typo (\left\left, \approx, 빈 분수) 정상화
+ * - applyMathInnerNormalization — MarkdownRenderer 와 동일 정규화 묶음:
+ *   cleanMalformedLatex (모델 typo) + 가분수→대분수 + uprightGeometryLabels
+ *   (점·선·면 도형 라벨 직립 Roman, 변수는 italic — CLAUDE.md §2-10) +
+ *   \frac→\dfrac + autoSizeBrackets 등
  * - "No character metrics" warn 억제 (①②③ 등이 math 안 들어올 때 폭주 방지)
  * - KaTeX CSS 의 `.katex` 는 globals.css 의 `svg max-width 360px` / `svg text
  *   italic` 룰에서 `:where(.katex *)` 로 제외돼 있어 영향 없음.
@@ -35,7 +38,7 @@ const renderInlineKatex = (text: string): string =>
       origWarn.apply(console, args);
     };
     try {
-      return katex.renderToString(cleanMalformedLatex(tex), {
+      return katex.renderToString(applyMathInnerNormalization(tex), {
         throwOnError: false,
         strict: false,
         output: "html",
