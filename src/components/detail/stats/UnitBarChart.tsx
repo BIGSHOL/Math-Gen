@@ -56,11 +56,11 @@ export const UnitBarChart = ({ data }: UnitBarChartProps) => {
   const tickFont = { fontFamily: "inherit", fontStyle: "normal" } as const;
 
   return (
-    <div className="w-full h-[200px]">
+    <div className="w-full h-[260px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={chartData}
-          margin={{ top: 4, right: 8, bottom: 0, left: -16 }}
+          margin={{ top: 8, right: 8, bottom: 4, left: -16 }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
           <XAxis
