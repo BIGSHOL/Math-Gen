@@ -41,10 +41,19 @@ export interface UseExamAnalysisOutput {
   inflight: boolean;
   /** 에러 메시지. */
   error: string | undefined;
-  /** "분석 시작" / "재분석" 트리거. */
-  trigger: () => void;
+  /**
+   * "분석 시작" / "재분석" 트리거. opts 로 비교 메모 전달 (Phase N+6) — 있으면
+   * commentary 에 nearby/year_comparison 생성.
+   */
+  trigger: (opts?: ReanalyzeOptions) => void;
   /** 에러 clear. */
   clearError: () => void;
+}
+
+/** 재분석 시 사용자 입력 비교 메모 (Phase N+6). */
+export interface ReanalyzeOptions {
+  nearbyNote?: string;
+  yearNote?: string;
 }
 
 export const useExamAnalysis = (
@@ -82,7 +91,7 @@ export const useExamAnalysis = (
     });
   }, [testId, record, setAnalysis]);
 
-  const trigger = useCallback(() => {
+  const trigger = useCallback((opts?: ReanalyzeOptions) => {
     if (!testId) return;
     if (inflight) return;
     if (pageImages.length === 0) {
@@ -121,6 +130,9 @@ export const useExamAnalysis = (
             basic: output.result,
             grade,
             examCategory: examCategory ?? null,
+            schoolName: output.result.exam_info.school_name ?? null,
+            nearbyComparisonNote: opts?.nearbyNote?.trim() || null,
+            yearComparisonNote: opts?.yearNote?.trim() || null,
           });
           commentary = commentaryOut.result;
         } catch (err) {

@@ -93,7 +93,12 @@ const analyzeCommentaryDirect = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
 
-  const userContent = buildCommentaryUserPrompt(input.basic);
+  const userContent = buildCommentaryUserPrompt(input.basic, {
+    schoolName: input.schoolName,
+    examName: input.examName,
+    nearbyNote: input.nearbyComparisonNote,
+    yearNote: input.yearComparisonNote,
+  });
 
   // System blocks:
   //   block 0~ = 기존 SYSTEM_BLOCKS (COMMON_INSTRUCTIONS, 이미 cache)

@@ -198,7 +198,10 @@ export interface CommentaryResult {
   improvement_areas?: string[];
   notable_questions?: NotableQuestion[];
   teaching_recommendations?: TeachingRecommendation[];
+  /** 주변 학교 비교 (Phase N+6) — 사용자 입력 메모 근거. 메모 없으면 undefined. */
   nearby_comparison?: string;
+  /** 이전 연도 비교 (Phase N+6) — 사용자 입력 메모 근거. 메모 없으면 undefined. */
+  year_comparison?: string;
   study_priority?: TeachingRecommendation[];
   encouragement?: string;
 
@@ -286,10 +289,16 @@ export interface AnalyzeCommentaryInput {
   schoolName?: string | null;
   /** 시험명 (예: "1학기 중간고사"). */
   examName?: string | null;
-  /** 주변 학교 비교 가능 여부 (Q1 동적 분기용). */
-  includeNearby?: boolean;
-  /** 연도 비교 가능 여부 (Q1 동적 분기용). */
-  includeYearCompare?: boolean;
+  /**
+   * 주변 학교 비교 메모 (사용자 입력 — Phase N+6). 있으면 nearby_comparison 생성.
+   * corpus 없음 → AI 는 *이 메모에 담긴 정보만* 근거로 정리 (학교명·점수 fabrication 금지).
+   */
+  nearbyComparisonNote?: string | null;
+  /**
+   * 이전 연도 비교 메모 (사용자 입력 — Phase N+6). 있으면 year_comparison 생성.
+   * 작년 평균/경향 등 사용자가 아는 정보. AI 는 이 메모만 근거로 정리.
+   */
+  yearComparisonNote?: string | null;
   /** cancel signal. */
   signal?: AbortSignal;
 }

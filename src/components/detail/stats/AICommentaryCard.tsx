@@ -95,6 +95,40 @@ export const AICommentaryCard = ({
             )}
         </div>
       )}
+
+      {/* 비교 분석 (Phase N+6) — 사용자 입력 메모 근거. 메모 있을 때만 생성됨. */}
+      {(commentary?.nearby_comparison || commentary?.year_comparison) && (
+        <div className="mt-4 pt-4 border-t border-line space-y-3">
+          {commentary?.nearby_comparison && (
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <Icon name="buildings" size={13} className="text-accent" />
+                <h4 className="text-caption font-semibold text-text2">
+                  주변 학교 비교
+                </h4>
+              </div>
+              <KaTeXInline
+                text={commentary.nearby_comparison}
+                className="block text-caption text-text2 leading-relaxed"
+              />
+            </div>
+          )}
+          {commentary?.year_comparison && (
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <Icon name="calendar" size={13} className="text-accent" />
+                <h4 className="text-caption font-semibold text-text2">
+                  이전 연도 비교
+                </h4>
+              </div>
+              <KaTeXInline
+                text={commentary.year_comparison}
+                className="block text-caption text-text2 leading-relaxed"
+              />
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 };

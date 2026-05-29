@@ -14,6 +14,7 @@ import { DiscriminationSection } from "./DiscriminationSection";
 import { AnalysisCommentSection } from "./AnalysisCommentSection";
 import { AICommentaryCard } from "./AICommentaryCard";
 import { StudyStrategySection } from "./StudyStrategySection";
+import { ReanalyzeModal } from "./ReanalyzeModal";
 
 type StatsSubTab = "basic" | "comment" | "strategy";
 
@@ -86,6 +87,7 @@ export const StatsTabContent = ({
   const koreanGrade = useMemo(() => toKoreanGrade(grade), [grade]);
 
   const [subTab, setSubTab] = useState<StatsSubTab>("basic");
+  const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
 
   const { record, inflight, error, trigger, clearError } = useExamAnalysis({
     testId,
@@ -145,7 +147,7 @@ export const StatsTabContent = ({
             size="lg"
             icon="sparkle"
             disabled={inflight || pageImages.length === 0}
-            onClick={trigger}
+            onClick={() => trigger()}
           >
             {inflight
               ? "분석 중"
@@ -218,11 +220,7 @@ export const StatsTabContent = ({
               size="sm"
               icon="arrow-clockwise"
               disabled={inflight}
-              onClick={() => {
-                if (window.confirm("이 시험지를 다시 분석합니다. 계속하시겠습니까?")) {
-                  trigger();
-                }
-              }}
+              onClick={() => setReanalyzeOpen(true)}
             >
               재분석
             </Btn>
@@ -330,6 +328,16 @@ export const StatsTabContent = ({
           commentary={record.commentary}
         />
       )}
+
+      {/* 재분석 옵션 모달 (Phase N+6) — 주변/연도 비교 메모 입력 */}
+      <ReanalyzeModal
+        open={reanalyzeOpen}
+        onClose={() => setReanalyzeOpen(false)}
+        onConfirm={(opts) => {
+          setReanalyzeOpen(false);
+          trigger(opts);
+        }}
+      />
     </div>
   );
 };

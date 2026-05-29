@@ -107,7 +107,9 @@ V6. 출력 텍스트 어디에도 **CALCULATION/UNDERSTANDING/PROBLEM_SOLVING/RE
     "killer_patterns": [{"unit": "고난도 출제 단원", "trap": "이 단원 고난도 문항의 전형적 함정 1문장", "solution": "함정 대응 전략 1문장"}],
     "common_mistakes": [{"topic": "출제 단원", "mistake": "학생들이 자주 하는 실수 1문장", "prevention": "예방법 1문장"}],
     "time_tips": {"quick": ["빠르게 풀 수 있는 유형 (출제 단원 기준)"], "caution": ["시간이 걸리는 유형"], "saving": ["시간 절약 팁"]}
-  }
+  },
+  "nearby_comparison": "(주변 학교 비교 메모가 입력된 경우에만 포함) 메모를 근거로 한 상대적 위치 분석 2-3문장. 메모 없으면 이 키 자체를 생략.",
+  "year_comparison": "(이전 연도 비교 메모가 입력된 경우에만 포함) 메모를 근거로 한 출제 경향 변화 분석 2-3문장. 메모 없으면 이 키 자체를 생략."
 }
 
 ## 작성 지침
@@ -166,6 +168,11 @@ V6. 출력 텍스트 어디에도 **CALCULATION/UNDERSTANDING/PROBLEM_SOLVING/RE
 - **time_tips** (시간 배분, 각 2~4개): quick(빠르게 풀 유형) / caution(시간 걸리는 유형) / saving(시간 절약 팁). 출제 단원 기준 실용적으로.
 - 모든 항목은 *출제된 단원/난이도 데이터* 에 근거. 추측·일반론 금지.
 
+### nearby_comparison / year_comparison (비교 분석 — 조건부, 사용자 입력 근거)
+- **user prompt 에 "비교 참고 정보" 섹션이 있을 때만** 해당 키를 생성하세요. 섹션이 없으면 키 자체를 출력하지 마세요.
+- ⚠️ **제공된 메모에 적힌 정보만 사용하세요.** 메모에 없는 구체적 학교명·평균 점수·등수·수치를 절대 지어내지 마세요 (H5 위반).
+- 메모를 근거로 이 시험의 상대적 난이도/경향을 2-3문장으로 객관적으로 정리하세요. 메모가 모호하면 단정하지 말고 "제공된 정보 기준" 으로 표현하세요.
+
 ## 톤 & 스타일
 - 전문적이고 객관적인 분석 톤을 사용하세요.
 - "~입니다", "~됩니다" 체를 사용하세요.
@@ -182,8 +189,18 @@ V6. 출력 텍스트 어디에도 **CALCULATION/UNDERSTANDING/PROBLEM_SOLVING/RE
  * 동적 user prompt — 시험지마다 다른 통계 데이터.
  * mathlab buildPrompt 의 line 595-712 (시험 개요 + 통계 + 문항 상세).
  */
+export interface CommentaryUserPromptOpts {
+  schoolName?: string | null;
+  examName?: string | null;
+  /** 주변 학교 비교 메모 (사용자 입력). 있으면 nearby_comparison 생성 지시. */
+  nearbyNote?: string | null;
+  /** 이전 연도 비교 메모 (사용자 입력). 있으면 year_comparison 생성 지시. */
+  yearNote?: string | null;
+}
+
 export const buildCommentaryUserPrompt = (
   basic: BasicAnalysisResult,
+  opts?: CommentaryUserPromptOpts,
 ): string => {
   const totalQ = basic.questions.length;
   const totalPts = basic.exam_info.total_points;
@@ -248,6 +265,27 @@ export const buildCommentaryUserPrompt = (
 
 ## 문항 상세
 ${JSON.stringify(questionsData, null, 1)}
-
+${buildComparisonSection(opts)}
 위 데이터를 바탕으로 시스템 지침의 출력 형식에 따라 JSON 객체 하나만 emit 하세요.`;
+};
+
+/**
+ * 비교 참고 정보 섹션 — 사용자가 메모를 입력한 경우에만 생성 (Phase N+6).
+ * corpus 없음 → AI 는 *이 메모만* 근거로 nearby/year_comparison 작성. fabrication 금지.
+ */
+const buildComparisonSection = (opts?: CommentaryUserPromptOpts): string => {
+  const nearby = opts?.nearbyNote?.trim();
+  const year = opts?.yearNote?.trim();
+  if (!nearby && !year) return "";
+
+  let s = "\n## 비교 참고 정보 (사용자 입력 — 아래 정보만 근거로 비교 작성)\n";
+  if (nearby) {
+    s += `- 주변 학교 비교 메모: ${nearby}\n  → 이 메모를 근거로 nearby_comparison 키를 생성하세요.\n`;
+  }
+  if (year) {
+    s += `- 이전 연도 비교 메모: ${year}\n  → 이 메모를 근거로 year_comparison 키를 생성하세요.\n`;
+  }
+  s +=
+    "⚠️ 위 메모에 적힌 내용만 사용하세요. 메모에 없는 학교명·점수·등수·수치를 절대 추가하지 마세요.\n";
+  return s;
 };
