@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Btn, Chip, Eyebrow, Icon } from "@app/components/ui";
 import type { TestPaper, TopicSlice } from "@app/types";
 import { formatVariantLabel } from "@app/lib/conversionLabels";
@@ -74,10 +75,81 @@ export const DetailMetaSidebar = ({
   loading,
 }: DetailMetaSidebarProps) => {
   const info = buildInfo(test);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // ── 접힌 상태 — 액션 아이콘 버튼만 (변형/이어서/공유/PDF) + 펼치기 토글 ──
+  if (collapsed) {
+    return (
+      <aside className="w-[56px] flex-shrink-0 py-4 border-l border-line bg-surface flex flex-col items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="사이드바 펼치기"
+          aria-label="사이드바 펼치기"
+          className="w-9 h-9 rounded-r2 grid place-items-center text-muted hover:text-text hover:bg-hover transition-colors"
+        >
+          <Icon name="caret-left" size={16} />
+        </button>
+        <div className="w-7 h-px bg-line my-0.5" />
+        <button
+          type="button"
+          onClick={onMakeVariant}
+          disabled={resuming || loading}
+          title="변형 만들기"
+          aria-label="변형 만들기"
+          className="w-9 h-9 rounded-r2 grid place-items-center bg-accent text-white hover:bg-accent-strong transition-colors disabled:opacity-50"
+        >
+          <Icon name="sparkle" size={16} weight="fill" />
+        </button>
+        <button
+          type="button"
+          onClick={onResume}
+          disabled={resuming || loading}
+          title="이어서 작업"
+          aria-label="이어서 작업"
+          className="w-9 h-9 rounded-r2 grid place-items-center bg-surface2 text-text hover:bg-hover transition-colors disabled:opacity-50"
+        >
+          <Icon name="play" size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={onShare}
+          disabled={!onShare || loading}
+          title="공유"
+          aria-label="공유"
+          className="w-9 h-9 rounded-r2 grid place-items-center text-muted hover:text-text hover:bg-hover transition-colors disabled:opacity-40"
+        >
+          <Icon name="share-network" size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={onPdf}
+          disabled={!onPdf || loading}
+          title="PDF"
+          aria-label="PDF"
+          className="w-9 h-9 rounded-r2 grid place-items-center text-muted hover:text-text hover:bg-hover transition-colors disabled:opacity-40"
+        >
+          <Icon name="download-simple" size={15} />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="w-[296px] flex-shrink-0 px-5 py-6 border-l border-line bg-surface overflow-auto">
-      {/* ── 액션 (최상단) ───────────────────────────────────────────────── */}
-      <Eyebrow className="mb-3">액션</Eyebrow>
+      {/* ── 액션 (최상단) — 우측에 접기 토글 ──────────────────────────── */}
+      <div className="flex items-center justify-between mb-3">
+        <Eyebrow>액션</Eyebrow>
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          title="사이드바 접기"
+          aria-label="사이드바 접기"
+          className="w-6 h-6 rounded-r1 grid place-items-center text-muted hover:text-text hover:bg-hover transition-colors"
+        >
+          <Icon name="caret-right" size={14} />
+        </button>
+      </div>
       <div className="flex flex-col gap-2 mb-7">
         {/* 변형 만들기 — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */}
         <div>

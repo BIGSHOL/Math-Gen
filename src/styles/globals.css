@@ -81,6 +81,21 @@
   display: inline-block;
 }
 
+/* ── KaTeX 분수 가독성 (사용자 요청 2026-05-29) ──
+   분자·분모가 본문 대비 작게 보이는 것 방지. applyMathInnerNormalization 이
+   \frac → \dfrac (displaystyle) 강제하지만 KaTeX 의 분자/분모는 여전히 본문
+   보다 약간 작게 조판된다 (수학 관행). 한국 교과서·시험지 관행은 분수 글자도
+   본문과 비슷한 크기 → .mfrac 폰트를 살짝 키워 가독성 확보.
+   *전역* — 시험지 OCR / 해설 / 변형 / 분석 코멘트의 모든 KaTeX 분수 공통.
+   중첩 분수의 누적 확대를 막기 위해 1.07em 보수적 설정. */
+.katex .mfrac {
+  font-size: 1.07em;
+}
+/* 중첩 분수 — 안쪽 분수는 추가 확대 안 함 (1.07^2 누적 방지) */
+.katex .mfrac .mfrac {
+  font-size: 1em;
+}
+
 /* 편집 가능한 수식 — onMathClick 활성 시에만 cursor/hover 표시 */
 .math-clickable .editable-math {
   cursor: pointer;
