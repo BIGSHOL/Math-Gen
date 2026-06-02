@@ -142,7 +142,7 @@ export const SolutionItem = ({ pageId, item, onRegenerate, readonly }: SolutionI
           {isInFlight ? (
             <>
               <Icon name="circle-notch" weight="bold" className="animate-spin" />
-              <span>Sonnet 호출 중 — 평균 3~5 초</span>
+              <span>AI 호출 중</span>
             </>
           ) : (
             <>

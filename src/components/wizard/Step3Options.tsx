@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Card,
   Chip,
@@ -43,6 +43,10 @@ interface GoalSpec {
   desc: string;
   icon: string;
 }
+
+// MVP 락다운 (사용자 결정 2026-06-02): "디지털화만" 만 활성. 나머지 변환 목표
+// (유사/변형/맞춤) 는 *구현중* 으로 비활성 — 회색 + 클릭 불가 + "구현중" 칩.
+const ENABLED_GOALS = new Set<ConversionGoal>(["digitize"]);
 
 // title 은 lib/conversionLabels 의 GOAL_LABEL_KO 와 byte-identical 동기화 —
 // 변형 이력 카드 / Step3 카드 라벨이 한 source of truth.
@@ -167,6 +171,16 @@ export const Step3Options = () => {
     [goal, difficulty],
   );
 
+  // 비활성 목표가 선택돼 있으면 (옛 세션 등) 강제로 digitize 로 — 비활성
+  // 목표는 클릭 불가라 사용자가 직접 못 바꾸므로 stuck 방지.
+  useEffect(() => {
+    if (!ENABLED_GOALS.has(goal)) setOptions({ goal: "digitize" });
+  }, [goal, setOptions]);
+
+  // 난이도 조정은 *변형이 일어나는 목표* 에서만 의미 있음. 디지털화만은 원문을
+  // 그대로 옮기므로 난이도 조정 비활성 (사용자 결정 2026-06-02).
+  const difficultyEnabled = goal !== "digitize" && ENABLED_GOALS.has(goal);
+
   const handleExtra = (id: keyof WizardState["extras"]) =>
     setOptions({ extras: { ...extras, [id]: !extras[id] } });
 
@@ -187,20 +201,25 @@ export const Step3Options = () => {
           <Eyebrow className="mb-2.5">변환 목표</Eyebrow>
           <div className="grid grid-cols-2 gap-2.5">
             {GOALS.map((g) => {
-              const on = g.id === goal;
+              const enabled = ENABLED_GOALS.has(g.id);
+              const on = enabled && g.id === goal;
               return (
                 <button
                   key={g.id}
                   type="button"
-                  onClick={() => setOptions({ goal: g.id })}
+                  disabled={!enabled}
+                  onClick={() => enabled && setOptions({ goal: g.id })}
                   aria-pressed={on}
+                  title={enabled ? undefined : "준비 중인 기능입니다"}
                   className={cn(
                     "relative p-4 rounded-r3 text-left transition-all duration-[140ms] ease-out",
                     "focus-visible:outline-none focus-visible:shadow-accent-glow",
                     "border-[1.5px]",
-                    on
-                      ? "border-accent bg-accent-soft shadow-accent-glow"
-                      : "border-line bg-surface shadow-s1 hover:border-line-strong",
+                    !enabled
+                      ? "border-line bg-surface2 opacity-60 cursor-not-allowed"
+                      : on
+                        ? "border-accent bg-accent-soft shadow-accent-glow"
+                        : "border-line bg-surface shadow-s1 hover:border-line-strong",
                   )}
                 >
                   <span
@@ -228,22 +247,41 @@ export const Step3Options = () => {
                       <Icon name="check" size={12} weight="bold" color="white" />
                     </span>
                   )}
+                  {!enabled && (
+                    <span className="absolute top-2.5 right-2.5">
+                      <Chip size="sm" tone="soft">구현중</Chip>
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* 난이도 조정 */}
+        {/* 난이도 조정 — 변환 목표에 따라 활성/비활성 (디지털화만은 비활성). */}
         <div className="mb-6">
-          <Eyebrow className="mb-2.5">난이도 조정</Eyebrow>
-          <Segmented<DifficultyShift>
-            value={difficulty}
-            onChange={(v) => setOptions({ difficulty: v })}
-            options={DIFFICULTY_OPTIONS}
-            size="md"
-            full
-          />
+          <div className="flex items-center gap-2 mb-2.5">
+            <Eyebrow>난이도 조정</Eyebrow>
+            {!difficultyEnabled && (
+              <span className="text-caption text-muted">
+                · 디지털화만 모드에서는 적용되지 않습니다
+              </span>
+            )}
+          </div>
+          <div
+            className={cn(
+              !difficultyEnabled && "opacity-50 pointer-events-none select-none",
+            )}
+            aria-disabled={!difficultyEnabled}
+          >
+            <Segmented<DifficultyShift>
+              value={difficulty}
+              onChange={(v) => difficultyEnabled && setOptions({ difficulty: v })}
+              options={DIFFICULTY_OPTIONS}
+              size="md"
+              full
+            />
+          </div>
         </div>
 
         {/* 함께 만들 자료 */}
