@@ -6,6 +6,7 @@ import { preprocessForOcr } from "@app/lib/imagePreprocess";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
+import { reconcileChoicesMissingWithCrop } from "@app/lib/cropKindReconcile";
 import { reportError } from "@app/lib/errorReporter";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
 import {
@@ -309,8 +310,15 @@ export const usePageOcr = () => {
               ...it,
               ocrModel: result.modelUsed,
             }));
+            // 크롭 분류(kind="essay") 권위 신호로 "보기 누락" 오경고 제거.
+            // 검수에서 서술형으로 크롭된 문항인데 OCR 텍스트 휴리스틱이 객관식
+            // 으로 오인한 케이스 정정 (CLAUDE.md §18 류 SERIOUS, 2026-06-02).
+            const reconciled = reconcileChoicesMissingWithCrop(
+              itemsWithModel,
+              page.cropBoxes,
+            );
             setPageOCR(page.id, {
-              ocrResult: itemsWithModel,
+              ocrResult: reconciled,
               ocrComplete: true,
               ocrModel: result.modelUsed as WizardPage["ocrModel"],
             });
@@ -547,9 +555,15 @@ export const usePageOcr = () => {
           const merged: OCRProblem[] = pass1Items.map(
             (p1) => upgradedByNumber.get(p1.number) ?? p1,
           );
+          // Pass 2 재OCR 된 box 는 fresh choicesMissing 을 받으므로 크롭 분류
+          // reconcile 을 다시 적용 (Pass 1 reconcile 은 비-upgrade item 만 보존).
+          const mergedReconciled = reconcileChoicesMissingWithCrop(
+            merged,
+            page.cropBoxes,
+          );
 
           setPageOCR(page.id, {
-            ocrResult: merged,
+            ocrResult: mergedReconciled,
             // 적어도 1 box 가 upgrade 됐으면 page.ocrModel 도 Pass 2 모델로 갱신
             // (PageThumbColumn chip 표시 일관성). 모두 실패면 Pass 1 모델 유지.
             ocrModel: (lastModelUsed ?? page.ocrModel) as WizardPage["ocrModel"],
