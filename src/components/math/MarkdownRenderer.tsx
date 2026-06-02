@@ -1084,14 +1084,22 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             const gridClass = items.length >= 2 ? `grid ${colsClass} gap-x-6 gap-y-1` : "";
 
             return (
-              <div className="border border-line-strong px-5 py-3 my-3 rounded-r2 bg-surface2 text-text not-italic w-fit max-w-full">
+              // 오버플로우 강력 보정 (사용자 보고 2026-06-02: <조건> 내용이 박스 밖으로
+              // 나옴). grid 아이템 기본 min-width:auto 가 긴 줄·넓은 수식을 못 줄여
+              // 박스를 밀어내는 함정 → min-w-0 + break-words 로 줄바꿈 강제. 넓은
+              // display 수식은 가로 스크롤로 박스 안에 가둠 ([&_.katex-display]).
+              <div className="border border-line-strong px-5 py-3 my-3 rounded-r2 bg-surface2 text-text not-italic w-fit max-w-full overflow-hidden [&_.katex-display]:overflow-x-auto">
                 {header.map((h, i) => (
-                  <div key={`h-${i}`}>{h}</div>
+                  <div key={`h-${i}`} className="min-w-0 break-words">
+                    {h}
+                  </div>
                 ))}
                 {items.length > 0 && (
-                  <div className={gridClass}>
+                  <div className={`min-w-0 ${gridClass}`}>
                     {items.map((item, i) => (
-                      <div key={`i-${i}`}>{item}</div>
+                      <div key={`i-${i}`} className="min-w-0 break-words">
+                        {item}
+                      </div>
                     ))}
                   </div>
                 )}
