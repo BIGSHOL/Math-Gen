@@ -402,6 +402,55 @@ const callOpenAI = async (
  * Default model: Claude Sonnet 4.6. The team will evaluate quality and may
  * promote to Opus 4.7 — when that happens just change the default here.
  */
+/**
+ * AI 정리 패스 (사용자 요구 2026-06-02): 모델이 풀이에 섞어 출력한 *검증·재시도·
+ * 오답 인정* 과정을 삭제하고 정답까지 직선 흐름의 *깨끗한 풀이만* 남긴다. 답은
+ * 바꾸지 않는다 (answer 필드는 별도 — 여기선 solution 본문만 정리).
+ *
+ * validateSolution 이 trial-and-error / too-long 을 검출했을 때만 호출 → 기존
+ * useSolutionGen auto-retry 의 extra-call 예산을 *재사용* (net-zero). blind
+ * 재생성보다 신뢰도 높음 — 모델이 이미 정답을 알고 *정리만* 하므로.
+ *
+ * Anthropic Sonnet 전용(텍스트 정리라 충분). 실패 시 throw → 호출부가 catch 해
+ * 원본 유지(warning 남아 useSolutionGen 이 재생성). dev 는 API 키 미노출이라
+ * throw → 원본 유지 (prod/Vercel function 에서만 실제 정리).
+ */
+const CLEANUP_SYSTEM = `너는 한국 수학 해설을 *정리* 하는 편집기다. 입력 풀이에는 모델이 풀다가 오답을 발견하고 재검토·재계산한 trial-and-error 과정이 섞여 있다 (예: "선택지와 맞지 않으므로 재검토", "다시 계산", "오류!", "여전히 ...", 틀린 중간 결과 뒤 재시작, 장황한 case 나열).
+
+다음 규칙으로 *깨끗한 풀이* 만 다시 출력하라:
+- 검증·재시도·오답 인정·재계산 과정과 *틀린 중간 시도* 를 전부 삭제.
+- 정답까지 도달하는 *직선 흐름* 의 풀이만 남긴다 (처음부터 정답으로 향한 듯이).
+- 최종 답(마지막 식의 값)은 *절대 바꾸지 말 것*.
+- 불필요한 case 나열 / 보일러플레이트 도입부 / "따라서 답은 ⑤" 류 마무리 멘트 제거.
+- 수식은 인라인 달러 또는 디스플레이 달러로, 한국어 설명은 최소한. 교과서 정답지 수준으로 짧게.
+
+출력은 *정리된 풀이 본문만* (머리말·설명·코드펜스 없이 풀이 markdown 그대로).`;
+
+const cleanupSolution = async (
+  dirtySolution: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const response = await anthropic.messages.create(
+    {
+      model: SONNET_MODEL,
+      max_tokens: 4096,
+      temperature: 0,
+      system: CLEANUP_SYSTEM,
+      messages: [{ role: "user", content: dirtySolution }],
+    },
+    signal ? { signal } : undefined,
+  );
+  const text = response.content
+    .map((b) =>
+      "text" in b && typeof (b as { text?: unknown }).text === "string"
+        ? (b as { text: string }).text
+        : "",
+    )
+    .join("")
+    .trim();
+  return stripCodeFences(text);
+};
+
 const generateSolutionDirect = async (
   input: SolutionGenInput,
 ): Promise<SolutionGenResult> => {
@@ -432,11 +481,44 @@ const generateSolutionDirect = async (
   // 정확도 휴리스틱 검증 — Pattern J ("서로 다른 N 개" 조건의 중복 튜플) 등
   // 명백한 오류 패턴 자동 검출. 위반 시 warning 으로 surfacing (답 무효화 X,
   // 사용자가 재생성 결정). lib/solutionValidator.ts 참고.
-  const cleanedSolution = sanitizeText(parsed.solution ?? "");
-  const warnings: SolutionWarning[] = validateSolution({
+  let cleanedSolution = sanitizeText(parsed.solution ?? "");
+  let warnings: SolutionWarning[] = validateSolution({
     problemText: input.problem.text ?? "",
     solutionText: cleanedSolution,
   });
+
+  // 사용자 요구 2026-06-02: 검증/재시도 흔적이나 과도한 분량이 검출되면 *실제
+  // 해설에서 그 부분을 삭제* 하고 필요한 풀이만 남긴다. blind 재생성 대신 AI
+  // 정리 패스 — 모델이 정답을 유지한 채 trial-and-error 만 잘라낸다. 정리 후
+  // 재검증해서 warning 이 사라지면 useSolutionGen 의 자동 재생성도 안 돈다.
+  const needsCleanup = warnings.some(
+    (w) => w.rule === "trial-and-error" || w.rule === "too-long",
+  );
+  if (needsCleanup) {
+    try {
+      const cleaned = sanitizeText(await cleanupSolution(cleanedSolution, input.signal));
+      // 정리 결과가 비정상적으로 짧으면(실패 의심) 원본 유지.
+      if (cleaned.length >= 20) {
+        cleanedSolution = cleaned;
+        warnings = validateSolution({
+          problemText: input.problem.text ?? "",
+          solutionText: cleanedSolution,
+        });
+        if (import.meta.env?.DEV) {
+          // eslint-disable-next-line no-console
+          console.debug("[ai/solutions] cleanup 패스 적용 — 검증/재시도 흔적 제거");
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === "AbortError") throw err;
+      // best-effort — 실패 시 원본 + warning 유지 (useSolutionGen 이 재생성).
+      if (import.meta.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn("[ai/solutions] cleanup 실패 — 원본 유지:", (err as Error).message);
+      }
+    }
+  }
+
   if (warnings.length > 0 && import.meta.env?.DEV) {
     // eslint-disable-next-line no-console
     console.warn(
