@@ -240,7 +240,10 @@ export const Step1_5CropInspect = () => {
   const boxes = activePage.cropBoxes ?? [];
 
   return (
-    <div className="flex h-full gap-4">
+    // px-6 py-5 — 다른 단계(Step2OCRReview)와 동일한 바깥 여백. 없으면 좌측
+    // 썸네일/페이지와 우측 편집도구가 창 가장자리에 딱 붙어 "좌우 짤림"
+    // 으로 보임 (사용자 보고 2026-06-02).
+    <div className="flex h-full gap-4 px-6 py-5">
       {/* 좌측 — 페이지 thumbnail */}
       <PageThumbColumn
         pages={pages}
