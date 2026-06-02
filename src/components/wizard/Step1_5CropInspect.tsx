@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Btn, Card, Eyebrow, Icon } from "@app/components/ui";
+import { Card, Eyebrow, Icon } from "@app/components/ui";
 import { useWizardStore } from "@app/stores/wizardStore";
 import type { CropBox } from "@app/stores/wizardStore";
 
@@ -24,7 +24,6 @@ import { EditableCropBox } from "./EditableCropBox";
 import PageThumbColumn from "./PageThumbColumn";
 import { useCropDetect } from "@app/hooks/useCropDetect";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
-import { showToast } from "@app/stores/toastStore";
 
 /** 페이지 이미지 영역에서 *빈 곳* drag → 새 박스 생성 (create 모드 전용). */
 interface DrawHandlerProps {
@@ -137,8 +136,6 @@ export const Step1_5CropInspect = () => {
   const addCropBox = useWizardStore((s) => s.addCropBox);
   const updateCropBox = useWizardStore((s) => s.updateCropBox);
   const deleteCropBox = useWizardStore((s) => s.deleteCropBox);
-  const markCropInspected = useWizardStore((s) => s.markCropInspected);
-  const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
 
   useCropDetect(); // mount → 자동 검출 시작
 
@@ -221,10 +218,6 @@ export const Step1_5CropInspect = () => {
 
   // 통계 — 전체 페이지 진행 상태 + 총 검출 문항.
   const totalPages = pages.length;
-  const inspectedCount = useMemo(
-    () => pages.filter((p) => p.cropInspected).length,
-    [pages],
-  );
   const detectingCount = useMemo(
     () => pages.filter((p) => p.cropDetectInflight).length,
     [pages],
@@ -477,45 +470,17 @@ export const Step1_5CropInspect = () => {
                 {detectingCount}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted">검토 완료</span>
-              <span className="font-mono">
-                {inspectedCount} / {totalPages}
-              </span>
-            </div>
           </div>
         </Card>
 
-        <Btn
-          kind="secondary"
-          icon="check"
-          full
-          onClick={() => {
-            markCropInspected(activePage.id);
-            showToast({
-              kind: "success",
-              message: `페이지 ${activeIndex + 1} 검토 완료 (박스 ${boxes.length}개)`,
-            });
-          }}
-          disabled={activePage.cropInspected}
-        >
-          {activePage.cropInspected ? "검토 완료됨" : "이 페이지 검토 완료"}
-        </Btn>
-        <Btn
-          kind="ghost"
-          icon="check-square"
-          full
-          size="sm"
-          onClick={() => {
-            markAllCropInspected();
-            showToast({
-              kind: "success",
-              message: `모든 페이지 ${totalPages}개 검토 완료`,
-            });
-          }}
-        >
-          모든 페이지 일괄 완료
-        </Btn>
+        {/* 확인 버튼은 footer 로 일원화 (사용자 보고 2026-06-02 — 단계마다 확인
+            위치가 바뀌면 헷갈림). 모든 박스를 확인했으면 아래 footer 의
+            "모든 페이지 검토 완료" 버튼으로 다음 단계 진행. */}
+        <p className="text-caption text-muted leading-relaxed mt-1">
+          박스를 모두 확인했으면 하단의{" "}
+          <span className="font-semibold text-text">“모든 페이지 검토 완료”</span>{" "}
+          버튼으로 다음 단계로 넘어가세요.
+        </p>
       </aside>
 
       {/* 검출 진행 중 카드 — viewport fixed 중앙. 사용자 보고 (2026-05-27):

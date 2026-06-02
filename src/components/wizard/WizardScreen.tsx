@@ -58,6 +58,7 @@ export const WizardScreen = () => {
   const pages = useWizardStore((s) => s.pages);
   const ocrConfirmed = useWizardStore((s) => s.ocrConfirmed);
   const setOcrConfirmed = useWizardStore((s) => s.setOcrConfirmed);
+  const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
 
@@ -167,22 +168,28 @@ export const WizardScreen = () => {
 
   // 단계 게이팅 (사용자 결정 2026-06-02): 이전 단계가 완료돼야 다음으로 진행.
   // 단 해설(step 3)은 스킵 가능. 비-문항·비-force 페이지는 검수/OCR 면제.
+  //
+  // **확인 버튼 위치 일관성** (사용자 보고 2026-06-02): 단계마다 확인 버튼 위치가
+  // 바뀌면 헷갈림. footer 는 모든 단계에 공통이라, 게이팅이 있는 단계(검수·OCR)는
+  // *footer 주 버튼*을 "모든 ~ 완료" 로 바꿔 누르면 확인+진행을 한 번에. 검수의
+  // 사이드바 확인 버튼은 제거 (footer 로 일원화).
   //   - step 0 업로드: 페이지 1장 이상
-  //   - step 1 검수: 모든 (문항) 페이지 cropInspected (검토 완료 버튼으로 충족)
-  //   - step 2 OCR: 사용자가 "모든 문항 확인 완료"(ocrConfirmed) 명시 클릭 — 검수 미러.
-  //     확인 버튼은 모든 페이지 OCR 완료 시에만 활성 (Step2OCRReview).
+  //   - step 1 검수: 모든 (문항) 페이지 cropInspected — footer "모든 페이지 검토 완료"
+  //   - step 2 OCR: ocrConfirmed — footer "모든 문항 확인 완료"
   //   - step 3 해설~: 게이트 없음 (해설 스킵 가능)
-  const allProblemOcrDone = pages.every(
-    (p) => !(p.isProblemPage || p.forceOcr) || p.ocrComplete,
+  const problemPageList = pages.filter((p) => p.isProblemPage || p.forceOcr);
+  const allProblemOcrDone = problemPageList.every((p) => p.ocrComplete);
+  const allCropInspected = problemPageList.every((p) => p.cropInspected);
+  // 검출이 끝난(=결과가 있고 진행 중 아님) 상태여야 검토 완료 가능.
+  const allCropDetected = problemPageList.every(
+    (p) => p.cropBoxes !== undefined && !p.cropDetectInflight,
   );
   const canAdvance = (() => {
     switch (step) {
       case 0:
         return pages.length > 0;
       case 1:
-        return pages.every(
-          (p) => !(p.isProblemPage || p.forceOcr) || p.cropInspected,
-        );
+        return allCropInspected;
       case 2:
         // 확인 후 페이지 재OCR 로 미완료가 생기면 재차단 (allProblemOcrDone).
         return ocrConfirmed && allProblemOcrDone;
@@ -191,21 +198,24 @@ export const WizardScreen = () => {
     }
   })();
 
-  // step 2 에서 모든 OCR 이 끝났는데 아직 확인 안 한 상태 — 이때는 footer 의
-  // 주 버튼 자체를 "모든 문항 확인 완료" 로 바꿔, 누르면 확인+진행을 한 번에.
-  // (사용자 보고 2026-06-02: 헤더의 작은 확인 버튼을 footer 안내와 멀리 떨어져
-  //  못 찾음 — 안내와 버튼을 footer 에 co-locate.)
+  // 검수/OCR 단계에서 "확인 대기" 상태 — footer 주 버튼을 "모든 ~ 완료" 로 바꿔
+  // 누르면 확인+진행 한 번에. 안내·버튼이 footer 에 co-locate 돼 위치 일관.
+  const needsCropConfirm = step === 1 && allCropDetected && !allCropInspected;
   const needsOcrConfirm = step === 2 && allProblemOcrDone && !ocrConfirmed;
-  const nextLabel = needsOcrConfirm ? "모든 문항 확인 완료" : undefined;
+  const nextLabel = needsCropConfirm
+    ? "모든 페이지 검토 완료"
+    : needsOcrConfirm
+      ? "모든 문항 확인 완료"
+      : undefined;
 
-  // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용. step 2 에서 OCR 이
-  // 모두 끝난 경우(needsOcrConfirm)는 버튼 라벨이 곧 안내라 별도 사유 표시 X.
+  // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용. 확인 대기 상태
+  // (needsCropConfirm/needsOcrConfirm)는 버튼 라벨이 곧 안내라 별도 사유 표시 X.
   const blockedReason = canAdvance
     ? undefined
     : step === 0
       ? "PDF를 먼저 업로드해주세요"
-      : step === 1
-        ? "모든 페이지를 '검토 완료' 하세요"
+      : step === 1 && !allCropDetected
+        ? "문항 검출이 끝나면 진행할 수 있어요"
         : step === 2 && !allProblemOcrDone
           ? "모든 페이지 OCR 완료 후 진행할 수 있어요"
           : undefined;
@@ -219,10 +229,17 @@ export const WizardScreen = () => {
       .map((p, i) => ({ p, n: i + 1 }))
       .filter(({ p }) => p.isProblemPage || p.forceOcr);
     if (step === 1) {
-      const items = problemPages
-        .filter(({ p }) => !p.cropInspected)
-        .map(({ n }) => `☐ 페이지 ${n} — '검토 완료' 필요`);
-      return `검수를 완료해야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
+      // 검출이 모두 끝나면 needsCropConfirm 분기로 footer 버튼이 곧 검토 완료
+      // 버튼 — 체크리스트 불필요. 검출 진행 중인 페이지만 안내.
+      const detecting = problemPages.filter(
+        ({ p }) => p.cropBoxes === undefined || p.cropDetectInflight,
+      );
+      if (detecting.length > 0) {
+        return `문항 검출이 끝나야 진행할 수 있어요:\n${detecting
+          .map(({ n }) => `☐ 페이지 ${n} — 검출 진행 중`)
+          .join("\n")}`;
+      }
+      return undefined;
     }
     if (step === 2) {
       // OCR 이 모두 끝나면 needsOcrConfirm 분기로 footer 버튼이 곧 확인 버튼이라
@@ -242,6 +259,13 @@ export const WizardScreen = () => {
   // 경고 토스트*. 버튼은 비활성 대신 클릭 가능하게 두고 (WizardFooter), 여기서 차단.
   // Ctrl+→ 단축키도 handleNext 경유라 동일 적용. 검수는 "검토 완료" 명시 필요.
   const handleNext = () => {
+    // 검수: 검출 완료 + 미검토 상태에서 footer 주 버튼("모든 페이지 검토 완료")을
+    // 누르면 모든 페이지 검토 완료 처리 후 바로 다음 단계로.
+    if (needsCropConfirm) {
+      markAllCropInspected();
+      next();
+      return;
+    }
     // step 2: OCR 모두 완료 + 미확인 상태에서 footer 주 버튼("모든 문항 확인 완료")
     // 을 누르면 — 이 클릭이 곧 명시적 확인. 확인 처리 후 바로 다음 단계로.
     if (needsOcrConfirm) {
