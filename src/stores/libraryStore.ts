@@ -3,6 +3,7 @@ import type { TestPaper } from "@app/types";
 import {
   deleteTest as dbDeleteTest,
   loadTests,
+  updateTest as dbUpdateTest,
   upsertTest as dbUpsertTest,
 } from "@app/services/api/tests";
 import { removeTestFolder } from "@app/services/api/storage";
@@ -26,6 +27,7 @@ export interface LibraryState {
   hydrate: () => Promise<void>;
   upsertTest: (test: TestPaper) => void;
   removeTest: (id: string) => void;
+  renameTest: (id: string, title: string) => void;
   getTest: (id: string) => TestPaper | undefined;
   /** 신원 변경(로그인/로그아웃) 시 호출 — 다음 hydrate 가 새 사용자 데이터로 재실행. */
   reset: () => void;
@@ -68,6 +70,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     // DB + Storage 병렬 cleanup (cascade 는 DB 가 알아서 처리)
     void Promise.all([dbDeleteTest(id), removeTestFolder(id)]).catch((err) => {
       console.warn("[libraryStore] removeTest sync failed:", err);
+    });
+  },
+
+  // 제목 변경 (사용자 보고 2026-06-02): 로컬 즉시 반영 + DB persist (updateTest).
+  renameTest: (id, title) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      tests: state.tests.map((t) => (t.id === id ? { ...t, title: trimmed } : t)),
+    }));
+    void dbUpdateTest(id, { title: trimmed }).catch((err) => {
+      console.warn("[libraryStore] renameTest sync failed:", err);
     });
   },
 

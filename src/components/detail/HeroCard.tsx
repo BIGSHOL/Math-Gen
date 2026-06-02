@@ -1,6 +1,8 @@
-import { Card, Chip } from "@app/components/ui";
+import { useState } from "react";
+import { Card, Chip, Icon } from "@app/components/ui";
 import type { TestPaper } from "@app/types";
 import type { OCRProblem } from "@app/stores/wizardStore";
+import { useLibraryStore } from "@app/stores/libraryStore";
 
 export interface HeroCardProps {
   test: TestPaper;
@@ -60,6 +62,17 @@ export const HeroCard = ({ test, problems }: HeroCardProps) => {
   const probs = problems ?? [];
   const stats = buildStats(test, probs);
   const displayCount = probs.length > 0 ? probs.length : test.problemCount;
+
+  // 제목 인라인 편집 (사용자 보고 2026-06-02): 제목 옆 연필 → input → Enter/blur
+  // 저장 (libraryStore.renameTest = 로컬 즉시 + DB persist), Esc 취소.
+  const renameTest = useLibraryStore((s) => s.renameTest);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(test.title);
+  const commitTitle = () => {
+    const t = titleDraft.trim();
+    if (t && t !== test.title) renameTest(test.id, t);
+    setEditingTitle(false);
+  };
   return (
     <Card pad={24}>
       <div className="flex gap-6 items-start">
@@ -102,7 +115,41 @@ export const HeroCard = ({ test, problems }: HeroCardProps) => {
               </Chip>
             ))}
           </div>
-          <div className="text-h1 text-text mb-1">{test.title}</div>
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitle();
+                } else if (e.key === "Escape") {
+                  setTitleDraft(test.title);
+                  setEditingTitle(false);
+                }
+              }}
+              className="text-h1 text-text mb-1 w-full bg-surface border border-accent rounded-r1 px-2 py-0.5 focus:outline-none focus:shadow-accent-glow"
+              aria-label="시험지 제목"
+            />
+          ) : (
+            <div className="text-h1 text-text mb-1 flex items-center gap-2 group">
+              <span className="min-w-0 break-words">{test.title}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleDraft(test.title);
+                  setEditingTitle(true);
+                }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-accent flex-shrink-0"
+                aria-label="제목 수정"
+                title="제목 수정"
+              >
+                <Icon name="pencil-simple" size={16} />
+              </button>
+            </div>
+          )}
           <div className="text-body text-muted mb-4">
             {test.subject} · {displayCount}문항 · {test.tags.length}개 태그 · {test.time}
           </div>
