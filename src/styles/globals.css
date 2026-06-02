@@ -206,6 +206,47 @@ svg text {
    더 작게 잡으므로 위 너비 100% 와 충돌 안 함 — 표 안에서는 표 셀이 폭을
    결정. */
 
+/* ── 위치 기반 도형 행 (Phase A — figureLayout.ts Stage 1c) ──────────────────
+   인접한 시각 요소(크롭 이미지 + 도형)가 원본에서 좌우로 나란할 때 flex 행으로
+   묶임(`<div data-figure-row>`). 각 자식은 box 폭 비례 flex share(인라인 style:
+   flexGrow/flexBasis:0)로 크기 결정 → 원본 비율 근사. */
+.figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  margin: 10px 0;
+  width: 100%;
+}
+/* figure-row 안에서는 .diagram-svg-inline 의 width:min(360px,100%) 캡 해제 —
+   flex share 가 폭을 결정 (밖에선 기존 캡 유지). */
+.figure-row > .diagram-svg-inline {
+  width: auto;
+  display: block;
+  min-width: 0;
+}
+/* figure-row 안 SVG/이미지: .prose svg 의 max-width:360px·margin:8px auto 를
+   무력화(특이도 0,2,1 > 0,1,1) — 행 cell 폭을 채우되 비율 유지. */
+.figure-row > .diagram-svg-inline > svg,
+.figure-row > svg {
+  max-width: 100%;
+  max-height: 320px;
+  width: 100%;
+  height: auto;
+  margin: 0;
+}
+.figure-row > img {
+  margin: 0;
+}
+/* 좁은 화면(모바일/인쇄 1단) — 좌우 대신 세로 스택. */
+@media (max-width: 520px) {
+  .figure-row {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
 /* ── OCR HTML 표 (e.g. 22번 주사위·달력 표) ─────────────────────────
    1) 카드 폭을 넘지 않도록 max-width 100% + word-break (한국어 줄바꿈)
    2) 마지막 행이 colspan으로 펼쳐졌을 때 자연스럽게 줄바꿈

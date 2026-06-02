@@ -371,7 +371,12 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
           <MarkdownRenderer
             content={item.text}
             diagramSvgs={vectorDiagrams}
-            imageCrops={crops.map((c) => ({ src: c.src, label: c.label }))}
+            imageCrops={crops.map((c) => ({
+              src: c.src,
+              label: c.label,
+              // 위치 기반 행 배치(Stage 1c)용 — 원본 페이지 box. 이미 존재(신규 저장 X).
+              box: c.originalImage.box,
+            }))}
             choicesLayout={item.choicesLayout}
           />
         </div>

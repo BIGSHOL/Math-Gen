@@ -8,6 +8,7 @@ import rehypeRaw from "rehype-raw";
 import katex from "katex";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
 import { cleanMalformedLatex, parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
+import { groupFigureRows, type FigBox } from "@app/lib/figureLayout";
 
 /**
  * Korean math content renderer.
@@ -46,6 +47,8 @@ export interface DiagramSvgItem {
   label?: string;
   align?: "left" | "center" | "right";
   size?: "small" | "medium" | "large" | "full";
+  /** full-page bbox [yMin,xMin,yMax,xMax] (0–1000) — 위치 기반 행 배치(Stage 1c)용. */
+  box?: [number, number, number, number];
 }
 
 /**
@@ -75,7 +78,12 @@ export interface MarkdownRendererProps {
    *
    * indexing 은 `[그림N]` 의 N (1-indexed) → 배열 idx (0-indexed) 변환.
    */
-  imageCrops?: Array<{ src: string; label?: string }>;
+  imageCrops?: Array<{
+    src: string;
+    label?: string;
+    /** full-page bbox [yMin,xMin,yMax,xMax] (0–1000) — 위치 기반 행 배치(Stage 1c)용. */
+    box?: [number, number, number, number];
+  }>;
   /**
    * Phase #7: 원본 보기 배치 hint. OCR 모델이 인식한 grid 를 그대로 렌더.
    * 기본 "auto" — 옵션 길이 기반 자동 결정. tall LaTeX 검출 시 5x1 강제 override.
@@ -610,6 +618,10 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   // and renders them via dangerouslySetInnerHTML so the browser parses the
   // SVG natively and gets the namespace right.
   const svgPlaceholders = new Map<string, string>();
+  // Stage 1c(위치 기반 행 배치)용 — placeholder key → full-page box.
+  // key = svg 의 data-svg-id (Stage 1) 또는 "img-<idx>" (Stage 1b). box 없으면
+  // 미기록 → 행에 편입 안 됨(세로 스택 유지).
+  const figureBoxes = new Map<string, FigBox | undefined>();
   let nextPlaceholderId = 0;
   let svgExtractedContent = content.replace(
     /<svg\b[\s\S]*?<\/svg>/gi,
@@ -652,6 +664,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // unrecognized in this browser" trap.
       const phId = String(nextPlaceholderId++);
       svgPlaceholders.set(phId, normalizeInlineSvgs(svg));
+      figureBoxes.set(phId, item.box); // Stage 1c 위치 배치용 (없으면 undefined)
 
       // If the placeholder sits inside a `>` blockquote line, render as
       // inline span instead of a block div (keeps the SVG inside the box).
@@ -701,14 +714,23 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         const im = imageCrops[idx];
         if (!im?.src) return match;
         inlinedImageIndices.add(idx);
+        figureBoxes.set(`img-${idx}`, im.box); // Stage 1c 위치 배치용
         // alt 텍스트 escape
         const altRaw = im.label ?? `도형 ${idx + 1}`;
         const alt = altRaw.replace(/"/g, "&quot;");
-        // inline block — 본문 흐름 유지. max-width 240px 로 종이 폭 안 넘어가게.
-        return `\n\n<img src="${im.src}" alt="${alt}" class="diagram-inline-img" style="display:block;max-width:240px;height:auto;margin:8px auto;border:1px solid #e5e7eb;border-radius:4px;background:white;padding:4px" />\n\n`;
+        // 스타일은 .diagram-inline-img CSS 클래스로 (globals.css). 인라인 style 을
+        // 두면 Stage 1c figure-row 의 flex override 가 불가능해서 클래스로 이전.
+        // data-fig-key 로 figureBoxes 와 매칭.
+        return `\n\n<img src="${im.src}" alt="${alt}" class="diagram-inline-img" data-fig-key="img-${idx}" />\n\n`;
       },
     );
   }
+
+  // Stage 1c (Phase A): 위치 기반 행 배치. 인접한 figure placeholder 들의 full-page
+  // box(figureBoxes)가 좌우로 나란하면 `<div data-figure-row>` 로 묶어 flex 행 렌더.
+  // box 없으면 no-op(세로 스택 유지) — 회귀 0. (preprocessMathText 이전에 실행해야
+  // wrapper div 안 $…$ 오염 없음.)
+  svgReplacedContent = groupFigureRows(svgReplacedContent, figureBoxes);
 
   // Stage 1.5: defensive SVG normalization — inject italic Times defaults
   // on <text> elements that didn't declare a font, and clamp oversized
@@ -806,6 +828,13 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           // and gets the same treatment.
           div: ({ node, children, ...props }) => {
             const dataset = node?.properties as Record<string, unknown> | undefined;
+            // Stage 1c: 위치 기반 행 컨테이너 — 자식(svg div / img)을 flex 로 좌우 배치.
+            const figRow =
+              (dataset?.dataFigureRow as string | undefined) ??
+              ((props as Record<string, unknown>)["data-figure-row"] as string | undefined);
+            if (figRow) {
+              return <div className="figure-row">{children}</div>;
+            }
             const svgId =
               (dataset?.dataSvgId as string | undefined) ??
               ((props as Record<string, unknown>)["data-svg-id"] as string | undefined);
@@ -837,23 +866,27 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   }
                 }
               }
+              const baseStyle: Record<string, unknown> = styleStr
+                ? Object.fromEntries(
+                    styleStr
+                      .split(";")
+                      .map((s) => s.split(":").map((p) => p.trim()))
+                      .filter(([k, v]) => k && v)
+                      .map(([k, v]) => [
+                        k!.replace(/-([a-z])/g, (_, c) => c.toUpperCase()),
+                        v,
+                      ]),
+                  )
+                : {};
+              // Stage 1c figure-row 멤버면 flex share 적용 (box 폭 비례).
+              const flexGrow = dataset?.dataFlexgrow as string | undefined;
+              const style: Record<string, unknown> = flexGrow
+                ? { ...baseStyle, flexGrow: Number(flexGrow), flexShrink: 1, flexBasis: 0, minWidth: 0 }
+                : baseStyle;
               return (
                 <div
                   className={classes}
-                  style={
-                    styleStr
-                      ? Object.fromEntries(
-                          styleStr
-                            .split(";")
-                            .map((s) => s.split(":").map((p) => p.trim()))
-                            .filter(([k, v]) => k && v)
-                            .map(([k, v]) => [
-                              k!.replace(/-([a-z])/g, (_, c) => c.toUpperCase()),
-                              v,
-                            ]),
-                        )
-                      : undefined
-                  }
+                  style={Object.keys(style).length ? (style as React.CSSProperties) : undefined}
                   dangerouslySetInnerHTML={{ __html: svgHtml }}
                 />
               );
@@ -1047,10 +1080,31 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               </div>
             );
           },
-          img: ({ src: rawSrc, alt, title }) => {
+          img: ({ node, src: rawSrc, alt, title }) => {
             const src = typeof rawSrc === "string" ? rawSrc : "";
             if (!src) {
               return <span className="text-muted text-sm">[{alt || "이미지"}]</span>;
+            }
+            // Stage 1c figure-row 멤버 — 중앙 정렬 span 없이 *직접 flex item* 으로
+            // (box 폭 비례 flex share 적용). 그 외 경로는 기존 동작 그대로.
+            const flexGrow = (node?.properties as Record<string, unknown> | undefined)
+              ?.dataFlexgrow as string | undefined;
+            if (flexGrow) {
+              return (
+                <img
+                  src={src}
+                  alt={alt || ""}
+                  className="rounded-sm"
+                  style={{
+                    flexGrow: Number(flexGrow),
+                    flexShrink: 1,
+                    flexBasis: 0,
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    height: "auto",
+                  }}
+                />
+              );
             }
             const { width, align } = parseImageTitle(title ?? undefined);
             const style: React.CSSProperties = {};
