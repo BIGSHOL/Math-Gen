@@ -738,107 +738,36 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   svgReplacedContent = katexResult.content;
   const katexPlaceholders = katexResult.katexMap;
 
-  // Stage 3: bare `[한글 설명]` brackets → styled placeholder pill, but only
-  // for actual diagram descriptions — math intervals, 보기 markers, and
-  // common semantic labels (정답/풀이/해설/예시/문제 …) must pass through.
-  // The placeholder pill was intended for AI-emitted diagram captions that
-  // never got an SVG; OCR'd workbook text routinely uses [정답], [풀이],
-  // [해설], [예시] etc. as section labels and those should render as plain
-  // bracketed text, not as a dashed pill.
-  const COMMON_LABEL_WORDS = new Set([
-    "정답",
-    "답",
-    "해설",
-    "풀이",
-    "예시",
-    "예제",
-    "문제",
-    "보기",
-    "조건",
-    "참고",
-    "주의",
-    "단원",
-    "평가",
-    "유형",
-    "확인",
-    "정리",
-    "개념",
-    "공식",
-    "용어",
-    "서술형",
-    "객관식",
-    "주관식",
-    "단답형",
-    "출제",
-    "배점",
-    "점수",
-  ]);
-  // Labels that take a trailing number/qualifier — `[서술형4]`, `[서술형 4]`,
-  // `[단답형2]`, `[객관식 3]` 등. These are problem-type tags in workbook
-  // headers, NOT diagram descriptions. Without this guard the renderer was
-  // converting `[서술형4]` into a dashed-pill placeholder.
-  const LABEL_PREFIXES = [
-    "서술형",
-    "객관식",
-    "주관식",
-    "단답형",
-    "선택형",
-    "복합형",
-    "빈칸",
-    "OX",
-    "풀이형",
-    "단원평가",
-    "예제",
-    "유형",
-    "문제",
-    "정답",
-    "해설",
-    "풀이",
-    "보기",
-    "조건",
-    // 해설 서브섹션 라벨 — 사용자 보고: `[음수 1개인 경우]`, `[음수 3개인 경우]`
-    // 같은 케이스 분기가 대시드 박스로 잘못 렌더링되던 문제. "음수"·"양수" 로
-    // 시작하면 박스 X.
-    "음수",
-    "양수",
-    "정수",
-    "홀수",
-    "짝수",
-    "소수",
-    "단계",
-    "방법",
-    "경우",
-    "조건",
-    "참",
-    "거짓",
-  ];
-  // Suffix guard — 해설 서브섹션 라벨은 "~인 경우 / ~인 단계 / ~인 조건" 처럼
-  // 케이스 마무리 키워드로 끝나는 패턴이 많다. prefix 만으론 못 잡는 케이스
-  // (`[가위가 나오는 경우]`, `[합이 7인 단계]`, `[절댓값 분해]`) 를 잡기 위한
-  // 보조 가드. *동작 명사* (분해/변환/계산 등) 일반화 — 한국어 풀이의 sub-section
-  // 라벨은 거의 모두 동작/상태 명사로 끝남.
-  const LABEL_SUFFIXES = [
-    "인경우", "는경우", "한경우", "의경우", "경우",
-    "단계", "조건", "방법", "유형", "이유",
-    // 동작 명사 카탈로그 — 풀이 sub-section 라벨로 자주 등장.
-    "분해", "변환", "분리", "계산", "분석", "정리", "비교",
-    "검토", "확인", "정의", "증명", "결론", "검증", "전개",
-    "치환", "대입", "소거", "이항", "약분", "통분",
-    "풀이", "해석", "표기", "표현", "표시",
-  ];
+  // Stage 3 (사용자 보고 2026-06-02, CLAUDE.md §18-3): `[한글]` → 대시드 박스
+  // 변환을 *INCLUDE-list* 로 전환.
+  //
+  // 기존엔 exclude-list (정답/풀이/단계/경우/동작명사 …) 로 "이것들만 빼고 전부
+  // 박스" 였는데, 새 동작명사("적용" 등)가 나올 때마다 풀이 단계 라벨이 대시드
+  // 박스로 새어나가는 whack-a-mole 이었다 (사용자가 "삼각형 조건 적용" 이 박스로
+  // 렌더된 것을 보고 — "적용" 이 suffix 목록에 없었음).
+  //
+  // → *명시적 도형 캡션* (도형/그래프/좌표평면/수직선/표/다이어그램 으로 시작하는
+  //   noun 캡션) 만 박스화한다. 풀이의 단계·동작·개념 라벨(`[삼각형 조건 적용]`,
+  //   `[절댓값 분해]`, `[1단계: …]`, `[정답]`), 수학 구간(`[-2, 4]`), 보기
+  //   마커(`[ㄱ]`) 는 *전부* 일반 텍스트로 보존. (`[그림N]` 은 Stage 1 에서 이미
+  //   SVG/이미지로 처리됨 → 여기 도달 안 함.)
+  const FIGURE_CAPTION_RE =
+    /^(?:도형|그래프|좌표평면|좌표|수직선|벤\s*다이어그램|다이어그램|표)\b/;
+  // 도형 키워드로 시작해도 동작명사로 *끝나면* 캡션이 아니라 단계 라벨
+  // (`[그래프 분석]`, `[도형 그리기]`) → 박스 X.
+  const ACTION_LABEL_SUFFIX =
+    /(적용|분석|분해|변환|계산|정리|비교|검토|확인|증명|결론|검증|전개|치환|대입|소거|이항|약분|통분|구하기|그리기|풀이|해석|관찰|이용)$/;
   const processedContent = svgReplacedContent.replace(
     /(?<!!)\[([가-힣\s\d/,×÷+\-a-zA-Z]+)\](?!\()/g,
     (match, desc: string) => {
-      if (/^[ㄱ-ㅎ]/.test(desc) || /^그림/.test(desc)) return match;
-      if (/^[\s\d.,+\-−/]+$/.test(desc)) return match;
-      // Section/semantic labels — leave as plain "[정답]" text.
-      const compact = desc.trim().replace(/\s+/g, "");
-      if (COMMON_LABEL_WORDS.has(compact)) return match;
-      // Prefix match — `[서술형4]`, `[단답형 3]` etc. stay as bracketed text.
-      if (LABEL_PREFIXES.some((p) => compact.startsWith(p))) return match;
-      // Suffix match — `[음수 1개인 경우]` 등 케이스 분기 라벨.
-      if (LABEL_SUFFIXES.some((s) => compact.endsWith(s))) return match;
-      return `<span class="diagram-placeholder">${desc}</span>`;
+      const trimmed = desc.trim();
+      const compact = trimmed.replace(/\s+/g, "");
+      // 명시적 도형 캡션 + 동작 라벨 아님 → 대시드 박스 (드문 케이스).
+      if (FIGURE_CAPTION_RE.test(trimmed) && !ACTION_LABEL_SUFFIX.test(compact)) {
+        return `<span class="diagram-placeholder">${desc}</span>`;
+      }
+      // 그 외 모두 일반 텍스트로 보존 (단계/동작/개념 라벨, 수학 구간, 보기 마커).
+      return match;
     },
   );
 
