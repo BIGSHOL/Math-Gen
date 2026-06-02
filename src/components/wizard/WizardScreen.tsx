@@ -198,10 +198,13 @@ export const WizardScreen = () => {
     }
   })();
 
-  // 검수/OCR 단계에서 "확인 대기" 상태 — footer 주 버튼을 "모든 ~ 완료" 로 바꿔
-  // 누르면 확인+진행 한 번에. 안내·버튼이 footer 에 co-locate 돼 위치 일관.
-  const needsCropConfirm = step === 1 && allCropDetected && !allCropInspected;
-  const needsOcrConfirm = step === 2 && allProblemOcrDone && !ocrConfirmed;
+  // 검수/OCR 단계: 그 단계의 작업(검출/OCR)이 끝나면 footer 주 버튼을 "모든 ~
+  // 완료" 로 바꿔, 누르면 확인+진행 한 번에. **이미 확인된 상태로 재방문해도 같은
+  // 버튼이 보이도록** !allCropInspected/!ocrConfirmed 조건은 두지 않음 — 사용자
+  // 보고 2026-06-02: 한 번 검토한 시험지(cropInspected 영속) 를 다시 열면 버튼이
+  // "다음" 으로 바뀌어 사이드바 안내("'모든 페이지 검토 완료' 버튼")와 불일치.
+  const needsCropConfirm = step === 1 && allCropDetected;
+  const needsOcrConfirm = step === 2 && allProblemOcrDone;
   const nextLabel = needsCropConfirm
     ? "모든 페이지 검토 완료"
     : needsOcrConfirm
