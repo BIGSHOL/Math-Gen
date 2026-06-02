@@ -16,6 +16,7 @@
  */
 
 import type { TestPaper, TestStatus } from "@app/types";
+import { GRADE_LABELS as MATH_GRADE_LABELS, type GradeKey } from "@app/services/ai/mathDefense";
 
 export type Collection =
   | "전체"
@@ -178,6 +179,24 @@ const GRADE_LABELS: Record<string, { label: string; order: number; icon: string 
   "retake": { label: "재수", order: 6, icon: "circle-half" },
 };
 
+/**
+ * grade 키 → {label, order, icon}. local 맵(짧은 enum)에 없으면 canonical
+ * GRADE_LABELS(mathDefense, high1_common1 등 교육과정 suffix 포함)로 한글화하고
+ * prefix 로 order/icon 추정. 사용자 보고 2026-06-02: 좌측 사이드바 학년이
+ * "high1_common1" 영문 그대로 노출.
+ */
+const gradeMeta = (grade: string): { label: string; order: number; icon: string } => {
+  const local = GRADE_LABELS[grade];
+  if (local) return local;
+  const label = MATH_GRADE_LABELS[grade as GradeKey] ?? grade;
+  const mid = grade.match(/(?:middle|중)\s*([1-3])/);
+  if (mid) return { label, order: Number(mid[1]) - 1, icon: "circle-dashed" };
+  const high = grade.match(/(?:high|고)\s*([1-3])/);
+  if (high) return { label, order: 3 + (Number(high[1]) - 1), icon: "circle" };
+  if (/retake|재수/.test(grade)) return { label, order: 6, icon: "circle-half" };
+  return { label, order: 999, icon: "circle" };
+};
+
 export const gradesPresent = (
   tests: TestPaper[],
 ): Array<{ grade: string; label: string; count: number; icon: string }> => {
@@ -188,13 +207,13 @@ export const gradesPresent = (
   }
   return Array.from(counts.entries())
     .map(([grade, count]) => {
-      const meta = GRADE_LABELS[grade];
+      const meta = gradeMeta(grade);
       return {
         grade,
-        label: meta?.label ?? grade,
+        label: meta.label,
         count,
-        icon: meta?.icon ?? "circle",
-        _order: meta?.order ?? 999,
+        icon: meta.icon,
+        _order: meta.order,
       };
     })
     .sort((a, b) => {
