@@ -79,7 +79,7 @@ export const ToastContainer = () => {
               weight="fill"
               className="flex-shrink-0 mt-0.5"
             />
-            <span className="flex-1 leading-relaxed">{t.message}</span>
+            <span className="flex-1 leading-relaxed whitespace-pre-line">{t.message}</span>
             <button
               type="button"
               onClick={() => dismiss(t.id)}

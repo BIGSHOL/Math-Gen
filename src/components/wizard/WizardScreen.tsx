@@ -17,6 +17,7 @@ import { removeTestFolder } from "@app/services/api/storage";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { useWizardStore } from "@app/stores/wizardStore";
+import { showToast } from "@app/stores/toastStore";
 import { useWizardGuard } from "@app/hooks/useWizardGuard";
 import { Stepper, type StepperStep } from "./Stepper";
 import { StepFrame } from "./StepFrame";
@@ -31,7 +32,7 @@ import { Step5Export } from "./Step5Export";
 
 const STEPS: StepperStep[] = [
   { index: 0, label: "업로드", subLabel: "PDF → 이미지" },
-  { index: 1, label: "검수", subLabel: "박스 확인" },
+  { index: 1, label: "검수", subLabel: "문제 잘라내기" },
   { index: 2, label: "OCR", subLabel: "문제 추출" },
   { index: 3, label: "해설", subLabel: "정답 · 풀이" },
   { index: 4, label: "옵션", subLabel: "변환 설정" },
@@ -54,7 +55,6 @@ export const WizardScreen = () => {
   const next = useWizardStore((s) => s.next);
   const prev = useWizardStore((s) => s.prev);
   const reset = useWizardStore((s) => s.reset);
-  const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
   const pages = useWizardStore((s) => s.pages);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
@@ -139,6 +139,10 @@ export const WizardScreen = () => {
 
   useWizardGuard(step > 0 && step < 6 && !resumeDialog);
 
+  // handleNext 는 canAdvance(step 별 변동) 를 읽으므로, keydown 핸들러가 stale
+  // closure 를 잡지 않도록 latest-ref 로 참조 (아래 handleNext 정의 후 매 렌더 갱신).
+  const handleNextRef = useRef<() => void>(() => {});
+
   // Mod+← / Mod+→ navigation (Mac ⌘, Windows/Linux Ctrl — `metaKey || ctrlKey`).
   // Ignore arrow keys when an input is focused.
   useEffect(() => {
@@ -152,27 +156,87 @@ export const WizardScreen = () => {
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        handleNext();
+        handleNextRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev]);
+  }, [prev]);
 
-  const canAdvance = step === 0 ? pages.length > 0 : true;
+  // 단계 게이팅 (사용자 결정 2026-06-02): 이전 단계가 완료돼야 다음으로 진행.
+  // 단 해설(step 3)은 스킵 가능. 비-문항·비-force 페이지는 검수/OCR 면제.
+  //   - step 0 업로드: 페이지 1장 이상
+  //   - step 1 검수: 모든 (문항) 페이지 cropInspected (검토 완료 버튼으로 충족)
+  //   - step 2 OCR: 모든 (문항) 페이지 ocrComplete (진행 중이면 차단)
+  //   - step 3 해설~: 게이트 없음 (해설 스킵 가능)
+  const canAdvance = (() => {
+    switch (step) {
+      case 0:
+        return pages.length > 0;
+      case 1:
+        return pages.every(
+          (p) => !(p.isProblemPage || p.forceOcr) || p.cropInspected,
+        );
+      case 2:
+        return pages.every(
+          (p) => !(p.isProblemPage || p.forceOcr) || p.ocrComplete,
+        );
+      default:
+        return true;
+    }
+  })();
 
-  /**
-   * Step 1 (검수) → Step 2 (OCR) transition 시 미검토 페이지 *자동 일괄 완료*.
-   * 사용자 결정 (§23-7 #2): 검수는 선택, 건너뛰기 가능. 그러나 cropInspected=false
-   * 인 채로 next() 하면 Phase I-7b 의 cropped Pass 2 가 조건 불충족으로 트리거
-   * 안 됨 → Pass 1 (whole-page) 결과만 보여 정확도 손해. handleNext 가 "다음"
-   * 클릭/단축키 양쪽 진입점에서 silent markAllCropInspected → Pass 2 활성화.
-   * 사용자가 *명시적으로* 박스를 편집하지 않은 경우 = AI 결과 신뢰 의미로 해석.
-   */
+  // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용.
+  const blockedReason = canAdvance
+    ? undefined
+    : step === 0
+      ? "PDF를 먼저 업로드해주세요"
+      : step === 1
+        ? "모든 페이지를 '검토 완료' 하세요"
+        : step === 2
+          ? "모든 페이지 OCR 완료 후 진행됩니다"
+          : undefined;
+
+  // 미충족 항목 체크리스트 (경고 토스트) — 어떤 페이지를 채워야 하는지 명시.
+  // 사용자 요청 2026-06-02: 경고에 체크리스트를 주면 더 쓰기 쉬움.
+  const blockedChecklist = (() => {
+    if (canAdvance) return undefined;
+    if (step === 0) return "다음으로 넘어가려면:\n☐ PDF 업로드";
+    const problemPages = pages
+      .map((p, i) => ({ p, n: i + 1 }))
+      .filter(({ p }) => p.isProblemPage || p.forceOcr);
+    if (step === 1) {
+      const items = problemPages
+        .filter(({ p }) => !p.cropInspected)
+        .map(({ n }) => `☐ 페이지 ${n} — '검토 완료' 필요`);
+      return `검수를 완료해야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
+    }
+    if (step === 2) {
+      const items = problemPages
+        .filter(({ p }) => !p.ocrComplete)
+        .map(({ n }) => `☐ 페이지 ${n} — 인식 진행 중`);
+      return `OCR이 끝나야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
+    }
+    return undefined;
+  })();
+
+  // 게이팅 (사용자 요청 2026-06-02): 조건 미충족 상태로 "다음" 시도 시 *체크리스트
+  // 경고 토스트*. 버튼은 비활성 대신 클릭 가능하게 두고 (WizardFooter), 여기서 차단.
+  // Ctrl+→ 단축키도 handleNext 경유라 동일 적용. 검수는 "검토 완료" 명시 필요.
   const handleNext = () => {
-    if (step === 1) markAllCropInspected();
+    if (!canAdvance) {
+      showToast({
+        kind: "warn",
+        message:
+          blockedChecklist ?? blockedReason ?? "이전 단계를 완료해야 넘어갈 수 있어요.",
+        durationMs: 6000,
+      });
+      return;
+    }
     next();
   };
+  // keydown 핸들러가 최신 handleNext 를 호출하도록 매 렌더 ref 갱신.
+  handleNextRef.current = handleNext;
 
   return (
     <div className="w-full h-full flex flex-col bg-bg min-w-[1024px]">
@@ -243,6 +307,7 @@ export const WizardScreen = () => {
             onPrev={prev}
             onNext={handleNext}
             canAdvance={canAdvance}
+            blockedReason={blockedReason}
           />
         </div>
       )}

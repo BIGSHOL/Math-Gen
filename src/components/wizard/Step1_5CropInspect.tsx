@@ -56,7 +56,10 @@ const useDrawNewBox = ({
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!enabled) return;
-    if (e.target !== e.currentTarget) return; // 박스 자체 클릭은 통과
+    // create 모드에선 기존 박스(EditableCropBox)가 pointer-events:none 라
+    // e.target 은 항상 <img> 또는 컨테이너 → 빈 영역으로 간주하고 draw 시작.
+    // (구버그: `e.target !== e.currentTarget` 가드가 <img> 까지 막아 박스가
+    //  절대 안 그려졌음 — <img> 가 컨테이너를 꽉 채워 항상 e.target 이 됨.)
     const rect = e.currentTarget.getBoundingClientRect();
     dragRef.current = { startX: e.clientX, startY: e.clientY, rect };
     setPreview({
@@ -289,7 +292,7 @@ export const Step1_5CropInspect = () => {
             </span>
           ) : null}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto bg-surface2 rounded-r2 p-3 relative">
+        <div className="flex-1 min-h-0 overflow-auto bg-surface2 rounded-r2 px-8 py-4 relative">
           {/* Zoom 컨트롤 — floating toolbar 상단 우측. 사용자 보고 (2026-05-27):
               "화면이 너무 큰거같은데 비율을 작게 할 수 있는 기능도 필요". */}
           {pageImageUrl && (

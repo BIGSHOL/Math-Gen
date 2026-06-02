@@ -168,12 +168,14 @@ export const useCropDetect = (): UseCropDetect => {
         } catch (err) {
           if (isCancelled(page.id)) return;
           setCropDetectError(page.id, friendlyError(err));
-          if (import.meta.env?.DEV) {
-            console.warn(
-              `[useCropDetect] page ${page.id}:`,
-              (err as Error).message,
-            );
-          }
+          // friendly 는 "처리 실패" 로 뭉개질 수 있으니 *raw cause* 도 함께 로깅.
+          // cropDetect 가 .cause 에 원본 에러를 보존 (이중 friendly 래핑 함정).
+          // prod 도 짧게 surfacing — 사용자 보고 시 추적 가능 (CLAUDE.md §30-3).
+          const cause = (err as Error & { cause?: unknown }).cause;
+          console.warn(
+            `[useCropDetect] page ${page.id} failed: ${(err as Error).message}` +
+              (cause ? `\n  raw cause: ${String(cause).slice(0, 400)}` : ""),
+          );
         } finally {
           setCropDetectInflight(page.id, false);
           dispatched.current.delete(page.id);
