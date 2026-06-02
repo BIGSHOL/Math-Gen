@@ -239,46 +239,20 @@ export const PrintActionPanel = ({
           </Card>
         )}
 
-        {/* 액션 버튼 — *서버 PDF* (Puppeteer) 가 KaTeX/SVG 100% 정확하므로 1순위.
-            인쇄 다이얼로그도 동등 품질 (브라우저 native print). 클라이언트 PDF
-            (html2canvas) 는 §19-4 의 KaTeX 깨짐 위험으로 *오프라인 fallback*. */}
+        {/* 액션 버튼 — MVP 락다운 (사용자 결정 2026-06-02): 다운로드/저장은 모두
+            준비 중. "구현중" 으로 비활성. (handleServerPDF/handlePDF/handlePrint
+            로직은 유지 — 추후 활성화 시 onClick 만 복구.) */}
         <div className="space-y-2">
-          <Btn
-            kind="accent"
-            icon="file-pdf"
-            full
-            onClick={handleServerPDF}
-            disabled={isExporting || totalPages === 0}
-          >
-            PDF 다운로드
+          <Btn kind="accent" icon="file-pdf" full disabled title="준비 중인 기능입니다">
+            PDF 다운로드 (구현중)
           </Btn>
-          <Btn
-            kind="secondary"
-            icon="printer"
-            full
-            onClick={handlePrint}
-            disabled={isExporting || totalPages === 0}
-          >
-            인쇄 · PDF 저장
-          </Btn>
-          <Btn
-            kind="ghost"
-            icon="file-pdf"
-            full
-            onClick={handlePDF}
-            disabled={isExporting || totalPages === 0}
-          >
-            PDF 다운로드 (오프라인 fallback)
+          <Btn kind="secondary" icon="printer" full disabled title="준비 중인 기능입니다">
+            인쇄 · PDF 저장 (구현중)
           </Btn>
           <Btn kind="ghost" icon="file-doc" full disabled>
-            DOCX (준비 중)
+            DOCX (구현중)
           </Btn>
         </div>
-
-        {/* 안내 */}
-        <p className="text-caption text-muted leading-relaxed">
-          <Icon name="info" size={11} color="#9CA3AF" /> 서버 Chromium 렌더 — KaTeX·도형 정확.
-        </p>
       </div>
 
       {/* 하단 — 이전 단계 */}
@@ -291,7 +265,7 @@ export const PrintActionPanel = ({
           onClick={prev}
           disabled={isExporting}
         >
-          이전 (Step 4 — 검토)
+          이전 (검토)
         </Btn>
       </div>
     </aside>

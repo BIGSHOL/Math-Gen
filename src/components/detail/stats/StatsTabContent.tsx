@@ -147,27 +147,16 @@ export const StatsTabContent = ({
             </button>
           </div>
         )}
+        {/* MVP 락다운 (사용자 결정 2026-06-02): 시험지 분석은 mathlab 통합 전까지
+            비활성. "mathlab 구현중" 라벨로 대체. (trigger 로직은 유지 — 추후 활성화.) */}
         <div className="mt-5 flex justify-center">
-          <Btn
-            kind="accent"
-            size="lg"
-            icon="sparkle"
-            disabled={inflight || pageImages.length === 0}
-            onClick={() => trigger()}
-          >
-            {inflight
-              ? "분석 중"
-              : pageImages.length === 0
-                ? "페이지 이미지 없음"
-                : "분석 시작"}
+          <Btn kind="accent" size="lg" icon="wrench" disabled title="준비 중인 기능입니다">
+            분석 시작 (mathlab 구현중)
           </Btn>
         </div>
-        {pageImages.length > 0 && (
-          <p className="text-caption text-muted mt-3">
-            대상: {pageImages.length}개 페이지 · 학년 {koreanGrade}
-            {hasEssay ? " · 서술형 포함" : ""}
-          </p>
-        )}
+        <p className="text-caption text-muted mt-3">
+          시험지 분석 기능은 준비 중입니다.
+        </p>
       </Card>
     );
   }
