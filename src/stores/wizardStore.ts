@@ -403,6 +403,11 @@ export interface WizardState {
   // Step 2 — OCR Review
   pages: WizardPage[];
   activePageIndex: number;
+  /**
+   * OCR 단계 "모든 문항 확인 완료" — 사용자 명시 확인 (검수의 cropInspected 미러).
+   * 게이팅: true 여야 step 2 → 3 진행. partialize 제외 (휘발성 — 새로고침 후 재확인).
+   */
+  ocrConfirmed: boolean;
 
   // Step 3 — Options
   goal: ConversionGoal;
@@ -459,6 +464,8 @@ export interface WizardState {
   ) => void;
   setPageRotation: (pageId: string, rotation: WizardPage["rotation"]) => void;
   updateOCRItem: (pageId: string, itemId: string, patch: Partial<OCRProblem>) => void;
+  /** OCR 단계 "모든 문항 확인 완료" 토글 (게이팅용). */
+  setOcrConfirmed: (v: boolean) => void;
   setOptions: (patch: Partial<Pick<WizardState, "goal" | "difficulty" | "extras">>) => void;
   setProblems: (problems: ProblemReview[]) => void;
   updateProblem: (id: string, patch: Partial<ProblemReview>) => void;
@@ -502,6 +509,7 @@ const initialState = {
   examCategory: null as ExamCategory | null,
   pages: [] as WizardPage[],
   activePageIndex: 0,
+  ocrConfirmed: false,
   goal: "similar" as ConversionGoal,
   difficulty: "same" as DifficultyShift,
   extras: { solutions: true, answers: true, oapNote: false, stats: false },
@@ -525,6 +533,7 @@ export const useWizardStore = create<WizardState>()(
         const cur = get().furthestStep;
         set({ step, furthestStep: (Math.max(cur, step) as WizardStepIndex) });
       },
+      setOcrConfirmed: (v) => set({ ocrConfirmed: v }),
       next: () => {
         const s = get().step;
         // Step 0~6 — Step 1.5 (검수) 가 1 로 삽입돼 총 7 단계. next() clamp 6.

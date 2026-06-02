@@ -56,6 +56,7 @@ export const WizardScreen = () => {
   const prev = useWizardStore((s) => s.prev);
   const reset = useWizardStore((s) => s.reset);
   const pages = useWizardStore((s) => s.pages);
+  const ocrConfirmed = useWizardStore((s) => s.ocrConfirmed);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
 
@@ -167,8 +168,12 @@ export const WizardScreen = () => {
   // 단 해설(step 3)은 스킵 가능. 비-문항·비-force 페이지는 검수/OCR 면제.
   //   - step 0 업로드: 페이지 1장 이상
   //   - step 1 검수: 모든 (문항) 페이지 cropInspected (검토 완료 버튼으로 충족)
-  //   - step 2 OCR: 모든 (문항) 페이지 ocrComplete (진행 중이면 차단)
+  //   - step 2 OCR: 사용자가 "모든 문항 확인 완료"(ocrConfirmed) 명시 클릭 — 검수 미러.
+  //     확인 버튼은 모든 페이지 OCR 완료 시에만 활성 (Step2OCRReview).
   //   - step 3 해설~: 게이트 없음 (해설 스킵 가능)
+  const allProblemOcrDone = pages.every(
+    (p) => !(p.isProblemPage || p.forceOcr) || p.ocrComplete,
+  );
   const canAdvance = (() => {
     switch (step) {
       case 0:
@@ -178,9 +183,8 @@ export const WizardScreen = () => {
           (p) => !(p.isProblemPage || p.forceOcr) || p.cropInspected,
         );
       case 2:
-        return pages.every(
-          (p) => !(p.isProblemPage || p.forceOcr) || p.ocrComplete,
-        );
+        // 확인 후 페이지 재OCR 로 미완료가 생기면 재차단 (allProblemOcrDone).
+        return ocrConfirmed && allProblemOcrDone;
       default:
         return true;
     }
@@ -194,7 +198,9 @@ export const WizardScreen = () => {
       : step === 1
         ? "모든 페이지를 '검토 완료' 하세요"
         : step === 2
-          ? "모든 페이지 OCR 완료 후 진행됩니다"
+          ? allProblemOcrDone
+            ? "'모든 문항 확인 완료'를 눌러주세요"
+            : "모든 페이지 OCR 완료 후 확인할 수 있어요"
           : undefined;
 
   // 미충족 항목 체크리스트 (경고 토스트) — 어떤 페이지를 채워야 하는지 명시.
@@ -212,10 +218,13 @@ export const WizardScreen = () => {
       return `검수를 완료해야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
     }
     if (step === 2) {
-      const items = problemPages
-        .filter(({ p }) => !p.ocrComplete)
-        .map(({ n }) => `☐ 페이지 ${n} — 인식 진행 중`);
-      return `OCR이 끝나야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
+      const pending = problemPages.filter(({ p }) => !p.ocrComplete);
+      if (pending.length > 0) {
+        return `OCR이 끝나야 확인할 수 있어요:\n${pending
+          .map(({ n }) => `☐ 페이지 ${n} — 인식 진행 중`)
+          .join("\n")}`;
+      }
+      return "문항을 모두 확인했으면:\n☐ '모든 문항 확인 완료' 버튼 누르기";
     }
     return undefined;
   })();
