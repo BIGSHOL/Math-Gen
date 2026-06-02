@@ -352,7 +352,7 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               <div>
                 <div className="font-semibold">본문 누락 — 모델이 보기만 추출했습니다.</div>
                 <div className="text-muted text-caption mt-0.5">
-                  편집 버튼으로 본문을 직접 입력하거나, 페이지 재인식 (더 강한 모델 권장: Gemini 3.5 Flash / 3.1 Pro / Claude Sonnet) 을 사용하세요.
+                  편집 버튼으로 본문을 직접 입력하거나, 페이지 재인식을 눌러 다시 시도하세요.
                 </div>
               </div>
             </div>
@@ -363,7 +363,7 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               <div>
                 <div className="font-semibold">보기 누락 — 객관식 발문인데 ①②③④⑤ 보기가 없습니다.</div>
                 <div className="text-muted text-caption mt-0.5">
-                  편집 버튼으로 보기를 직접 추가하거나, 페이지 재인식 (더 강한 모델 권장: Gemini 3.1 Pro / Claude Sonnet) 을 사용하세요.
+                  편집 버튼으로 보기를 직접 추가하거나, 페이지 재인식을 눌러 다시 시도하세요.
                 </div>
               </div>
             </div>
