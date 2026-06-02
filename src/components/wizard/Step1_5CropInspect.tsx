@@ -335,8 +335,21 @@ export const Step1_5CropInspect = () => {
               onClick={() => setSelectedBoxId(null)}
               style={{
                 position: "relative",
-                display: "inline-block",
                 cursor: tool === "create" ? "crosshair" : "default",
+                // fit 모드: 페이지를 *가로 중앙* 정렬. inline-block 좌측 정렬이라
+                // 스크롤 영역(예 2146px)보다 좁은 페이지(예 1456px)가 왼쪽에
+                // 붙고 오른쪽에 큰 빈 여백 → "좌우 여백 이상 / 짤린 느낌"
+                // (사용자 보고 2026-06-02, DOM 측정으로 확인). block + fit-content
+                // + margin auto 로 좌우 여백 대칭. zoom 모드는 inline-block 유지
+                // (자연 폭 + 가로 스크롤).
+                ...(imageScale === "fit"
+                  ? {
+                      display: "block",
+                      width: "fit-content",
+                      maxWidth: "100%",
+                      marginInline: "auto",
+                    }
+                  : { display: "inline-block" }),
               }}
             >
               <img
