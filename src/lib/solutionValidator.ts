@@ -18,7 +18,12 @@ export interface SolutionWarning {
   /** 자세한 검출 결과 — collapsible. */
   detail: string;
   /** 검증 항목 id. */
-  rule: "distinct-tuple" | "sign-parity" | "ascending-order";
+  rule:
+    | "distinct-tuple"
+    | "sign-parity"
+    | "ascending-order"
+    | "trial-and-error"
+    | "too-long";
 }
 
 /**
@@ -151,6 +156,73 @@ export const validateDistinctTuples = (
 };
 
 /**
+ * trial-and-error / 검증 / 재시작 흔적 검출 (사용자 보고 2026-06-02 — "강력하게 차단").
+ *
+ * 모델이 풀이 도중 오답을 발견하고 *"선택지에 없으므로 재검토 → 다시 계산 →
+ * 정답"* 흐름을 그대로 출력하는 경우. SOLUTION_PROMPT (§7-6) 가 강력히 금지하는데도
+ * 모델이 종종 위반(특히 어려운 문제). prompt 만으로 100% 못 막으므로 runtime 에서
+ * *명시적 마커* 를 검출해 경고 → 사용자 재생성 유도(강력 차단의 2차 방어선).
+ *
+ * **강한 마커만** 사용 — false positive 최소화. 깨끗한 학생용 풀이는 "선택지"
+ * 를 언급하거나(정답은 answer 필드) "다시 계산/재검토/오류" 를 쓸 일이 없다.
+ */
+const TRIAL_ERROR_MARKERS: Array<{ re: RegExp; label: string }> = [
+  // 선택지 대조 — 풀이가 답을 선택지와 맞춰보는 검증 (풀이에 있으면 안 됨).
+  { re: /선택지\S*\s*(?:에|와|가|랑|를)?\s*(?:없|맞지\s*않|안\s*맞|아니|틀)/, label: "선택지 대조" },
+  // 재검토 / 조건 재해석.
+  { re: /재검토|다시\s*검토|조건\s*(?:을|해석을)?\s*재(?:검토|해석)/, label: "재검토" },
+  // 다시 계산/정리/풀이.
+  { re: /다시\s*(?:계산|정리|풀|확인|구하|살펴)|재계산|재확인|다시\s*풀어/, label: "다시 계산" },
+  { re: /처음부터\s*다시/, label: "처음부터 다시" },
+  // 오답 인정.
+  { re: /오류!|잘못\s*(?:계산|설정|되|됐|함|두)|부호\s*오류|계산\s*(?:실수|오류)/, label: "오답 인정" },
+  { re: /잠깐[,.\s]/, label: "잠깐" },
+  { re: /말도\s*안/, label: "비속어" },
+  // "여전히 −50 / 여전히 없음 / 여전히 선택지" — 불일치 반복.
+  { re: /여전히\s*(?:없|맞지|선택지|틀|[−–-]?\s*\d)/, label: "여전히(불일치)" },
+];
+
+export const validateTrialAndError = (solutionText: string): SolutionWarning | null => {
+  if (!solutionText) return null;
+  const hits = TRIAL_ERROR_MARKERS.filter((m) => m.re.test(solutionText)).map((m) => m.label);
+  if (hits.length === 0) return null;
+  // 중복 라벨 제거.
+  const labels = Array.from(new Set(hits));
+  return {
+    rule: "trial-and-error",
+    summary: `풀이에 검토/재시도 흔적 — ${labels.join(", ")}`,
+    detail:
+      `풀이 본문에서 *오답 발견 → 재검토 → 재계산* 같은 trial-and-error / 검증 흔적이 ` +
+      `검출됐습니다 (${labels.join(", ")}). 학생용 풀이는 정답까지 *직선 흐름* 만 보여야 하고, ` +
+      `검증·재시작 과정은 출력에서 지워야 합니다. 재생성을 권장합니다.`,
+  };
+};
+
+/**
+ * 과도한 분량 검출 — 사용자 보고 "풀이 너무 길다 줄여". SOLUTION_PROMPT 의
+ * HARD CAP (hard 도 ~20 줄) 을 *크게* 초과하는 풀이만 flag. 정상 hard 풀이가
+ * false positive 안 나도록 관대한 임계(비어있지 않은 줄 32 개).
+ */
+const MAX_SOLUTION_LINES = 32;
+
+export const validateLength = (solutionText: string): SolutionWarning | null => {
+  if (!solutionText) return null;
+  const lines = solutionText
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length <= MAX_SOLUTION_LINES) return null;
+  return {
+    rule: "too-long",
+    summary: `풀이가 너무 깁니다 — ${lines.length}줄 (권장 최대 ${MAX_SOLUTION_LINES}줄)`,
+    detail:
+      `풀이가 ${lines.length}줄로, 학생용 정답지 기준(hard 도 ~20줄)을 크게 넘습니다. ` +
+      `case 나열 / 검증 절차 / 보일러플레이트 도입부를 제거하고 정답까지 직선 흐름으로 ` +
+      `압축하세요. 재생성을 권장합니다.`,
+  };
+};
+
+/**
  * 모든 검증 항목을 한 번에 실행. 발견된 warning array 반환 (없으면 빈 배열).
  *
  * 후속 phase 에서 sign-parity, ascending-order 등 추가 검증.
@@ -162,5 +234,9 @@ export const validateSolution = (input: {
   const warnings: SolutionWarning[] = [];
   const distinctWarning = validateDistinctTuples(input.problemText, input.solutionText);
   if (distinctWarning) warnings.push(distinctWarning);
+  const trialWarning = validateTrialAndError(input.solutionText);
+  if (trialWarning) warnings.push(trialWarning);
+  const lengthWarning = validateLength(input.solutionText);
+  if (lengthWarning) warnings.push(lengthWarning);
   return warnings;
 };
