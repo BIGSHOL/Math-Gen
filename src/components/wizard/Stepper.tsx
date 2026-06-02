@@ -17,6 +17,12 @@ export interface StepperProps {
    * 이전 누르면 완료가 풀려버림" (2026-05-27). store 의 furthestStep 으로 전달.
    */
   furthest?: WizardStepIndex;
+  /**
+   * 마지막 단계(내보내기)에서 "저장" 으로 마무리하면 그 단계도 체크 표시.
+   * 사용자 보고 2026-06-02: "저장 누르면 7단계도 체크표시". true 면 current 가
+   * 마지막 step 이어도 done 으로 렌더.
+   */
+  completed?: boolean;
   onJump?: (index: WizardStepIndex) => void;
 }
 
@@ -29,21 +35,23 @@ export interface StepperProps {
  * The connector line between steps animates from 0 → 100% as you progress
  * (280ms ease). Clicking a `done` step jumps back to it.
  */
-export const Stepper = ({ steps, current, furthest, onJump }: StepperProps) => (
+export const Stepper = ({ steps, current, furthest, completed, onJump }: StepperProps) => (
   <ol className="flex items-center w-full" role="list">
     {steps.map((s, i) => {
+      const isLastStep = i === steps.length - 1;
       // Phase #16: furthest 가 있으면 그 이하 step (current 제외) 도 done 으로.
       // furthest 미설정 (옛 호출처) 면 기존 동작 — current 미만만 done.
+      // + completed: 마지막 step 을 current 로 보고 있어도 "저장 마무리" 면 done.
       const reachedMax = (furthest ?? current) as number;
       const isDone =
-        s.index !== current &&
-        (s.index < current || s.index < reachedMax);
+        (s.index !== current && (s.index < current || s.index < reachedMax)) ||
+        (completed === true && isLastStep);
       const state: "done" | "active" | "future" = isDone
         ? "done"
         : s.index === current
           ? "active"
           : "future";
-      const isLast = i === steps.length - 1;
+      const isLast = isLastStep;
       const canJump = state === "done" && !!onJump;
       return (
         <li key={s.index} className="flex items-center flex-1 last:flex-none">

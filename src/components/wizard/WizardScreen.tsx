@@ -353,7 +353,13 @@ export const WizardScreen = () => {
       <div className="px-8 py-4 border-b border-line bg-surface wizard-chrome">
         {/* max-w 2200 — QHD (2560) 까지 활용, 좌우 여백 ~180px (사용자 결정 2026-05-26) */}
         <div className="max-w-[2200px] mx-auto">
-          <Stepper steps={STEPS} current={step} furthest={furthestStep} onJump={setStep} />
+          <Stepper
+            steps={STEPS}
+            current={step}
+            furthest={furthestStep}
+            completed={step === STEPS.length - 1}
+            onJump={setStep}
+          />
         </div>
       </div>
 

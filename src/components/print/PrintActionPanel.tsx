@@ -1,6 +1,8 @@
 import { useCallback, useState, type RefObject } from "react";
 import { Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
 import { useWizardStore } from "@app/stores/wizardStore";
+import { useAppStore } from "@app/stores/appStore";
+import { showToast } from "@app/stores/toastStore";
 import type { ExportProgress } from "@app/lib/pdfExporter";
 
 /**
@@ -68,6 +70,15 @@ export const PrintActionPanel = ({
   const filename = useWizardStore((s) => s.filename);
   const setExport = useWizardStore((s) => s.setExport);
   const prev = useWizardStore((s) => s.prev);
+  const backToLibrary = useAppStore((s) => s.backToLibrary);
+
+  // 저장 완료 — 내보내기 단계의 마무리 (사용자 보고 2026-06-02). 다운로드가
+  // 구현중이라 이 단계의 주 동작은 "저장하고 보관함으로". 위자드는 이미
+  // sessionStorage + Supabase 로 auto-save 되므로 보관함 복귀 = 저장 완료.
+  const handleSaveDone = useCallback(() => {
+    showToast({ kind: "success", message: "시험지가 보관함에 저장되었습니다." });
+    backToLibrary();
+  }, [backToLibrary]);
 
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const isExporting = progress !== null && progress.phase !== "done" && progress.phase !== "error";
@@ -238,6 +249,11 @@ export const PrintActionPanel = ({
             )}
           </Card>
         )}
+
+        {/* 저장 완료 — 이 단계의 주 동작 (다운로드 구현중이므로). 누르면 보관함으로. */}
+        <Btn kind="accent" icon="check-circle" full onClick={handleSaveDone}>
+          저장 완료 (보관함으로)
+        </Btn>
 
         {/* 액션 버튼 — MVP 락다운 (사용자 결정 2026-06-02): 다운로드/저장은 모두
             준비 중. "구현중" 으로 비활성. (handleServerPDF/handlePDF/handlePrint
