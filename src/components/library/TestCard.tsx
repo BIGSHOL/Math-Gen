@@ -130,10 +130,13 @@ export const TestCard = ({ test, onClick, onDelete }: TestCardProps) => {
         </span>
         <span>{test.time}</span>
       </div>
-      {/* 진행단계 chip (furthest_step 있을 때) + 분석 결과 chip */}
-      {(typeof test.furthestStep === "number" || dominantTopic) && (
+      {/* 진행단계 chip — furthest_step > 0 일 때만 (0 = 기본/legacy 미기록 → 숨김.
+          기존 시험지는 마이그레이션 직후 0 이므로 잘못된 "업로드 단계" 방지.
+          재진행/이어서작업 시 올바른 값으로 동기화됨). + 분석 결과 chip. */}
+      {((typeof test.furthestStep === "number" && test.furthestStep > 0) ||
+        dominantTopic) && (
         <div className="mt-2 flex items-center gap-1 flex-wrap">
-          {typeof test.furthestStep === "number" && (
+          {typeof test.furthestStep === "number" && test.furthestStep > 0 && (
             <Chip tone="soft" size="sm" icon="flag">
               {WIZARD_STEP_LABELS[test.furthestStep] ?? "진행"} 단계
             </Chip>
