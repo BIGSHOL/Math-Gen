@@ -115,6 +115,8 @@ export interface TestPaper {
   tags: string[];
   grade: string;
   topicDistribution: TopicSlice[];
+  /** 진행한 가장 먼 위자드 단계 (0=업로드 … 6=내보내기). 목록 진행단계 표시용. */
+  furthestStep?: number;
   variants: VariantHistory[];
   /** Problems on this test paper (after OCR digitization). */
   problems: GeneratedProblem[];

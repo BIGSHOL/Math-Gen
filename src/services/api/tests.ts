@@ -10,6 +10,27 @@ import { testRowToTestPaper, type TestRow, type TestInsert } from "./mappers";
  * 으로 우회 가능.
  */
 
+// ── optional 컬럼 graceful fallback (CLAUDE.md §25-2) ───────────────────────
+// furthest_step 등 *나중에 추가된* 컬럼이 아직 마이그레이션 안 된 DB 에서도 test
+// 저장이 깨지지 않도록: PGRST204(schema cache) 면 그 컬럼만 빼고 1회 재시도.
+const OPTIONAL_COLUMNS = ["furthest_step"] as const;
+const SCHEMA_MISS_RE = /(PGRST204|schema cache|could not find|column .* does not exist)/i;
+const isSchemaMiss = (err: { message?: string; code?: string } | null): boolean =>
+  !!err && (err.code === "PGRST204" || SCHEMA_MISS_RE.test(err.message ?? ""));
+const stripOptional = (row: Record<string, unknown>): Record<string, unknown> => {
+  const clone = { ...row };
+  for (const c of OPTIONAL_COLUMNS) delete clone[c];
+  return clone;
+};
+let warnedSchema = false;
+const warnMigration = (): void => {
+  if (warnedSchema) return;
+  warnedSchema = true;
+  console.warn(
+    "[api/tests] tests.furthest_step 컬럼 없음 — schema.sql ALTER TABLE 실행 전까지 진행단계 미저장 (저장 자체는 정상).",
+  );
+};
+
 /** 사용자의 모든 시험지 (DEV: 같은 DEV_USER_ID 의 모든 row). 최신순. */
 export const loadTests = async (): Promise<TestPaper[] | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
@@ -34,12 +55,20 @@ export const loadTests = async (): Promise<TestPaper[] | null> => {
 export const insertTest = async (input: TestInsert): Promise<string | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   const userId = await currentUserId();
-  const payload = { user_id: userId, ...input };
-  const { data, error } = await supabase
+  const payload: Record<string, unknown> = { user_id: userId, ...input };
+  let { data, error } = await supabase
     .from("tests")
     .insert(payload)
     .select("id")
     .single();
+  if (error && isSchemaMiss(error)) {
+    warnMigration();
+    ({ data, error } = await supabase
+      .from("tests")
+      .insert(stripOptional(payload))
+      .select("id")
+      .single());
+  }
   if (error) {
     console.warn(
       `[api/tests] insertTest failed: ${error.message} (code: ${error.code ?? "-"})`,
@@ -58,12 +87,20 @@ export const upsertTest = async (input: TestInsert): Promise<string | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   if (!input.id) return insertTest(input);
   const userId = await currentUserId();
-  const payload = { user_id: userId, ...input };
-  const { data, error } = await supabase
+  const payload: Record<string, unknown> = { user_id: userId, ...input };
+  let { data, error } = await supabase
     .from("tests")
     .upsert(payload, { onConflict: "id" })
     .select("id")
     .single();
+  if (error && isSchemaMiss(error)) {
+    warnMigration();
+    ({ data, error } = await supabase
+      .from("tests")
+      .upsert(stripOptional(payload), { onConflict: "id" })
+      .select("id")
+      .single());
+  }
   if (error) {
     console.warn(
       `[api/tests] upsertTest failed: ${error.message} (code: ${error.code ?? "-"})`,
@@ -105,7 +142,14 @@ export const updateTest = async (
       updateTimers.set(id, timer);
     });
   }
-  const { error } = await supabase.from("tests").update(patch).eq("id", id);
+  let { error } = await supabase.from("tests").update(patch).eq("id", id);
+  if (error && isSchemaMiss(error)) {
+    warnMigration();
+    ({ error } = await supabase
+      .from("tests")
+      .update(stripOptional(patch as Record<string, unknown>))
+      .eq("id", id));
+  }
   if (error) {
     console.warn("[api/tests] updateTest failed:", error.message);
     return false;

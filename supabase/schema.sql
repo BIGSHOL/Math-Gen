@@ -32,11 +32,16 @@ CREATE TABLE IF NOT EXISTS tests (
   tags                TEXT[] NOT NULL DEFAULT '{}',
   topic_distribution  JSONB,                                 -- TopicSlice[] { topic, count, accuracy? }
   uploaded_file_name  TEXT,
+  furthest_step       SMALLINT DEFAULT 0,                      -- 진행한 가장 먼 위자드 단계 (0=업로드 … 6=내보내기)
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_tests_user_created
   ON tests(user_id, created_at DESC);
+
+-- 기존 tests 테이블에 furthest_step 추가 (마이그레이션 — 2026-06-03).
+-- 미실행 시 클라이언트의 tests.ts graceful fallback 이 컬럼을 strip (저장 정상).
+ALTER TABLE tests ADD COLUMN IF NOT EXISTS furthest_step SMALLINT DEFAULT 0;
 
 -- ============================================================================
 -- 2. pages (시험지의 페이지 — PDF page 단위)

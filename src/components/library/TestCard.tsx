@@ -15,6 +15,17 @@ const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
   draft: "neutral",
 };
 
+// 위자드 단계 라벨 — furthest_step(0~6) → 한글. 목록 카드 진행단계 칩.
+const WIZARD_STEP_LABELS = [
+  "업로드",
+  "검수",
+  "OCR",
+  "해설",
+  "옵션",
+  "검토",
+  "내보내기",
+] as const;
+
 const TYPE_KO: Record<string, string> = {
   number: "수와 연산",
   algebra: "대수",
@@ -119,12 +130,19 @@ export const TestCard = ({ test, onClick, onDelete }: TestCardProps) => {
         </span>
         <span>{test.time}</span>
       </div>
-      {/* Phase N-6: 분석 결과 chip (있을 때만) */}
-      {dominantTopic && (
+      {/* 진행단계 chip (furthest_step 있을 때) + 분석 결과 chip */}
+      {(typeof test.furthestStep === "number" || dominantTopic) && (
         <div className="mt-2 flex items-center gap-1 flex-wrap">
-          <Chip tone="accent" size="sm" icon="chart-pie">
-            {dominantTopic}
-          </Chip>
+          {typeof test.furthestStep === "number" && (
+            <Chip tone="soft" size="sm" icon="flag">
+              {WIZARD_STEP_LABELS[test.furthestStep] ?? "진행"} 단계
+            </Chip>
+          )}
+          {dominantTopic && (
+            <Chip tone="accent" size="sm" icon="chart-pie">
+              {dominantTopic}
+            </Chip>
+          )}
           {avgDifficulty && (
             <Chip tone="soft" size="sm">
               난이도 {avgDifficulty}

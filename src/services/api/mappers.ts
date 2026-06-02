@@ -33,6 +33,8 @@ export interface TestRow {
   tags: string[];
   topic_distribution: TopicSlice[] | null;
   uploaded_file_name: string | null;
+  /** 진행한 가장 먼 위자드 단계 (0=업로드 … 6=내보내기). 목록 카드 진행단계 표시 + resume. */
+  furthest_step: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -180,6 +182,7 @@ export const testRowToTestPaper = (row: TestRow): TestPaper => ({
   tags: row.tags ?? [],
   grade: row.grade ?? "",
   topicDistribution: row.topic_distribution ?? [],
+  furthestStep: row.furthest_step ?? undefined,
   variants: [],
   problems: [],
 });
@@ -203,6 +206,7 @@ export const testPaperToTestInsert = (
   tags: t.tags ?? [],
   topic_distribution: t.topicDistribution ?? null,
   uploaded_file_name: extras.uploaded_file_name ?? null,
+  ...(t.furthestStep !== undefined ? { furthest_step: t.furthestStep } : {}),
 });
 
 export const wizardPageToPageInsert = (

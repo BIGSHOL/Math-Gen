@@ -91,6 +91,12 @@ export const installWizardSync = (): void => {
         }
       }
     }
+    // ── 진행 단계(furthestStep) 변경 → tests.furthest_step 갱신 ────────────────
+    // 목록 카드 진행단계 표시 + "이어서 작업" resume 단계 (사용자 결정 2026-06-02).
+    // 컬럼 미마이그레이션 DB 는 tests.ts 의 graceful fallback 이 strip.
+    if (state.furthestStep !== prev.furthestStep) {
+      void updateTest(testId, { furthest_step: state.furthestStep }, { debounceMs: 800 });
+    }
   });
 };
 
