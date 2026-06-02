@@ -58,6 +58,8 @@ export const WizardScreen = () => {
   const pages = useWizardStore((s) => s.pages);
   const ocrConfirmed = useWizardStore((s) => s.ocrConfirmed);
   const setOcrConfirmed = useWizardStore((s) => s.setOcrConfirmed);
+  const solutionConfirmed = useWizardStore((s) => s.solutionConfirmed);
+  const setSolutionConfirmed = useWizardStore((s) => s.setSolutionConfirmed);
   const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
@@ -184,6 +186,15 @@ export const WizardScreen = () => {
   const allCropDetected = problemPageList.every(
     (p) => p.cropBoxes !== undefined && !p.cropDetectInflight,
   );
+  // 해설(step 3): 적격 문항(text 있고 bodyMissing 아님)의 해설이 *모두 끝났는지*
+  // (solution 또는 solutionError). 생성 중이면 false → 스킵 허용. 모두 끝나면
+  // "모든 문항 해설 확인 완료" 확인 요구 (OCR 미러, 단 스킵 가능 정책 유지).
+  const solutionEligible = problemPageList
+    .flatMap((p) => p.ocrResult)
+    .filter((it) => it.text && !it.bodyMissing);
+  const allSolutionsDone = solutionEligible.every(
+    (it) => !!it.solution || !!it.solutionError,
+  );
   const canAdvance = (() => {
     switch (step) {
       case 0:
@@ -193,6 +204,9 @@ export const WizardScreen = () => {
       case 2:
         // 확인 후 페이지 재OCR 로 미완료가 생기면 재차단 (allProblemOcrDone).
         return ocrConfirmed && allProblemOcrDone;
+      case 3:
+        // 해설은 스킵 가능: 생성 중(미완료)이면 통과, 모두 끝나면 확인 요구.
+        return !allSolutionsDone || solutionConfirmed;
       default:
         return true;
     }
@@ -205,11 +219,14 @@ export const WizardScreen = () => {
   // "다음" 으로 바뀌어 사이드바 안내("'모든 페이지 검토 완료' 버튼")와 불일치.
   const needsCropConfirm = step === 1 && allCropDetected;
   const needsOcrConfirm = step === 2 && allProblemOcrDone;
+  const needsSolutionConfirm = step === 3 && allSolutionsDone && !solutionConfirmed;
   const nextLabel = needsCropConfirm
     ? "모든 페이지 검토 완료"
     : needsOcrConfirm
       ? "모든 문항 확인 완료"
-      : undefined;
+      : needsSolutionConfirm
+        ? "모든 문항 해설 확인 완료"
+        : undefined;
 
   // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용. 확인 대기 상태
   // (needsCropConfirm/needsOcrConfirm)는 버튼 라벨이 곧 안내라 별도 사유 표시 X.
@@ -273,6 +290,12 @@ export const WizardScreen = () => {
     // 을 누르면 — 이 클릭이 곧 명시적 확인. 확인 처리 후 바로 다음 단계로.
     if (needsOcrConfirm) {
       setOcrConfirmed(true);
+      next();
+      return;
+    }
+    // 해설: 모든 해설 완료 + 미확인 상태에서 "모든 문항 해설 확인 완료" 클릭.
+    if (needsSolutionConfirm) {
+      setSolutionConfirmed(true);
       next();
       return;
     }

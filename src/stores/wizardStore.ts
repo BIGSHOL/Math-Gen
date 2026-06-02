@@ -408,6 +408,12 @@ export interface WizardState {
    * 게이팅: true 여야 step 2 → 3 진행. partialize 제외 (휘발성 — 새로고침 후 재확인).
    */
   ocrConfirmed: boolean;
+  /**
+   * 해설 단계 "모든 문항 해설 확인 완료" — OCR 의 ocrConfirmed 미러. 단 해설은
+   * 스킵 가능하므로 *해설이 모두 끝났을 때만* 확인을 요구 (생성 중엔 skip 허용).
+   * partialize 제외 (휘발성).
+   */
+  solutionConfirmed: boolean;
 
   // Step 3 — Options
   goal: ConversionGoal;
@@ -466,6 +472,7 @@ export interface WizardState {
   updateOCRItem: (pageId: string, itemId: string, patch: Partial<OCRProblem>) => void;
   /** OCR 단계 "모든 문항 확인 완료" 토글 (게이팅용). */
   setOcrConfirmed: (v: boolean) => void;
+  setSolutionConfirmed: (v: boolean) => void;
   setOptions: (patch: Partial<Pick<WizardState, "goal" | "difficulty" | "extras">>) => void;
   setProblems: (problems: ProblemReview[]) => void;
   updateProblem: (id: string, patch: Partial<ProblemReview>) => void;
@@ -510,6 +517,7 @@ const initialState = {
   pages: [] as WizardPage[],
   activePageIndex: 0,
   ocrConfirmed: false,
+  solutionConfirmed: false,
   goal: "similar" as ConversionGoal,
   difficulty: "same" as DifficultyShift,
   extras: { solutions: true, answers: true, oapNote: false, stats: false },
@@ -534,6 +542,7 @@ export const useWizardStore = create<WizardState>()(
         set({ step, furthestStep: (Math.max(cur, step) as WizardStepIndex) });
       },
       setOcrConfirmed: (v) => set({ ocrConfirmed: v }),
+      setSolutionConfirmed: (v) => set({ solutionConfirmed: v }),
       next: () => {
         const s = get().step;
         // Step 0~6 — Step 1.5 (검수) 가 1 로 삽입돼 총 7 단계. next() clamp 6.

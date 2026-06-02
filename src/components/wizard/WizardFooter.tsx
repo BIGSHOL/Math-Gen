@@ -47,7 +47,7 @@ export const WizardFooter = ({
             <span className="mx-1 text-line-strong">·</span>
             <ModKey />
             <Kbd>→</Kbd>
-            <span>다음</span>
+            <span>저장</span>
           </span>
         )}
       </div>
@@ -83,7 +83,7 @@ export const WizardFooter = ({
           iconRight={isLast ? undefined : "arrow-right"}
           icon={isLast ? "download-simple" : undefined}
         >
-          {nextLabel ?? (isLast ? "내보내기" : "다음")}
+          {nextLabel ?? (isLast ? "내보내기" : "저장")}
         </Btn>
       </div>
     </div>
