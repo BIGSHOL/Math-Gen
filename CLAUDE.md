@@ -4053,3 +4053,121 @@ aspect / measurement) 을 4 회 반복하며 시간 낭비. **시각 증상 (크
 유일한 확정 수단**. "mathlab 은 되는데 우리는 안 됨" → mathlab 의 *해당 컴포넌트
 + 부모 wrapper + 전역 CSS* 3 층 모두 비교.
 
+---
+
+## 32. 2026-06-02 세션 — 중복 로컬 hook drift + Supabase 잘못된 프로젝트 (2 함정)
+
+이번 세션 사용자 보고: "여전히 이미지가 안보이는데 체크" (고흐의 의자 작품 미표시)
++ `furthest_step` SQL 마이그레이션이 `42P01: relation "tests" does not exist` 로
+실패. 두 함정 모두 *표면 증상* 과 *근본 원인* 이 멀리 떨어진 케이스.
+
+### 32-1. 공용 hook 의 *로컬 복사본 drift* — 특정 경로에서만 깨짐 (CRITICAL)
+
+**증상** (사용자 3 차 반복 보고): OCRItem 의 ai-crop 이미지 (작품 / 도형) 가
+*해설(Step3)·검토(Step4) 화면에서만* 안 보임. OCR(Step2) 에서는 정상. 특히
+*"이어서 작업"으로 hydrate 한 세션* 에서 재현.
+
+**Root cause**: `usePageImageDataUrl` 이 **4 군데** 에 존재 —
+- `src/hooks/usePageImageDataUrl.ts` (공용, `WizardPage` 받음, **3-layer:
+  IndexedDB → Storage fallback → rotation**)
+- `Step2OCRReview.tsx` 로컬 (`WizardPage` 받음, Storage fallback **있음** — 정상)
+- `Step3SolutionReview.tsx` 로컬 (`imageRef: string` 받음, **IndexedDB 만** — 결함)
+- `Step4Review.tsx` 로컬 (`imageRef: string` 받음, **IndexedDB 만** — 결함)
+
+Step3/4 의 로컬 hook 은 Storage fallback 이 없어서, hydrate 세션 (페이지
+이미지가 IndexedDB 아니라 Supabase Storage 에만 존재) 에서 `getPageImage` miss →
+`pageImage = null` → OCRItem 의 `cropPageImageData(pageImageDataUrl, ...)` 가
+*null 입력* → 크롭 실패 → 작품/도형 silently 사라짐.
+
+**Fix** (commit `3b1e83c`): Step3/4 의 로컬 hook 제거 → 공용
+`@app/hooks/usePageImageDataUrl(activePage)` import. 미사용 import (`getPageImage`,
+`useState`/`useEffect`) 도 정리.
+
+**원칙 — 공용 hook 이 있으면 *로컬 복사본 절대 금지***:
+- 복사본은 *원본이 진화할 때 (Storage fallback 추가 등) 같이 안 바뀜* → drift.
+- drift 한 복사본은 *특정 경로에서만* 깨짐 (여기선 hydrate 세션) → 디버깅 최악.
+  일반 dev (IndexedDB 캐시 있음) 에서는 재현 안 돼서 "내 환경에선 되는데" 함정.
+- 새 화면이 페이지 이미지 필요 시 *반드시* `@app/hooks/usePageImageDataUrl` 사용.
+  로컬 `const usePageImageDataUrl = ...` 패턴 발견 즉시 공용으로 교체.
+
+**찾는 법**: `grep -rn "const usePageImageDataUrl\|usePageImageDataUrl =" src/` —
+공용 export 외에 로컬 정의가 있으면 전부 drift 후보. 같은 패턴이 다른 공용 hook
+(`usePageImageDataUrl`, `useCroppedImages` 등) 에도 적용.
+
+**참고**: `src/hooks/usePageImageDataUrl.ts` (공용 — 단일 source of truth),
+`src/components/wizard/Step3SolutionReview.tsx` / `Step4Review.tsx`.
+
+### 32-2. tsc 가 *타입 발산 (divergence)* 을 드러내는 진단 도구
+
+처음에 Step3 의 호출을 `usePageImageDataUrl(activePage)` (WizardPage 객체) 로
+바꿨더니 tsc 가 `error TS2345: Argument of type 'WizardPage' is not assignable
+to parameter of type 'string'` 를 emit. 이 에러가 *결정적 단서* — Step3 의 hook
+param 이 `string` 인데 Step2 는 `WizardPage` → **두 hook 이 서로 다른 시그니처
+= 로컬 복사본 drift** 임을 즉시 확정.
+
+**원칙**: 같은 이름의 hook/함수 호출이 *한 화면에선 type OK, 다른 화면에선
+type error* 면 → *서로 다른 정의* (로컬 복사본 또는 import 경로 차이) 를 쓰고
+있다는 강한 신호. tsc 를 *버그 진단 도구* 로 활용 — 에러 메시지의 *기대 타입*
+(여기선 `string`) 이 어느 정의를 가리키는지 역추적.
+
+**연계** (§4-6 / 작업 흐름): tsc 는 *git 앞 게이트* — 절대 `tsc && git` 으로
+체이닝하지 말 것. 이번에도 잘못된 1 차 수정 (string param hook 에 객체 전달) 을
+tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
+
+### 32-3. Supabase `42P01 relation does not exist` — 잘못된 프로젝트 함정
+
+**증상**: 사용자가 SQL editor 에서 `ALTER TABLE tests ADD COLUMN ...` 실행 →
+`42P01: relation "tests" does not exist`. 그러나 앱 코드 (`tests.ts` 의
+`.from("tests")`) 와 `schema.sql` (`CREATE TABLE IF NOT EXISTS tests`) 둘 다
+*tests* 테이블을 명백히 사용 → 테이블은 존재함.
+
+**Root cause**: 사용자의 SQL editor 가 *다른 Supabase 프로젝트* 에 연결돼 있었음
+(이 앱 스키마가 없는 프로젝트). 사용자 확인: "다른 supabase 에서 했었어".
+
+**진단 절차 (재사용)**:
+1. 앱이 실제 연결하는 프로젝트 ref 확인 — `.env.local` 의 `VITE_SUPABASE_URL`
+   (`https://<ref>.supabase.co`). 이 ref 는 *공개 값* (클라이언트 번들에 포함) →
+   surface 해도 안전 (anon key 와 다름).
+2. 사용자에게 *그 ref 의* SQL editor 를 열라고 안내.
+3. 프로젝트 확인 쿼리:
+   ```sql
+   SELECT table_name FROM information_schema.tables
+   WHERE table_schema = 'public' ORDER BY table_name;
+   ```
+   `tests`, `pages`, `ocr_problems` ... 가 보이면 올바른 프로젝트.
+4. 멱등 ALTER + 검증:
+   ```sql
+   ALTER TABLE tests ADD COLUMN IF NOT EXISTS furthest_step SMALLINT DEFAULT 0;
+   SELECT column_name FROM information_schema.columns
+   WHERE table_name = 'tests' AND column_name = 'furthest_step';  -- 1행 = 성공
+   ```
+
+**원칙**: `42P01` 인데 *코드상 테이블이 분명히 존재* 하면 → 테이블 이름 오타가
+아니라 *연결 프로젝트* 의심. `VITE_SUPABASE_URL` 의 ref 를 사용자에게 알려
+정확한 프로젝트로 유도. (이번 앱 ref: `sfclzyusmpavhuegqvcu`.)
+
+**연계** (§25-2 / §30-4): graceful fallback 덕분에 *마이그레이션 전에도 앱은
+정상 동작* — `tests.ts` 의 PGRST204 retry 가 `furthest_step` strip. 마이그레이션은
+*진행단계 칩 영속화* 만을 위한 것. 즉 "SQL 안 됐다" 보고를 받아도 *기능 자체는
+안 막혀 있음* 을 먼저 안내.
+
+**마이그레이션 직후 주의**: 기존 행은 `furthest_step` 기본값 `0` → 칩 숨김
+(commit `298fd97` — `furthestStep === 0` 이면 "업로드 단계" 오표시 방지). 해당
+시험지 재진행 시 `wizardSync` 가 올바른 값 동기화 → 칩 표시. 신규 시험지는 처음부터 정확.
+
+### 32-4. 메타 — 함정의 전염 (§30-6 재확인)
+
+이번 2 함정도 *기존 카탈로그 원형의 새 발현*:
+
+| 새 함정 | 원형 | 차이 |
+|---|---|---|
+| §32-1 로컬 hook drift | §16-3 / §11-2 (공유 헬퍼 단일 source) | 헬퍼/prompt → React hook 으로 확장 |
+| §32-3 잘못된 프로젝트 | §25-2 / §30-4 (schema fallback) | 미마이그레이션 → 잘못된 프로젝트로 확장 |
+
+**일반 원칙 (§7-1 / §16-3 재확인)**: *복사-붙여넣기 금지, 단일 source of truth*
+는 prompt prefix·sanitize 함수뿐 아니라 *React hook* 에도 동일 적용. 공용 hook
+존재 시 로컬 변형 만들지 말 것 — drift 가 *특정 런타임 경로* (hydrate 세션) 에서만
+터져서 가장 추적하기 어렵다.
+
+**참고**: commit `3b1e83c` (Step3/4 공용 hook 교체).
+
