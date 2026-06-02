@@ -96,15 +96,20 @@ export const Step4Review = () => {
   const errorCount = problems.filter((p) => !!p.genError).length;
   const generatingCount = problems.filter((p) => p.generating).length;
 
-  // 활성 페이지 문항에 해당하는 ProblemReview 만 필터 + reviewFilter 적용.
+  // 필터 적용. **전체** 는 활성 페이지 문항만 (페이지별 검토 흐름), **검토/미확정**
+  // 은 *모든 페이지* 를 대상으로 한다 — 헤더 카운트(검토/대기/실패)는 전역인데
+  // 필터를 활성 페이지로 한정하면 "검토 2" 인데 필터 결과 0 인 불일치 발생
+  // (사용자 보고 2026-06-02: 다른 페이지의 검토 항목이 안 보임).
   const activeProblems = problems.filter((p) => activeItemIds.has(p.id));
-  const filteredProblems = activeProblems.filter((p) => {
-    if (reviewFilter === "all") return true;
-    if (reviewFilter === "review") return p.status === "review";
-    if (reviewFilter === "pending")
-      return p.status === "pending" || !!p.genError;
-    return true;
-  });
+  const filteredProblems = (reviewFilter === "all" ? activeProblems : problems).filter(
+    (p) => {
+      if (reviewFilter === "all") return true;
+      if (reviewFilter === "review") return p.status === "review";
+      if (reviewFilter === "pending")
+        return p.status === "pending" || !!p.genError;
+      return true;
+    },
+  );
 
   return (
     <div className="flex gap-4 h-full px-6 py-5 min-h-[580px]">

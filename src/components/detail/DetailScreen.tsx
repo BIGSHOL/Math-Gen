@@ -127,6 +127,24 @@ export const DetailScreen = () => {
   const solutionCount = detail.problems.filter((p) => p.solution).length;
   const historyCount = detail.history.length;
 
+  // 헤더 상태 칩 — 저장된 statusText(스테일) 대신 *현재 문항* 으로 재계산.
+  // 사용자 보고 2026-06-02: 헤더 "검토 필요 1건" 인데 본문 stat "검토 필요 0" 불일치
+  // (저장 시점 이후 사용자가 확정해서 실제 검토 수는 0 인데 statusText 미갱신).
+  const hasLiveProblems = !detail.loading && detail.problems.length > 0;
+  const liveReviewCount = detail.problems.filter(
+    (p) => p.status === "warn" || p.status === "pending",
+  ).length;
+  const headerStatusText = hasLiveProblems
+    ? liveReviewCount > 0
+      ? `검토 필요 ${liveReviewCount}건`
+      : "확정"
+    : test.statusText;
+  const headerStatusTone = hasLiveProblems
+    ? liveReviewCount > 0
+      ? "warn"
+      : "ok"
+    : STATUS_CHIP_TONE[test.status];
+
   // "이어서 작업" 이 재개할 단계를 미리 안내 (사용자 보고 2026-06-02). hydrate
   // 의 decideResumeStep 로직(wizardHydrate.ts)을 detail 데이터로 동일하게 추정.
   const resumeStepLabel = (() => {
@@ -168,8 +186,8 @@ export const DetailScreen = () => {
               >
                 {test.title}
               </span>
-              <Chip tone={STATUS_CHIP_TONE[test.status]} size="sm" dot>
-                {test.statusText}
+              <Chip tone={headerStatusTone} size="sm" dot>
+                {headerStatusText}
               </Chip>
             </div>
           </>
