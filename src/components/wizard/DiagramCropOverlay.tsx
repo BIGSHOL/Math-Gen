@@ -178,7 +178,7 @@ export const DiagramCropOverlay = ({
         <Eyebrow>{sizeHint}</Eyebrow>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto bg-surface2 p-3">
+      <div className="flex-1 min-h-0 overflow-auto bg-surface2 p-3 flex items-start justify-center">
         {pageImageDataUrl ? (
           <div
             ref={containerRef}
@@ -186,7 +186,6 @@ export const DiagramCropOverlay = ({
               position: "relative",
               display: "inline-block",
               cursor: "default",
-              minWidth: "100%",
             }}
           >
             <img
@@ -194,7 +193,13 @@ export const DiagramCropOverlay = ({
               alt="페이지 미리보기"
               style={{
                 display: "block",
+                // 전체 페이지가 모달 안에 *한눈에* 들어오도록 폭·높이 둘 다 제한.
+                // 이전엔 maxWidth 만 있어서 세로로 긴 시험지가 모달보다 훨씬
+                // 길어져 스크롤·짤림 (사용자 보고 2026-06-03). 높이 = 모달
+                // 90vh - 헤더/푸터/패딩(~9rem). 컨테이너가 inline-block 이라
+                // 줄어든 이미지에 맞춰 shrink → 박스 overlay 좌표 자동 정렬.
                 maxWidth: "100%",
+                maxHeight: "calc(90vh - 9rem)",
                 userSelect: "none",
               }}
               draggable={false}
