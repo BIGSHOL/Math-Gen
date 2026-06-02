@@ -127,6 +127,19 @@ export const DetailScreen = () => {
   const solutionCount = detail.problems.filter((p) => p.solution).length;
   const historyCount = detail.history.length;
 
+  // "이어서 작업" 이 재개할 단계를 미리 안내 (사용자 보고 2026-06-02). hydrate
+  // 의 decideResumeStep 로직(wizardHydrate.ts)을 detail 데이터로 동일하게 추정.
+  const resumeStepLabel = (() => {
+    const probs = detail.problems;
+    if (probs.length === 0) return "OCR (3/7단계)";
+    const eligible = probs.filter((p) => p.text && !p.bodyMissing);
+    const solDone =
+      eligible.length > 0 && eligible.every((p) => p.solution || p.solutionError);
+    if (!solDone) return "해설 (4/7단계)";
+    if (detail.reviews.length === 0) return "옵션 (5/7단계)";
+    return "검토 (6/7단계)";
+  })();
+
   // Phase D — 활성 페이지의 hi-res URL → base64 dataURL (OCRItem 의 도형 crop 용)
   const activePageDataUrl = useImageAsDataUrl(activePageObj?.imageUrl);
 
@@ -236,6 +249,7 @@ export const DetailScreen = () => {
           test={enrichedTest}
           onMakeVariant={() => handleResume(4)}
           onResume={() => handleResume()}
+          resumeStepLabel={resumeStepLabel}
           resuming={resuming}
           loading={detail.loading}
         />

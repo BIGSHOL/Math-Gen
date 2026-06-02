@@ -3,6 +3,7 @@ import { Btn, Card, Eyebrow, Icon, Segmented } from "@app/components/ui";
 import { useExamAnalysis } from "@app/hooks/useExamAnalysis";
 import type { PageWithUrls } from "@app/hooks/useDetailData";
 import type { OCRProblem } from "@app/stores/wizardStore";
+import { GRADE_LABELS, type GradeKey } from "@app/services/ai/mathDefense";
 import { DifficultyDonut } from "./DifficultyDonut";
 import { UnitBarChart } from "./UnitBarChart";
 import { DomainRadar } from "./DomainRadar";
@@ -43,8 +44,11 @@ const GRADE_TO_KO: Record<string, string> = {
   retake: "재수",
 };
 
+// grade key 한글화 — 우선 *canonical* GRADE_LABELS (high1_common1 → "고1 공통수학1"
+// 등 교육과정 suffix 포함), 없으면 짧은 키(GRADE_TO_KO), 그래도 없으면 raw.
+// 사용자 보고 2026-06-02: "대상 · 학년 high1_common1" 가 영문 키로 노출.
 const toKoreanGrade = (raw: string): string =>
-  GRADE_TO_KO[raw] ?? raw;
+  GRADE_LABELS[raw as GradeKey] ?? GRADE_TO_KO[raw] ?? raw;
 
 export interface StatsTabContentProps {
   testId: string;
@@ -155,7 +159,7 @@ export const StatsTabContent = ({
           </Btn>
         </div>
         <p className="text-caption text-muted mt-3">
-          시험지 분석 기능은 준비 중입니다.
+          대상: {pageImages.length}개 페이지 · 학년 {koreanGrade} · 분석 기능 준비 중
         </p>
       </Card>
     );

@@ -9,6 +9,8 @@ export interface DetailMetaSidebarProps {
   onMakeVariant: () => void;
   /** *이어서 작업* — 미완료 단계 자동 결정 (decideResumeStep). 끊긴 작업 재개. */
   onResume: () => void;
+  /** 재개될 단계 라벨 (예: "옵션 (5/7단계)") — 사용자가 어느 단계로 가는지 미리 안내. */
+  resumeStepLabel?: string;
   onShare?: () => void;
   onPdf?: () => void;
   resuming?: boolean;
@@ -69,6 +71,7 @@ export const DetailMetaSidebar = ({
   test,
   onMakeVariant,
   onResume,
+  resumeStepLabel,
   onShare,
   onPdf,
   resuming,
@@ -176,12 +179,22 @@ export const DetailMetaSidebar = ({
             full
             onClick={onResume}
             disabled={resuming || loading}
-            title="끊긴 작업의 미완료 단계부터 재개"
+            title={
+              resumeStepLabel
+                ? `${resumeStepLabel}부터 재개`
+                : "끊긴 작업의 미완료 단계부터 재개"
+            }
           >
-            {resuming ? "불러오는 중…" : "이어서 작업"}
+            {resuming
+              ? "불러오는 중…"
+              : resumeStepLabel
+                ? `이어서 작업 — ${resumeStepLabel}`
+                : "이어서 작업"}
           </Btn>
           <p className="mt-1 text-caption text-muted leading-tight">
-            끊긴 작업의 미완료 단계부터 재개
+            {resumeStepLabel
+              ? `${resumeStepLabel}부터 재개합니다`
+              : "끊긴 작업의 미완료 단계부터 재개"}
           </p>
         </div>
         <div className="flex gap-2">
