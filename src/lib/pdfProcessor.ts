@@ -42,6 +42,12 @@ export const loadPdf = async (file: File): Promise<PDFDocumentProxy> => {
     // math glyphs through these (esp. Symbol) without embedding the font;
     // without this URL pdfjs-dist 4.x+ renders those glyphs as blank ☐.
     standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+    // pdfjs-dist 5.x 는 CCITTFax(G4) / JBIG2 / JPEG2000 이미지 디코딩을 WASM 으로
+    // 옮겼다. wasmUrl 없으면 "JBig2 failed to initialize" → 해당 XObject 가 통째
+    // skip 됨. Canon·Xerox 복합기 스캔(MRC: JPEG 배경 + CCITTFax 텍스트 마스크)
+    // 은 본문 텍스트가 전부 CCITTFax 라 → 옅은 배경만 남고 글자가 사라진다.
+    // (사용자 보고: 성광고 복합기 스캔 PDF 미리보기 백지.)
+    wasmUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/wasm/`,
   }).promise;
 };
 
