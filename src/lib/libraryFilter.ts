@@ -16,7 +16,7 @@
  */
 
 import type { TestPaper, TestStatus } from "@app/types";
-import { GRADE_LABELS as MATH_GRADE_LABELS, type GradeKey } from "@app/services/ai/mathDefense";
+import { GRADE_LABELS as MATH_GRADE_LABELS } from "@app/services/ai/mathDefense";
 
 export type Collection =
   | "전체"
@@ -188,7 +188,7 @@ const GRADE_LABELS: Record<string, { label: string; order: number; icon: string 
 const gradeMeta = (grade: string): { label: string; order: number; icon: string } => {
   const local = GRADE_LABELS[grade];
   if (local) return local;
-  const label = MATH_GRADE_LABELS[grade as GradeKey] ?? grade;
+  const label = MATH_GRADE_LABELS[grade as keyof typeof MATH_GRADE_LABELS] ?? grade;
   const mid = grade.match(/(?:middle|중)\s*([1-3])/);
   if (mid) return { label, order: Number(mid[1]) - 1, icon: "circle-dashed" };
   const high = grade.match(/(?:high|고)\s*([1-3])/);
