@@ -1,5 +1,5 @@
 import React from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -787,6 +787,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
         rehypePlugins={[rehypeRaw, [rehypeKatex, { strict: false }]]}
+        // react-markdown 의 기본 urlTransform 은 보안상 `data:` URI 를 *제거* →
+        // src="" 가 됨. 우리 크롭 이미지(작품·도형)는 cropPageImageData 가 만든
+        // `data:image/...` dataURL 이라 [그림N] inline 치환(Stage 1b) 시 통째로
+        // 사라져 img 컴포넌트가 `[alt]` fallback span 만 렌더 (사용자 보고
+        // 2026-06-03: "고흐의 의자" 작품이 텍스트 라벨로만 보임). 우리가 직접
+        // 생성한 data:image/ 만 허용, 그 외 URL 은 기본 sanitize 유지 (XSS 방어).
+        urlTransform={(url) =>
+          url.startsWith("data:image/") ? url : defaultUrlTransform(url)
+        }
         components={{
           // Intercept placeholder divs/spans emitted by Stage 0/1 (SVG) and
           // Stage 2.5 (KaTeX) and inject their HTML via dangerouslySetInnerHTML
