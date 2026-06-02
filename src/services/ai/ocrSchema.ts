@@ -36,7 +36,7 @@ export const OCR_PAGE_SCHEMA = {
             description:
               "Full problem text in Markdown + LaTeX. Inline math wrapped in $...$, block math in $$...$$. " +
               "Choices, if any, listed at the end (\"① ...\" through \"⑤ ...\"), one per line. " +
-              "Where a diagram or figure belongs, insert a [그림N] placeholder (1-indexed, matching the order in `images`).",
+              "Where ANY figure belongs (an inline <svg> you draw in this text, OR an entry in `images`), insert a [그림N] placeholder (1-indexed). Record that figure's full-page layout box in `figures[N-1]`.",
           },
           topic: {
             type: "string",
@@ -66,6 +66,36 @@ export const OCR_PAGE_SCHEMA = {
               required: ["box", "label"],
             },
           },
+          figures: {
+            type: "array",
+            description:
+              "Layout box for EVERY figure referenced by a [그림N] marker in `text`, index-aligned to N (figures[0] = [그림1]). " +
+              "Add exactly ONE entry per [그림N] marker — whether the figure is an inline <svg> you draw in `text`, OR an `images` crop (photo/artwork). " +
+              "This drives whether figures render side-by-side or stacked, matching the original page. Empty array if the problem has no [그림N] marker.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                box: {
+                  type: "array",
+                  description:
+                    "Normalized bbox [yMin, xMin, yMax, xMax] on a 0–1000 grid over the FULL PAGE (yMin=top, xMin=left). The region this figure occupies on the ORIGINAL page. Tight, include in-figure labels.",
+                  items: { type: "number" },
+                },
+                kind: {
+                  type: "string",
+                  enum: ["svg", "diagram", "crop"],
+                  description:
+                    "svg = an inline <svg> you drew in `text`; diagram = a structured geometric shape; crop = an `images` bbox crop (photo/artwork/handwriting).",
+                },
+                label: {
+                  type: "string",
+                  description: "Short Korean caption. Empty string allowed.",
+                },
+              },
+              required: ["box", "kind", "label"],
+            },
+          },
           confidence: {
             type: "string",
             enum: ["high", "medium", "low"],
@@ -85,7 +115,7 @@ export const OCR_PAGE_SCHEMA = {
               "For 서술형 (no choices), always 'auto'.",
           },
         },
-        required: ["number", "text", "topic", "images", "confidence", "choicesLayout"],
+        required: ["number", "text", "topic", "images", "figures", "confidence", "choicesLayout"],
       },
     },
   },

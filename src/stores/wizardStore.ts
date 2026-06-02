@@ -229,6 +229,22 @@ export interface OCRImage {
   generatedAt?: number;
 }
 
+/**
+ * Phase B — `[그림N]` 마커가 가리키는 *모든* 시각 요소(크롭 이미지·벡터 도형·
+ * inline svg)의 full-page 레이아웃 box. index 는 `[그림N]` 의 N (1-indexed) →
+ * figures[N-1]. figureLayout(Stage 1c)이 이 box 로 좌우/상하 배치를 결정한다.
+ * box 는 *레이아웃 hint* 일 뿐(크롭 소스 아님) — 부정확해도 잘못된 내용이 아니라
+ * 스택 fallback 으로 degrade.
+ */
+export interface FigureBox {
+  /** full-page 정규화 bbox [yMin, xMin, yMax, xMax] (0–1000). */
+  box: [number, number, number, number];
+  /** 이 [그림N] 슬롯을 채우는 채널. */
+  kind: "svg" | "diagram" | "crop";
+  /** 짧은 한국어 캡션 (빈 문자열 허용). */
+  label: string;
+}
+
 export interface OCRProblem {
   id: string;
   number: number;
@@ -236,6 +252,11 @@ export interface OCRProblem {
   topic?: string;
   /** Diagrams / figures embedded in this problem — cropped from the page on render. */
   images?: OCRImage[];
+  /**
+   * Phase B: 모든 `[그림N]` figure 의 full-page 레이아웃 box (index-aligned to N).
+   * 위치 기반 배치(figureLayout Stage 1c)용. 없으면 세로 스택 fallback (회귀 0).
+   */
+  figures?: FigureBox[];
   /** Confidence band — drives the OCRItem warning border. */
   status: "ok" | "warn" | "pending";
   /** True after the user has reviewed / edited this item. */

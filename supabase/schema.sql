@@ -93,12 +93,14 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   images              JSONB,                                 -- OCRImage[] { box [4], label }
   diagram_params      JSONB,                                 -- Phase F: vector 도형 spec [{type, ...}] | null
   solution_auto_retried BOOL DEFAULT false,                  -- Phase G: validator warning 자동 재생성 1회 가드
+  figures             JSONB,                                 -- Phase B: [그림N] 레이아웃 box [{box[4], kind, label}] | null
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Phase #7 + dedup 마이그레이션 (멱등) — column 없으면 추가
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS diagram_params JSONB;
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS solution_auto_retried BOOL DEFAULT false;
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS figures JSONB;            -- Phase B: 위치 기반 배치
 CREATE INDEX IF NOT EXISTS idx_problems_page
   ON ocr_problems(page_id, problem_number);
 

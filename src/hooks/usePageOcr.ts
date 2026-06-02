@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
+import { remapBoxToFullPage } from "@app/lib/figureBoxRemap";
 import { preprocessForOcr } from "@app/lib/imagePreprocess";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
@@ -19,6 +20,12 @@ import {
 import { GPT_5_5, isOpenAIAvailable } from "@app/services/ai/openai";
 import { SONNET_MODEL, OPUS_MODEL } from "@app/services/ai/client";
 import { useWizardStore, type OCRProblem, type WizardPage } from "@app/stores/wizardStore";
+
+/**
+ * Pass-2 크롭 margin — cropPageImageData 호출과 remapBoxToFullPage 가 *같은 값*을
+ * 써야 box 역변환이 정확. 한 곳에서만 정의(둘이 어긋나면 위치 배치가 미세하게 틀어짐).
+ */
+const PASS2_CROP_MARGIN = 0.02;
 
 /**
  * Routing policy for the two-pass OCR pipeline — primary + fallback chain
@@ -472,7 +479,7 @@ export const usePageOcr = () => {
             let croppedImage: string;
             try {
               croppedImage = await cropPageImageData(rotatedPage, matchingBox.bbox, {
-                margin: 0.02,
+                margin: PASS2_CROP_MARGIN,
               });
               // 이미지 전처리 적용 (Pass 1 과 동일 — CLAUDE.md §28-1).
               // cropped 영역도 손글씨 잉크 / contrast / upscale 보강.
@@ -513,11 +520,23 @@ export const usePageOcr = () => {
                   result.items.find((it) => it.number === figItem.number) ??
                   result.items[0];
                 if (matched) {
+                  // Pass-2 결과의 box 는 *크롭 로컬* 좌표 → full-page 로 역변환
+                  // (matchingBox.bbox 기준 + 동일 margin). 안 하면 위치 배치가 깨짐.
+                  const remap = (b: [number, number, number, number]) =>
+                    remapBoxToFullPage(b, matchingBox.bbox, PASS2_CROP_MARGIN);
                   upgradedByNumber.set(figItem.number, {
                     ...matched,
                     // 모델이 박스 안 번호를 잘못 읽을 수 있음 — 원래 번호 강제.
                     number: figItem.number,
                     ocrModel: model,
+                    images: matched.images?.map((im) => ({
+                      ...im,
+                      box: remap(im.box),
+                    })),
+                    figures: matched.figures?.map((f) => ({
+                      ...f,
+                      box: remap(f.box),
+                    })),
                   });
                   lastModelUsed = model;
                 }

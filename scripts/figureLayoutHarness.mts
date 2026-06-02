@@ -3,7 +3,11 @@
 // figureLayout.ts 의 행 묶음 로직을 React/DOM 없이 검증. 새 행-그룹핑 규칙 변경 시
 // 먼저 여기 케이스가 통과하는지 확인.
 
-import { groupFigureRows, type FigBox } from "../src/lib/figureLayout.ts";
+import {
+  groupFigureRows,
+  assignBoxesByReadingOrder,
+  type FigBox,
+} from "../src/lib/figureLayout.ts";
 
 const SVG = (id: string) => `<div data-svg-id="${id}"></div>`;
 const IMG = (key: string) =>
@@ -118,6 +122,31 @@ const rowCount = (s: string) => (s.match(/data-figure-row/g) || []).length;
   ]);
   const out = groupFigureRows(content, boxes);
   check("8. 무효 box 1개 + 유효 1개 → 묶음 없음", rowCount(out) === 0);
+}
+
+// 9) Phase B: figures[] reading-order → 마커 없는 inline svg 도 box 획득 → 좌우 배치
+//    (고흐 시나리오: [그림1]→작품 img + 그 옆 inline svg 평행사변형)
+{
+  const content = `본문 ${IMG("img-0")}\n\n${SVG("0")}`;
+  const figures = [
+    { box: [180, 120, 340, 300] as FigBox }, // 작품 (왼쪽)
+    { box: [185, 360, 330, 760] as FigBox }, // 도형 (오른쪽)
+  ];
+  const boxes = new Map<string, FigBox | undefined>();
+  boxes.set("img-0", [180, 120, 340, 300]); // Phase A: 크롭 box (svg 는 box 없음)
+  assignBoxesByReadingOrder(content, figures, boxes); // Phase B: reading-order 주입
+  const out = groupFigureRows(content, boxes);
+  check("9. figures[] reading-order → svg 도 box 획득 → figure-row", rowCount(out) === 1);
+  check("9. 작품+도형 모두 행에 포함", out.includes('data-svg-id="0"') && out.includes('data-fig-key="img-0"'));
+}
+
+// 10) assignBoxesByReadingOrder: figures 부족 시 남는 placeholder 는 box 미할당
+{
+  const content = `${IMG("img-0")}\n\n${SVG("0")}\n\n${SVG("1")}`;
+  const figures = [{ box: [180, 120, 340, 300] as FigBox }]; // 1개만
+  const boxes = new Map<string, FigBox | undefined>();
+  assignBoxesByReadingOrder(content, figures, boxes);
+  check("10. figures 1개 → 첫 placeholder 만 box", boxes.get("img-0") !== undefined && boxes.get("0") === undefined && boxes.get("1") === undefined);
 }
 
 console.log(`\nfigureLayout 하니스: ${pass} pass, ${fail} fail`);

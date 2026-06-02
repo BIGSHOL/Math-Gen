@@ -128,6 +128,31 @@ interface PMatch {
   html: string;
 }
 
+/**
+ * Phase B — 모델 figures[] (reading order) 를 content 내 placeholder 에 *읽기
+ * 순서* 로 매칭해 box Map 을 채운다. inline svg(마커 없음) 도 위치를 얻는다.
+ *
+ * 전제: figures[] 와 placeholder 가 같은 reading order (모델이 시각 순서대로 emit,
+ * placeholder 도 본문 순서대로 등장). count 가 달라도 min 까지만 안전 매칭 →
+ * 나머지는 box 없음(스택 fallback). 기존 Map 값(Phase A 크롭 box)을 덮어쓴다
+ * (figures[] 가 권위 소스).
+ */
+export const assignBoxesByReadingOrder = (
+  content: string,
+  figures: ReadonlyArray<{ box: FigBox }>,
+  out: Map<string, FigBox | undefined>,
+): void => {
+  PLACEHOLDER_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while (k < figures.length && (m = PLACEHOLDER_RE.exec(content)) !== null) {
+    const key = m[1] ?? m[2];
+    const fig = figures[k];
+    if (fig && isValidBox(fig.box)) out.set(key, fig.box);
+    k++;
+  }
+};
+
 const buildRunReplacement = (
   run: PMatch[],
   boxes: Map<string, FigBox | undefined>,

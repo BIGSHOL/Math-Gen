@@ -299,6 +299,8 @@ interface RawOcrItem {
   confidence: "high" | "medium" | "low";
   /** Phase F: vector 도형 spec — optional (느슨한 array, 런타임 normalizeDiagram 보정). */
   diagramParams?: unknown;
+  /** Phase B: 모든 [그림N] figure 의 full-page 레이아웃 box (reading order). */
+  figures?: unknown;
   /** Phase #7: 원본 보기 grid 배치 (rows × cols) — "auto" | "1x5" | "2x3" | "3x2" | "5x1" */
   choicesLayout?: string;
 }
@@ -435,6 +437,40 @@ const buildUserText = (textLayer: string): string => {
     : OCR_PAGE_PROMPT;
 };
 
+/**
+ * Phase B — raw figures[] 검증 → OCRProblem["figures"]. 무효 box (4 유한수,
+ * 0–1000, yMin<yMax/xMin<xMax 아님) 는 *drop* → 위치 없음으로 degrade(스택).
+ * 좌표는 [0,1000] clamp (모델이 살짝 넘기는 케이스 허용).
+ */
+const clamp01000 = (n: number): number => Math.max(0, Math.min(1000, n));
+const normalizeFigures = (raw: unknown): OCRProblem["figures"] => {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: NonNullable<OCRProblem["figures"]> = [];
+  for (const f of raw) {
+    if (!f || typeof f !== "object") continue;
+    const box = (f as { box?: unknown }).box;
+    if (!Array.isArray(box) || box.length !== 4) continue;
+    if (!box.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
+    const y1 = clamp01000(box[0]);
+    const x1 = clamp01000(box[1]);
+    const y2 = clamp01000(box[2]);
+    const x2 = clamp01000(box[3]);
+    if (!(y1 < y2 && x1 < x2)) continue; // degenerate → drop
+    const kindRaw = (f as { kind?: unknown }).kind;
+    const kind =
+      kindRaw === "svg" || kindRaw === "diagram" || kindRaw === "crop"
+        ? kindRaw
+        : "diagram";
+    const labelRaw = (f as { label?: unknown }).label;
+    out.push({
+      box: [y1, x1, y2, x2],
+      kind,
+      label: typeof labelRaw === "string" ? labelRaw : "",
+    });
+  }
+  return out.length > 0 ? out : undefined;
+};
+
 /** Map a raw JSON response (provider-agnostic) to OCRProblem[]. */
 const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
   (parsed.items ?? []).map((raw) => {
@@ -466,6 +502,8 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
         Array.isArray(raw.diagramParams) && raw.diagramParams.length > 0
           ? (raw.diagramParams as OCRProblem["diagramParams"])
           : undefined,
+      // Phase B: figure 레이아웃 box (reading order). 무효 entry drop.
+      figures: normalizeFigures(raw.figures),
       // Phase #7: 원본 보기 grid 배치 (enum 외 값이면 "auto" fallback)
       choicesLayout: normalizeChoicesLayout(raw.choicesLayout),
       // 본문 또는 보기 누락은 confidence 와 무관하게 강제 warn — 사용자 검토 필수.

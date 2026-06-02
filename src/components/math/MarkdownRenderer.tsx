@@ -8,7 +8,7 @@ import rehypeRaw from "rehype-raw";
 import katex from "katex";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
 import { cleanMalformedLatex, parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
-import { groupFigureRows, type FigBox } from "@app/lib/figureLayout";
+import { groupFigureRows, assignBoxesByReadingOrder, type FigBox } from "@app/lib/figureLayout";
 
 /**
  * Korean math content renderer.
@@ -84,6 +84,12 @@ export interface MarkdownRendererProps {
     /** full-page bbox [yMin,xMin,yMax,xMax] (0–1000) — 위치 기반 행 배치(Stage 1c)용. */
     box?: [number, number, number, number];
   }>;
+  /**
+   * Phase B — 모든 figure(크롭+inline svg)의 full-page box (reading order).
+   * 주어지면 placeholder 에 *읽기 순서* 로 매칭(assignBoxesByReadingOrder) →
+   * inline svg 도형도 위치 획득. OCRProblem.figures 에서 전달.
+   */
+  figures?: ReadonlyArray<{ box: [number, number, number, number] }>;
   /**
    * Phase #7: 원본 보기 배치 hint. OCR 모델이 인식한 grid 를 그대로 렌더.
    * 기본 "auto" — 옵션 길이 기반 자동 결정. tall LaTeX 검출 시 5x1 강제 override.
@@ -597,6 +603,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   inline,
   diagramSvgs,
   imageCrops,
+  figures,
   choicesLayout = "auto",
 }) => {
   // Stage 0: inline <svg>…</svg> extraction.
@@ -724,6 +731,13 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return `\n\n<img src="${im.src}" alt="${alt}" class="diagram-inline-img" data-fig-key="img-${idx}" />\n\n`;
       },
     );
+  }
+
+  // Phase B: 모델 figures[] (reading order) 를 placeholder 에 읽기순서 매칭 →
+  // inline svg 도형(마커·box 없던 것)도 위치 획득. figureBoxes(Phase A 크롭 box)를
+  // figures[] 권위값으로 덮어씀. figures 없으면 Phase A 크롭 box 만으로 동작.
+  if (figures && figures.length > 0) {
+    assignBoxesByReadingOrder(svgReplacedContent, figures as ReadonlyArray<{ box: FigBox }>, figureBoxes);
   }
 
   // Stage 1c (Phase A): 위치 기반 행 배치. 인접한 figure placeholder 들의 full-page

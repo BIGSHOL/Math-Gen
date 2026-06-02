@@ -377,6 +377,9 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               // 위치 기반 행 배치(Stage 1c)용 — 원본 페이지 box. 이미 존재(신규 저장 X).
               box: c.originalImage.box,
             }))}
+            // Phase B — 모든 figure(크롭+inline svg) box. 있으면 inline svg 도형도
+            // 위치 획득(reading-order 매칭). 없으면 위 imageCrops box 만으로 동작.
+            figures={item.figures}
             choicesLayout={item.choicesLayout}
           />
         </div>

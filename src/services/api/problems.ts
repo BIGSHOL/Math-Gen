@@ -31,6 +31,7 @@ const OPTIONAL_COLUMNS = [
   "choices_layout",
   "diagram_params",
   "solution_auto_retried",
+  "figures",
 ] as const;
 const stripOptionalColumns = (rows: OcrProblemInsert[]): OcrProblemInsert[] =>
   rows.map((row) => {
@@ -46,12 +47,13 @@ const warnSchemaMigration = (_col: string) => {
   warnedSchema = true;
   // eslint-disable-next-line no-console
   console.warn(
-    "[api/problems] 후속 컬럼 (choices_layout / diagram_params / solution_auto_retried) 없음 — 마이그레이션 필요.\n" +
+    "[api/problems] 후속 컬럼 (choices_layout / diagram_params / solution_auto_retried / figures) 없음 — 마이그레이션 필요.\n" +
       "Supabase SQL Editor 에서 다음 실행 (멱등):\n" +
       "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';\n" +
       "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS diagram_params JSONB;\n" +
       "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS solution_auto_retried BOOL DEFAULT false;\n" +
-      "임시 우회: 컬럼 없이 insert/update 자동 재시도 — 도형/보기/재시도 정보 일부 미저장.",
+      "  ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS figures JSONB;\n" +
+      "임시 우회: 컬럼 없이 insert/update 자동 재시도 — 도형/보기/위치/재시도 정보 일부 미저장.",
   );
 };
 

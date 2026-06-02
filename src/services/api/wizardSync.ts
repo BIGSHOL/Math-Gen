@@ -197,6 +197,8 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
   // Phase F (dedup): diagram_params 변경 시 sync — Pass 2 가 새 도형 emit 시.
   if (prev.diagramParams !== next.diagramParams)
     patch.diagram_params = next.diagramParams ?? null;
+  // Phase B: figures(레이아웃 box) 변경 sync — 위치 기반 배치 영구 저장.
+  if (prev.figures !== next.figures) patch.figures = next.figures ?? null;
   // Phase #12/#13: images 변경 sync — 사용자 크롭 / AI 생성 결과 영구 저장.
   // 이전 누락 버그: 사용자가 박스 편집해도 새로고침 후 사라짐.
   if (prev.images !== next.images) patch.images = next.images ?? null;

@@ -4,6 +4,7 @@ import type {
   OCRProblem,
   ProblemReview,
   OCRImage,
+  FigureBox,
 } from "@app/stores/wizardStore";
 
 /**
@@ -90,6 +91,8 @@ export interface OcrProblemRow {
   images: OCRImage[] | null;
   /** Phase F (dedup): vector 도형 spec. hydrate 후 OCRItem 이 renderDiagram. */
   diagram_params: import("@app/lib/diagram").DiagramParams[] | null;
+  /** Phase B: 모든 [그림N] figure 의 full-page 레이아웃 box (위치 기반 배치). */
+  figures: FigureBox[] | null;
   /** Phase G (dedup): validator warning 자동 재생성 1회 가드 — 재호출 차단. */
   solution_auto_retried: boolean | null;
   created_at: string;
@@ -267,6 +270,8 @@ export const ocrProblemToInsert = (
   images: item.images ?? null,
   // Phase F (dedup): 모든 도형 spec DB 저장 — 보관함 hydrate 시 도형 보존.
   diagram_params: item.diagramParams ?? null,
+  // Phase B: figure 레이아웃 box — 위치 기반 배치 보존.
+  figures: item.figures ?? null,
   // Phase G (dedup): 자동 재생성 가드 — hydrate 후 무한 재시도 방지.
   solution_auto_retried: item.solutionAutoRetried ?? false,
 });
@@ -324,6 +329,9 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
     Array.isArray(row.diagram_params) && row.diagram_params.length > 0
       ? row.diagram_params
       : undefined,
+  // Phase B: figure 레이아웃 box — 빈 배열 → undefined (위치 정보 없음 = 스택).
+  figures:
+    Array.isArray(row.figures) && row.figures.length > 0 ? row.figures : undefined,
   // Phase G (dedup): hydrate 후 useSolutionGen 의 자동 재시도 차단.
   solutionAutoRetried: row.solution_auto_retried ?? undefined,
 });
