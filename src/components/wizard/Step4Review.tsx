@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
-import { getPageImage } from "@app/lib/imageStore";
+import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
 import { useVariantGen } from "@app/hooks/useVariantGen";
 import { useWizardStore } from "@app/stores/wizardStore";
 import OCRItem from "./OCRItem";
@@ -23,25 +23,6 @@ import VariantItem from "./VariantItem";
  *   - "옵션 적용해 재생성" 버튼 (Step 3 옵션 변경 후 reseed)
  */
 
-const usePageImageDataUrl = (imageRef: string | undefined): string | null => {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!imageRef) {
-      setUrl(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const img = await getPageImage(imageRef);
-      if (!cancelled) setUrl(img?.dataUrl ?? null);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [imageRef]);
-  return url;
-};
-
 export const Step4Review = () => {
   const pages = useWizardStore((s) => s.pages);
   const problems = useWizardStore((s) => s.problems);
@@ -54,7 +35,10 @@ export const Step4Review = () => {
   const { resetDispatch, reseedAll } = useVariantGen();
 
   const activePage = pages[activeIdx];
-  const pageImage = usePageImageDataUrl(activePage?.imageRef);
+  // 공용 hook (IndexedDB → Storage fallback → rotation) — Step3 와 동일 수정.
+  // 로컬 hook 은 IndexedDB 만 읽어 hydrate 세션에서 변형 카드의 원본 이미지/
+  // 도형이 안 보이는 버그가 있었음 (사용자 보고 2026-06-02).
+  const pageImage = usePageImageDataUrl(activePage);
   const setActiveIdx = (i: number) =>
     useWizardStore.setState({ activePageIndex: i });
   const setReviewFilter = (f: "all" | "review" | "pending") =>
