@@ -380,32 +380,44 @@ const HistoryTab = ({
       {reviews.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-h3 text-text">변형 결과 ({reviews.length})</h3>
-          {reviews.map((r) => (
+          {/* 사용자 보고 2026-06-02: 변형 결과 카드가 모두 펼쳐져 스크롤 낭비.
+              각 카드를 <details> 로 접기/펼치기 (기본 접힘). summary 에 상태·모델
+              요약, 펼치면 원본/변형 비교. */}
+          {reviews.map((r, ri) => (
             <Card key={r.id} pad={14}>
-              <div className="flex items-center gap-2 mb-2">
-                <Chip size="sm" tone={r.status === "confirmed" ? "ok" : "neutral"} dot>
-                  {r.status === "confirmed" ? "확정" : r.status === "review" ? "검토" : "대기"}
-                </Chip>
-                {r.genModel && (
-                  <span className="text-caption text-muted font-mono">{r.genModel}</span>
-                )}
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="border border-line rounded-r2 p-3 bg-surface2">
-                  <div className="text-caption text-muted mb-1.5 font-semibold">원본</div>
-                  <MarkdownRenderer
-                    content={r.original.question}
-                    diagramSvgs={toDiagramSvgs(r.original.diagramParams)}
+              <details className="group">
+                <summary className="flex items-center gap-2 cursor-pointer list-none select-none">
+                  <Icon
+                    name="caret-right"
+                    size={12}
+                    className="text-muted transition-transform group-open:rotate-90"
                   />
+                  <span className="text-small font-semibold text-text">변형 {ri + 1}</span>
+                  <Chip size="sm" tone={r.status === "confirmed" ? "ok" : "neutral"} dot>
+                    {r.status === "confirmed" ? "확정" : r.status === "review" ? "검토" : "대기"}
+                  </Chip>
+                  {r.genModel && (
+                    <span className="text-caption text-muted font-mono">{r.genModel}</span>
+                  )}
+                  <span className="text-caption text-muted ml-auto">원본 ↔ 변형</span>
+                </summary>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+                  <div className="border border-line rounded-r2 p-3 bg-surface2">
+                    <div className="text-caption text-muted mb-1.5 font-semibold">원본</div>
+                    <MarkdownRenderer
+                      content={r.original.question}
+                      diagramSvgs={toDiagramSvgs(r.original.diagramParams)}
+                    />
+                  </div>
+                  <div className="border border-accent/30 rounded-r2 p-3 bg-accent-soft/30">
+                    <div className="text-caption text-muted mb-1.5 font-semibold">변형</div>
+                    <MarkdownRenderer
+                      content={r.variant.question}
+                      diagramSvgs={toDiagramSvgs(r.variant.diagramParams)}
+                    />
+                  </div>
                 </div>
-                <div className="border border-accent/30 rounded-r2 p-3 bg-accent-soft/30">
-                  <div className="text-caption text-muted mb-1.5 font-semibold">변형</div>
-                  <MarkdownRenderer
-                    content={r.variant.question}
-                    diagramSvgs={toDiagramSvgs(r.variant.diagramParams)}
-                  />
-                </div>
-              </div>
+              </details>
             </Card>
           ))}
         </div>

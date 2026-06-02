@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase, currentUserId } from "./supabase";
 
 /**
  * Phase E — 사용자 콘텐츠 피드백.
@@ -39,7 +39,13 @@ export const submitFeedback = async (input: SubmitFeedbackInput): Promise<boolea
   if (profile && typeof (profile as { tenant_id?: string }).tenant_id === "string") {
     tenant_id = (profile as { tenant_id: string }).tenant_id;
   }
+  // RLS 정책 feedback_insert_own 은 WITH CHECK (user_id = auth.uid()) — user_id
+  // 를 *반드시* 명시해야 통과. 누락 시 403 (new row violates RLS). 사용자 보고
+  // 2026-06-02. content_feedback.user_id 는 default auth.uid() 가 없으므로 직접
+  // 채운다 (tests insert 와 동일 패턴: currentUserId()).
+  const user_id = await currentUserId();
   const { error } = await supabase.from("content_feedback").insert({
+    user_id,
     target_kind: input.target_kind,
     target_id: input.target_id,
     rating: input.rating,
