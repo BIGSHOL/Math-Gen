@@ -380,10 +380,14 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
       {/* 도형 표시 — Phase #12/#13 우선순위 (사용자 결정 2026-05-27 — inline 우선):
           (a) 사용자가 "원본 보기" toggle off (default) + source="ai-gen" 있으면 ai-gen 만
           (b) showOriginal=false + source="user-crop" 있으면 user-crop 만
-          (c) vectorDiagrams 있으면 본문 [그림N] 치환 (이 영역은 표시 X)
-          (d) [그림N] 마커가 본문에 있어서 *inline 으로 표시된 image 도 제외* (중복 차단)
-          (e) else: bbox crop (source="ai-crop") 표시
-       */}
+          (c) else: bbox crop (source="ai-crop") 표시 — 단, [그림N] 으로 inline
+              표시된 idx 는 dedup 으로 제외 (아래 displayCrops).
+          ※ 사용자 보고 2026-06-02: vectorDiagrams (예: 작도 도형 SVG) 가 있을 때
+            *그것과 별개로 크롭된 이미지* (예: 반 고흐 작품 thumbnail — [그림N]
+            마커 없이 "[고흐...]" 캡션만) 가 통째로 숨겨졌음. 기존 `vectorDiagrams
+            ? [] : ...` 가 vectorDiagram 하나라도 있으면 *모든* ai-crop 을 suppress.
+            inline 된 idx 는 어차피 아래 dedup 이 제거하므로 blanket suppress 제거 →
+            inline 안 된 ai-crop (작품 등) 은 standalone 으로 표시. */}
       {!editing && (() => {
         const allDisplay = showOriginal
           ? crops.filter((c) => c.source === "ai-crop")
@@ -392,7 +396,10 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
               if (aiGen.length > 0) return aiGen;
               const userCrop = crops.filter((c) => c.source === "user-crop");
               if (userCrop.length > 0) return userCrop;
-              return vectorDiagrams ? [] : crops.filter((c) => c.source === "ai-crop");
+              // vectorDiagram 유무와 무관하게 ai-crop 후보로 — inline 중복은
+              // 아래 inlinedImageIndices dedup 이 제거. (SVG 로 inline 된 도형의
+              // bbox fallback 은 그 idx 가 [그림N] 에 잡혀 dedup 됨.)
+              return crops.filter((c) => c.source === "ai-crop");
             })();
         // 본문에 [그림N] 마커로 inline 표시된 idx 는 하단 표시 X (중복 차단)
         const displayCrops = allDisplay.filter((c) => {
