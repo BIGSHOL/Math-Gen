@@ -307,6 +307,12 @@ export const cleanMalformedLatex = (s: string): string =>
  */
 export const applyMathInnerNormalization = (inner: string): string => {
   let s = cleanMalformedLatex(inner);
+  // 중첩 delimiter 방어 (사용자 보고 2026-06-02): 모델이 `$$...$$` 안에 `$...$`
+  // 를 중첩하거나(예: `$$\n$\displaystyle ...$\n$$`) delimiter 가 leak 되면
+  // inner 에 unescaped `$` 가 남는다. KaTeX math 모드에서 `$` 는 무효 → 통째
+  // 빨간 에러로 raw 노출(사용자가 "raw LaTeX 노출"로 오인). 제거한다.
+  // `\$` (의도된 리터럴 달러 기호) 는 보존.
+  s = s.replace(/(?<!\\)\$/g, "");
   for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
   // improperToMixed 가 `\frac` 와 `\dfrac` 둘 다 매치, 반환은 `\frac` 표준화.
   // 그 뒤 단계 6 에서 모두 `\dfrac` 로 업그레이드.

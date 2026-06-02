@@ -299,7 +299,10 @@ const renderKatex = (tex: string, displayMode: boolean): string => {
     // Final guard — preprocessMathText / sanitize 가 어떤 path 로 와도 못
     // 잡은 모델 typo (\left\left, \approx, 빈 분수 등) 가 KaTeX 까지 도달하면
     // 빨간 에러 fallback 으로 표시됨. KaTeX 가 받기 직전에 한 번 더 정상화.
-    const safeTex = cleanMalformedLatex(tex);
+    // + 중첩/leak 된 `$` 제거 — `$$...$$` 안에 `$...$` 가 중첩되면 block 추출이
+    //   inner 의 `$` 까지 잡아 KaTeX 에 넘김 → `$` 가 math 모드 무효라 빨간
+    //   에러(사용자 보고 2026-06-02). `\$` (리터럴 달러)는 보존.
+    const safeTex = cleanMalformedLatex(tex).replace(/(?<!\\)\$/g, "");
     return katex.renderToString(safeTex, {
       throwOnError: false,
       strict: false,
