@@ -144,9 +144,6 @@ export const Step2OCRReview = () => {
   const pages = useWizardStore((s) => s.pages);
   const activeIdx = useWizardStore((s) => s.activePageIndex);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
-  // OCR 단계 게이팅 — "모든 문항 확인 완료" (검수의 cropInspected 미러).
-  const ocrConfirmed = useWizardStore((s) => s.ocrConfirmed);
-  const setOcrConfirmed = useWizardStore((s) => s.setOcrConfirmed);
   // Phase #6 — OcrFeedbackPanel 의 test_id 컬럼 채움. null 이면 패널 숨김.
   const testId = useWizardStore((s) => s.testId);
 
@@ -196,10 +193,6 @@ export const Step2OCRReview = () => {
   }
 
   const completedCount = pages.filter((p) => p.ocrComplete && !p.ocrError).length;
-  // 모든 (문항) 페이지 OCR 완료 — "모든 문항 확인 완료" 버튼 활성 조건.
-  const allOcrDone = pages.every(
-    (p) => !(p.isProblemPage || p.forceOcr) || p.ocrComplete,
-  );
 
   return (
     <div className="flex gap-4 h-full px-6 py-5 min-h-[580px]">
@@ -270,29 +263,11 @@ export const Step2OCRReview = () => {
               </Chip>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {activePage.ocrComplete && (activePage.isProblemPage || activePage.forceOcr) && (
-              <Btn kind="ghost" size="sm" icon="arrow-clockwise" onClick={requestRetry}>
-                페이지 재인식
-              </Btn>
-            )}
-            {/* 게이팅 — 모든 문항을 직접 확인했다는 명시적 신호. 검수 단계의
-                cropInspected 와 동일한 역할. allOcrDone 전엔 비활성. */}
-            <Btn
-              kind={ocrConfirmed ? "secondary" : "accent"}
-              size="sm"
-              icon={ocrConfirmed ? "check-circle" : "check"}
-              disabled={!allOcrDone}
-              onClick={() => setOcrConfirmed(!ocrConfirmed)}
-              title={
-                allOcrDone
-                  ? "모든 문항을 확인했으면 눌러 주세요 — 다음 단계로 진행할 수 있어요"
-                  : "모든 페이지 OCR 이 끝나면 활성화돼요"
-              }
-            >
-              {ocrConfirmed ? "확인 완료됨" : "모든 문항 확인 완료"}
+          {activePage.ocrComplete && (activePage.isProblemPage || activePage.forceOcr) && (
+            <Btn kind="ghost" size="sm" icon="arrow-clockwise" onClick={requestRetry}>
+              페이지 재인식
             </Btn>
-          </div>
+          )}
         </header>
 
         <div className="flex-1 overflow-auto flex flex-col gap-2.5 pr-1">

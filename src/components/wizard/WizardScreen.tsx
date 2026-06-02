@@ -57,6 +57,7 @@ export const WizardScreen = () => {
   const reset = useWizardStore((s) => s.reset);
   const pages = useWizardStore((s) => s.pages);
   const ocrConfirmed = useWizardStore((s) => s.ocrConfirmed);
+  const setOcrConfirmed = useWizardStore((s) => s.setOcrConfirmed);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
 
@@ -190,17 +191,23 @@ export const WizardScreen = () => {
     }
   })();
 
-  // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용.
+  // step 2 에서 모든 OCR 이 끝났는데 아직 확인 안 한 상태 — 이때는 footer 의
+  // 주 버튼 자체를 "모든 문항 확인 완료" 로 바꿔, 누르면 확인+진행을 한 번에.
+  // (사용자 보고 2026-06-02: 헤더의 작은 확인 버튼을 footer 안내와 멀리 떨어져
+  //  못 찾음 — 안내와 버튼을 footer 에 co-locate.)
+  const needsOcrConfirm = step === 2 && allProblemOcrDone && !ocrConfirmed;
+  const nextLabel = needsOcrConfirm ? "모든 문항 확인 완료" : undefined;
+
+  // 차단 사유 — 다음 버튼 옆 안내 + 경고 토스트 메시지로 공용. step 2 에서 OCR 이
+  // 모두 끝난 경우(needsOcrConfirm)는 버튼 라벨이 곧 안내라 별도 사유 표시 X.
   const blockedReason = canAdvance
     ? undefined
     : step === 0
       ? "PDF를 먼저 업로드해주세요"
       : step === 1
         ? "모든 페이지를 '검토 완료' 하세요"
-        : step === 2
-          ? allProblemOcrDone
-            ? "'모든 문항 확인 완료'를 눌러주세요"
-            : "모든 페이지 OCR 완료 후 확인할 수 있어요"
+        : step === 2 && !allProblemOcrDone
+          ? "모든 페이지 OCR 완료 후 진행할 수 있어요"
           : undefined;
 
   // 미충족 항목 체크리스트 (경고 토스트) — 어떤 페이지를 채워야 하는지 명시.
@@ -218,13 +225,15 @@ export const WizardScreen = () => {
       return `검수를 완료해야 다음 단계로 넘어갈 수 있어요:\n${items.join("\n")}`;
     }
     if (step === 2) {
+      // OCR 이 모두 끝나면 needsOcrConfirm 분기로 footer 버튼이 곧 확인 버튼이라
+      // 체크리스트가 필요 없음 — 미완료 페이지가 있을 때만 안내.
       const pending = problemPages.filter(({ p }) => !p.ocrComplete);
       if (pending.length > 0) {
-        return `OCR이 끝나야 확인할 수 있어요:\n${pending
+        return `OCR이 끝나야 다음으로 넘어갈 수 있어요:\n${pending
           .map(({ n }) => `☐ 페이지 ${n} — 인식 진행 중`)
           .join("\n")}`;
       }
-      return "문항을 모두 확인했으면:\n☐ '모든 문항 확인 완료' 버튼 누르기";
+      return undefined;
     }
     return undefined;
   })();
@@ -233,6 +242,13 @@ export const WizardScreen = () => {
   // 경고 토스트*. 버튼은 비활성 대신 클릭 가능하게 두고 (WizardFooter), 여기서 차단.
   // Ctrl+→ 단축키도 handleNext 경유라 동일 적용. 검수는 "검토 완료" 명시 필요.
   const handleNext = () => {
+    // step 2: OCR 모두 완료 + 미확인 상태에서 footer 주 버튼("모든 문항 확인 완료")
+    // 을 누르면 — 이 클릭이 곧 명시적 확인. 확인 처리 후 바로 다음 단계로.
+    if (needsOcrConfirm) {
+      setOcrConfirmed(true);
+      next();
+      return;
+    }
     if (!canAdvance) {
       showToast({
         kind: "warn",
@@ -317,6 +333,7 @@ export const WizardScreen = () => {
             onNext={handleNext}
             canAdvance={canAdvance}
             blockedReason={blockedReason}
+            nextLabel={nextLabel}
           />
         </div>
       )}
