@@ -22,6 +22,7 @@ import type { CropBox } from "@app/stores/wizardStore";
 import { CropEditTools, type CropTool } from "./CropEditTools";
 import { EditableCropBox } from "./EditableCropBox";
 import PageThumbColumn from "./PageThumbColumn";
+import { PageScanSkeleton } from "./PageScanSkeleton";
 import { useCropDetect } from "@app/hooks/useCropDetect";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
 
@@ -143,7 +144,10 @@ export const Step1_5CropInspect = () => {
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
 
   const activePage = pages[activeIndex];
-  const pageImageUrl = usePageImageDataUrl(activePage);
+  // 페이지 전환 시 url 이 즉시 null + loading=true 로 리셋 → 로딩 중엔 크롭
+  // 박스를 *안 그리고* 스켈레톤만, 로드 완료 시 이미지+크롭이 함께 뜬다
+  // (사용자 보고 2026-06-04: 크롭이 먼저 뜨고 페이지가 늦게 떴음).
+  const { url: pageImageUrl, loading: pageImageLoading } = usePageImageDataUrl(activePage);
 
   // 이미지 zoom — "fit" (현재 viewport 폭 자동) 또는 0.25 ~ 2.0 (원본 픽셀 배율).
   // 사용자 보고 (2026-05-27): "화면이 너무 큰거같은데 비율을 작게 할 수 있는
@@ -423,10 +427,13 @@ export const Step1_5CropInspect = () => {
                 />
               )}
             </div>
+          ) : pageImageLoading ? (
+            // 페이지 전환 중 — stale 이미지/크롭 대신 스켈레톤 (사용자 보고 2026-06-04).
+            <PageScanSkeleton className="px-2 py-2" />
           ) : (
             <div className="flex h-full items-center justify-center gap-2 text-muted text-small">
-              <Icon name="image" size={20} weight="duotone" className="animate-pulse" />
-              <span>이미지 로드 중...</span>
+              <Icon name="image" size={20} weight="duotone" />
+              <span>이미지를 불러올 수 없습니다.</span>
             </div>
           )}
         </div>

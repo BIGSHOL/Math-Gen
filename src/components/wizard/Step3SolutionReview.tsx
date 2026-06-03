@@ -32,7 +32,7 @@ export const Step3SolutionReview = () => {
   // IndexedDB 만 읽어 "이어서 작업" hydrate 세션(이미지가 Storage 에만 존재)에서
   // pageImage 가 항상 null → OCRItem 의 ai-crop(작품/도형) 크롭 실패 → 이미지
   // 안 보임 (사용자 보고 2026-06-02). Storage fallback 있는 공용 hook 으로 교체.
-  const pageImage = usePageImageDataUrl(activePage);
+  const { url: pageImage } = usePageImageDataUrl(activePage);
   const setActiveIdx = (i: number) => useWizardStore.setState({ activePageIndex: i });
 
   if (!activePage) {

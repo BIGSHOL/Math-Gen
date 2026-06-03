@@ -38,7 +38,7 @@ export const Step4Review = () => {
   // 공용 hook (IndexedDB → Storage fallback → rotation) — Step3 와 동일 수정.
   // 로컬 hook 은 IndexedDB 만 읽어 hydrate 세션에서 변형 카드의 원본 이미지/
   // 도형이 안 보이는 버그가 있었음 (사용자 보고 2026-06-02).
-  const pageImage = usePageImageDataUrl(activePage);
+  const { url: pageImage } = usePageImageDataUrl(activePage);
   const setActiveIdx = (i: number) =>
     useWizardStore.setState({ activePageIndex: i });
   const setReviewFilter = (f: "all" | "review" | "pending") =>

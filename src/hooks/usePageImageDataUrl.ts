@@ -30,12 +30,20 @@ export interface UsePageImageDataUrlOptions {
   rotate?: boolean;
 }
 
+export interface UsePageImageDataUrlResult {
+  /** 로드된 dataURL. 로딩 중 / 미스 시 null. */
+  url: string | null;
+  /** 페이지 전환 후 이미지가 로드되는 동안 true. caller 가 스켈레톤 표시용. */
+  loading: boolean;
+}
+
 export const usePageImageDataUrl = (
   page: WizardPage | undefined,
   opts: UsePageImageDataUrlOptions = {},
-): string | null => {
+): UsePageImageDataUrlResult => {
   const { rotate = true } = opts;
   const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // page 자체가 아닌 *원자적 필드만 dep* — zustand reference churn 방어.
   const pageId = page?.id;
@@ -45,9 +53,17 @@ export const usePageImageDataUrl = (
   useEffect(() => {
     if (!page) {
       setUrl(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    // 페이지 전환 즉시 이전 이미지를 비우고 로딩 표시 — stale 이미지가 "한박자
+    // 늦게" 교체되거나(검수: 크롭 박스가 옛 이미지 위에 먼저 뜨는 것) 방지.
+    // caller 는 loading 동안 스켈레톤을 그린다 (사용자 보고 2026-06-04).
+    // page 객체는 dep 에 없으므로 *실제 페이지/이미지/회전 전환* 에서만 리셋 →
+    // OCR·검출 진행 업데이트로 인한 reference churn 엔 깜빡이지 않는다.
+    setUrl(null);
+    setLoading(true);
 
     (async () => {
       try {
@@ -66,6 +82,7 @@ export const usePageImageDataUrl = (
         if (cancelled) return;
         if (!dataUrl) {
           setUrl(null);
+          setLoading(false);
           return;
         }
 
@@ -73,10 +90,14 @@ export const usePageImageDataUrl = (
         const final = rotate && rotation !== 0
           ? await applyRotation(dataUrl, rotation)
           : dataUrl;
-        if (!cancelled) setUrl(final);
+        if (!cancelled) {
+          setUrl(final);
+          setLoading(false);
+        }
       } catch (err) {
         if (cancelled) return;
         setUrl(null);
+        setLoading(false);
         if (import.meta.env?.DEV) {
           // eslint-disable-next-line no-console
           console.warn(
@@ -94,7 +115,7 @@ export const usePageImageDataUrl = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, imageRef, rotation, rotate]);
 
-  return url;
+  return { url, loading };
 };
 
 export default usePageImageDataUrl;

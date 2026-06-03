@@ -8,6 +8,7 @@ import { usePageOcr } from "@app/hooks/usePageOcr";
 import { useWizardStore, type WizardPage } from "@app/stores/wizardStore";
 import OCRItem from "./OCRItem";
 import PageThumbColumn from "./PageThumbColumn";
+import { PageScanSkeleton } from "./PageScanSkeleton";
 
 /**
  * Step 2 — page-level OCR review screen.
@@ -28,8 +29,11 @@ import PageThumbColumn from "./PageThumbColumn";
  * "container is still landscape, content is portrait" footgun (user
  * reported). Caller treats `null` as "still loading or missing".
  */
-const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
+const usePageImageDataUrl = (
+  page: WizardPage | undefined,
+): { url: string | null; loading: boolean } => {
   const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const pageId = page?.id;
   const imageRef = page?.imageRef;
   const rotation = page?.rotation ?? 0;
@@ -37,9 +41,14 @@ const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
   useEffect(() => {
     if (!pageId) {
       setUrl(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    // 페이지 전환 시 이전 이미지를 *즉시* 비우고 로딩 표시 → stale 이미지가
+    // "한박자 늦게" 교체되는 대신 스켈레톤이 바로 뜬다 (사용자 보고 2026-06-04).
+    setUrl(null);
+    setLoading(true);
     (async () => {
       // Step 1: IndexedDB lookup (fast path — 같은 device 의 dev 시점).
       let dataUrl: string | null = null;
@@ -59,26 +68,38 @@ const usePageImageDataUrl = (page: WizardPage | undefined): string | null => {
       if (cancelled) return;
       if (!dataUrl) {
         setUrl(null);
+        setLoading(false);
         return;
       }
       if (rotation === 0) {
         setUrl(dataUrl);
+        setLoading(false);
         return;
       }
       try {
         const rotated = await applyRotation(dataUrl, rotation);
-        if (!cancelled) setUrl(rotated);
+        if (!cancelled) {
+          setUrl(rotated);
+          setLoading(false);
+        }
       } catch {
         // Fall back to the un-rotated original — better than blank.
-        if (!cancelled) setUrl(dataUrl);
+        if (!cancelled) {
+          setUrl(dataUrl);
+          setLoading(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [pageId, imageRef, rotation, page]);
+    // page 객체는 dep 에서 제외 — zustand reference churn (OCR 진행 업데이트 등)
+    // 마다 effect 가 재실행되면 *매번 스켈레톤이 깜빡인다*. pageId/imageRef/
+    // rotation 만으로 *실제 페이지 전환* 만 감지 (shared hook 과 동일 정책 §3-6).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, imageRef, rotation]);
 
-  return url;
+  return { url, loading };
 };
 
 const SkipBanner = ({ onForceOcr }: { onForceOcr: () => void }) => (
@@ -150,7 +171,7 @@ export const Step2OCRReview = () => {
   const { resetDispatch } = usePageOcr();
 
   const activePage = pages[activeIdx];
-  const pageImage = usePageImageDataUrl(activePage);
+  const { url: pageImage, loading: pageImageLoading } = usePageImageDataUrl(activePage);
 
   const setActiveIdx = (i: number) => useWizardStore.setState({ activePageIndex: i });
 
@@ -226,9 +247,12 @@ export const Step2OCRReview = () => {
               alt={`page ${activeIdx + 1}`}
               className="w-full h-auto"
             />
+          ) : pageImageLoading ? (
+            // 페이지 전환 중 — stale 이미지 대신 스켈레톤 (사용자 보고 2026-06-04).
+            <PageScanSkeleton />
           ) : (
             <div className="h-full grid place-items-center text-muted text-small">
-              이미지 로드 중…
+              이미지를 불러올 수 없습니다.
             </div>
           )}
         </Card>
