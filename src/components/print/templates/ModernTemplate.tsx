@@ -2,6 +2,8 @@
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color
 // (Mathgen 의 PrintOptions 는 `color` 사용).
 
+import type { ProblemReview } from "@app/stores/wizardStore";
+import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber } from "./ProblemMeta";
@@ -16,9 +18,74 @@ export function ModernTemplate({
   problems,
   startingNumber,
   options,
+  splitIndex,
+  measure,
 }: PrintTemplateProps) {
   const accent = options.color || PAPER_COLORS.accentNavy;
   const isFirstPage = page === 1;
+  const fs = bodyFontSize("modern", columns);
+  const gap = Math.max(0, options.spacing);
+
+  const renderItem = (p: ProblemReview, i: number) => {
+    const num = startingNumber + i;
+    const points = p.variant.points ?? 3;
+    return (
+      <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid", paddingBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+          <QuestionNumber template="modern" num={num} accent={accent} />
+          {options.showChapter && p.variant.topic && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: PAPER_COLORS.ink50,
+                fontFamily: "var(--paper-font-sans)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              {p.variant.topic}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span
+            style={{
+              fontFamily: "var(--paper-font-sans)",
+              fontSize: 11,
+              fontWeight: 700,
+              color: accent,
+              padding: "2px 8px",
+              border: `1px solid ${accent}`,
+              borderRadius: 999,
+            }}
+          >
+            {points}점
+          </span>
+        </div>
+        <div style={{ paddingLeft: 28 }}>
+          <ProblemBody problem={p.variant} fontSize={fs} />
+        </div>
+      </div>
+    );
+  };
+
+  // 측정 모드 — 본문만 1단 flow, 타겟 컬럼 폭.
+  if (measure) {
+    return (
+      <div
+        style={{
+          width: measure.columnWidthPx,
+          fontFamily: "var(--paper-font-serif)",
+          fontSize: fs,
+          lineHeight: 1.85,
+        }}
+      >
+        <BodyContainer columns={1} gap={gap}>
+          {problems.map(renderItem)}
+        </BodyContainer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -183,59 +250,12 @@ export function ModernTemplate({
 
       <BodyContainer
         columns={columns}
-        gap={16}
+        gap={gap}
         columnGap={32}
-        style={{ fontSize: 13.5, lineHeight: 1.85 }}
+        splitIndex={splitIndex}
+        style={{ fontSize: fs, lineHeight: 1.85 }}
       >
-        {problems.map((p, i) => {
-          const num = startingNumber + i;
-          const points = p.variant.points ?? 3;
-          return (
-            <div key={p.id} style={{ breakInside: "avoid", paddingBottom: 4 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 6,
-                  marginBottom: 6,
-                }}
-              >
-                <QuestionNumber template="modern" num={num} accent={accent} />
-                {options.showChapter && p.variant.topic && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: PAPER_COLORS.ink50,
-                      fontFamily: "var(--paper-font-sans)",
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {p.variant.topic}
-                  </span>
-                )}
-                <span style={{ flex: 1 }} />
-                <span
-                  style={{
-                    fontFamily: "var(--paper-font-sans)",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: accent,
-                    padding: "2px 8px",
-                    border: `1px solid ${accent}`,
-                    borderRadius: 999,
-                  }}
-                >
-                  {points}점
-                </span>
-              </div>
-              <div style={{ paddingLeft: 28 }}>
-                <ProblemBody problem={p.variant} fontSize={13.5} />
-              </div>
-            </div>
-          );
-        })}
+        {problems.map(renderItem)}
       </BodyContainer>
 
       <div

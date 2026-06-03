@@ -2,6 +2,8 @@
 // design_handoff 카피 + import path 조정 + ProblemBody import 교체.
 
 import type { CSSProperties } from "react";
+import type { ProblemReview } from "@app/stores/wizardStore";
+import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
@@ -33,8 +35,47 @@ export function JeongtongTemplate({
   meta,
   problems,
   startingNumber,
+  options,
+  splitIndex,
+  measure,
 }: PrintTemplateProps) {
   const isFirstPage = page === 1;
+  const fs = bodyFontSize("jeongtong", columns);
+  const gap = Math.max(0, options.spacing);
+
+  const renderItem = (p: ProblemReview, i: number) => {
+    const num = startingNumber + i;
+    const points = p.variant.points ?? 3;
+    return (
+      <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid" }}>
+        <div style={{ display: "flex", alignItems: "baseline", marginBottom: 4 }}>
+          <QuestionNumber template="jeongtong" num={num} accent={PAPER_COLORS.ink} />
+          <span style={{ flex: 1 }} />
+          <PointsLabel points={points} />
+        </div>
+        <ProblemBody problem={p.variant} fontSize={fs} />
+      </div>
+    );
+  };
+
+  // 측정 모드 — 헤더/푸터/A4 chrome 없이 본문만 1단 flow, 타겟 컬럼 폭으로 렌더.
+  // usePrintLayout 이 각 data-measure-idx 래퍼의 offsetHeight 를 실측한다.
+  if (measure) {
+    return (
+      <div
+        style={{
+          width: measure.columnWidthPx,
+          fontFamily: "var(--paper-font-serif)",
+          fontSize: fs,
+          lineHeight: 1.8,
+        }}
+      >
+        <BodyContainer columns={1} gap={gap}>
+          {problems.map(renderItem)}
+        </BodyContainer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -190,39 +231,17 @@ export function JeongtongTemplate({
       {/* 본문 */}
       <BodyContainer
         columns={columns}
-        gap={18}
+        gap={gap}
+        splitIndex={splitIndex}
         style={{
           marginTop: isFirstPage ? 18 : 0,
           marginBottom: 8,
-          fontSize: 13.5,
+          fontSize: fs,
           lineHeight: 1.8,
           fontFamily: "var(--paper-font-serif)",
         }}
       >
-        {problems.map((p, i) => {
-          const num = startingNumber + i;
-          const points = p.variant.points ?? 3;
-          return (
-            <div key={p.id} style={{ breakInside: "avoid" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  marginBottom: 4,
-                }}
-              >
-                <QuestionNumber
-                  template="jeongtong"
-                  num={num}
-                  accent={PAPER_COLORS.ink}
-                />
-                <span style={{ flex: 1 }} />
-                <PointsLabel points={points} />
-              </div>
-              <ProblemBody problem={p.variant} fontSize={13.5} />
-            </div>
-          );
-        })}
+        {problems.map(renderItem)}
       </BodyContainer>
 
       {/* 푸터 */}

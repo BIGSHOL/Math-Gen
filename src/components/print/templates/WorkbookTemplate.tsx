@@ -1,6 +1,8 @@
 // WorkbookTemplate.tsx (T4) — 학원 워크북 (풀이공간 포함)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
+import type { ProblemReview } from "@app/stores/wizardStore";
+import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
@@ -14,9 +16,107 @@ export function WorkbookTemplate({
   problems,
   startingNumber,
   options,
+  splitIndex,
+  measure,
 }: PrintTemplateProps) {
   const accent = options.color || PAPER_COLORS.accentRed;
   const isFirstPage = page === 1;
+  const fs = bodyFontSize("workbook", columns);
+  const gap = Math.max(0, options.spacing);
+
+  const renderItem = (p: ProblemReview, i: number) => {
+    const num = startingNumber + i;
+    const points = p.variant.points ?? 3;
+    return (
+      <div
+        key={p.id}
+        data-measure-idx={i}
+        style={{
+          // 1단: 카드가 flex: 1 로 균등 stretch → 풀이공간 자동 확장
+          flex: columns === 1 ? 1 : undefined,
+          display: columns === 1 ? "grid" : "block",
+          gridTemplateColumns: "1.3fr 1fr",
+          gap: 16,
+          border: `1px solid ${PAPER_COLORS.ink15}`,
+          padding: "12px 14px",
+          background: PAPER_COLORS.paper,
+          breakInside: "avoid",
+          minHeight: 0,
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+            <QuestionNumber template="workbook" num={num} accent={accent} />
+            {options.showChapter && p.variant.topic && (
+              <span
+                style={{
+                  fontFamily: "var(--paper-font-sans)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: PAPER_COLORS.ink50,
+                  letterSpacing: "0.1em",
+                }}
+              >
+                {p.variant.topic.toUpperCase()}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            <PointsLabel points={points} />
+          </div>
+          <ProblemBody problem={p.variant} fontSize={fs} />
+        </div>
+        {/* 풀이공간 — 1단에서만 (카드 flex:1 → grid stretch → 자연 확장) */}
+        {columns === 1 && (
+          <div
+            style={{
+              borderLeft: `1px dashed ${PAPER_COLORS.ink30}`,
+              padding: "0 6px 0 12px",
+              backgroundImage: `linear-gradient(transparent 0px, transparent 23px, ${PAPER_COLORS.ink08} 24px)`,
+              backgroundSize: "100% 24px",
+              minHeight: 100,
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: -2,
+                left: 12,
+                background: PAPER_COLORS.paper,
+                padding: "0 6px",
+                fontFamily: "var(--paper-font-sans)",
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: accent,
+                letterSpacing: "0.1em",
+              }}
+            >
+              풀이 SCRATCH
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // 측정 모드 — 본문만 1단 flow. (1단 stretch 는 printPack 개수패킹이라 높이 무시,
+  // 2단 block 은 실측.)
+  if (measure) {
+    return (
+      <div
+        style={{
+          width: measure.columnWidthPx,
+          fontFamily: "var(--paper-font-serif)",
+          fontSize: fs,
+          lineHeight: 1.6,
+        }}
+      >
+        <BodyContainer columns={1} gap={gap}>
+          {problems.map(renderItem)}
+        </BodyContainer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -152,96 +252,11 @@ export function WorkbookTemplate({
 
       <BodyContainer
         columns={columns}
-        gap={columns === 1 ? 12 : 14}
+        gap={gap}
+        splitIndex={splitIndex}
         style={{ marginTop: 16 }}
       >
-        {problems.map((p, i) => {
-          const num = startingNumber + i;
-          const points = p.variant.points ?? 3;
-          return (
-            <div
-              key={p.id}
-              style={{
-                // 1단: 카드가 flex: 1 로 균등 stretch → 풀이공간 자동 확장
-                flex: columns === 1 ? 1 : undefined,
-                display: columns === 1 ? "grid" : "block",
-                gridTemplateColumns: "1.3fr 1fr",
-                gap: 16,
-                border: `1px solid ${PAPER_COLORS.ink15}`,
-                padding: "12px 14px",
-                background: PAPER_COLORS.paper,
-                breakInside: "avoid",
-                minHeight: 0,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 8,
-                    marginBottom: 6,
-                  }}
-                >
-                  <QuestionNumber
-                    template="workbook"
-                    num={num}
-                    accent={accent}
-                  />
-                  {options.showChapter && p.variant.topic && (
-                    <span
-                      style={{
-                        fontFamily: "var(--paper-font-sans)",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: PAPER_COLORS.ink50,
-                        letterSpacing: "0.1em",
-                      }}
-                    >
-                      {p.variant.topic.toUpperCase()}
-                    </span>
-                  )}
-                  <span style={{ flex: 1 }} />
-                  <PointsLabel points={points} />
-                </div>
-                <ProblemBody
-                  problem={p.variant}
-                  fontSize={columns === 2 ? 11.5 : 12.5}
-                />
-              </div>
-              {/* 풀이공간 — 1단에서만 (카드 flex:1 → grid stretch → 자연 확장) */}
-              {columns === 1 && (
-                <div
-                  style={{
-                    borderLeft: `1px dashed ${PAPER_COLORS.ink30}`,
-                    padding: "0 6px 0 12px",
-                    backgroundImage: `linear-gradient(transparent 0px, transparent 23px, ${PAPER_COLORS.ink08} 24px)`,
-                    backgroundSize: "100% 24px",
-                    minHeight: 100,
-                    position: "relative",
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: -2,
-                      left: 12,
-                      background: PAPER_COLORS.paper,
-                      padding: "0 6px",
-                      fontFamily: "var(--paper-font-sans)",
-                      fontSize: 9.5,
-                      fontWeight: 700,
-                      color: accent,
-                      letterSpacing: "0.1em",
-                    }}
-                  >
-                    풀이 SCRATCH
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {problems.map(renderItem)}
       </BodyContainer>
 
       {/* 푸터 */}

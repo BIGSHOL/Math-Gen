@@ -2,6 +2,8 @@
 // design_handoff 의 동명 파일 그대로 + import path 조정 + ProblemBody placeholder
 // → 실제 import 로 교체.
 
+import type { ProblemReview } from "@app/stores/wizardStore";
+import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber, PointsLabel } from "./ProblemMeta";
@@ -13,8 +15,47 @@ export function PyeonggaTemplate({
   columns,
   problems,
   startingNumber,
+  options,
+  splitIndex,
+  measure,
 }: PrintTemplateProps) {
   const isFirstPage = page === 1;
+  const fs = bodyFontSize("pyeongga", columns);
+  const gap = Math.max(0, options.spacing);
+
+  const renderItem = (p: ProblemReview, i: number) => {
+    const num = startingNumber + i;
+    const points = p.variant.points ?? 3;
+    return (
+      <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid", paddingBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "baseline", marginBottom: 6 }}>
+          <QuestionNumber template="pyeongga" num={num} accent={PAPER_COLORS.ink} />
+          <span style={{ flex: 1 }} />
+          <PointsLabel points={points} />
+        </div>
+        <ProblemBody problem={p.variant} fontSize={fs} />
+      </div>
+    );
+  };
+
+  // 측정 모드 — 본문만 1단 flow, 타겟 컬럼 폭 (BodyContainer "0 56px" 패딩은
+  // columnWidthPx 가 이미 반영 — 측정 래퍼엔 패딩 없음).
+  if (measure) {
+    return (
+      <div
+        style={{
+          width: measure.columnWidthPx,
+          fontFamily: "var(--paper-font-serif)",
+          fontSize: fs,
+          lineHeight: 1.75,
+        }}
+      >
+        <BodyContainer columns={1} gap={gap}>
+          {problems.map(renderItem)}
+        </BodyContainer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -120,33 +161,11 @@ export function PyeonggaTemplate({
 
       <BodyContainer
         columns={columns}
-        gap={16}
-        style={{ padding: "0 56px 30px", fontSize: 13.2, lineHeight: 1.75 }}
+        gap={gap}
+        splitIndex={splitIndex}
+        style={{ padding: "0 56px 30px", fontSize: fs, lineHeight: 1.75 }}
       >
-        {problems.map((p, i) => {
-          const num = startingNumber + i;
-          const points = p.variant.points ?? 3;
-          return (
-            <div key={p.id} style={{ breakInside: "avoid", paddingBottom: 4 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  marginBottom: 6,
-                }}
-              >
-                <QuestionNumber
-                  template="pyeongga"
-                  num={num}
-                  accent={PAPER_COLORS.ink}
-                />
-                <span style={{ flex: 1 }} />
-                <PointsLabel points={points} />
-              </div>
-              <ProblemBody problem={p.variant} fontSize={13.2} />
-            </div>
-          );
-        })}
+        {problems.map(renderItem)}
       </BodyContainer>
 
       {/* 푸터 */}

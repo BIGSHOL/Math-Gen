@@ -67,4 +67,15 @@ export interface PrintTemplateProps {
   startingNumber: number;
   /** PrintOptions — accentColor / showDate / showChapter 등 헤더 토글. */
   options: PrintOptions;
+  /**
+   * 우측 컬럼 시작 인덱스 (2단). usePrintLayout 의 측정 패킹 결과. BodyContainer
+   * 가 이 값으로 좌/우 컬럼을 분할 (없으면 기존 개수 절반 fallback — 회귀 0).
+   */
+  splitIndex?: number;
+  /**
+   * 측정 모드 — 화면 밖 측정 viewport 에서만 set. 값이 있으면 템플릿은 헤더/푸터/
+   * A4 chrome 없이 *본문만* 1단 flow 로, columnWidthPx 폭으로 렌더하고 각 문항
+   * 래퍼에 data-measure-idx 를 붙인다 (usePrintLayout 이 offsetHeight 실측).
+   */
+  measure?: { columnWidthPx: number };
 }
