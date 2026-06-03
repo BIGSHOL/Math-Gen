@@ -4171,3 +4171,68 @@ tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
 
 **참고**: commit `3b1e83c` (Step3/4 공용 hook 교체).
 
+## 33. 변형(Variant) 기능 비활성 + 부활 조건 (2026-06-04 세션)
+
+변형 생성·출력의 품질/완성도가 아직 미달이라 사용자 결정으로 *내보내기 출력 대상*
+과 *변형 이력 UI* 를 비활성화. **데이터 레이어 (variant_history 적재, 변형 생성
+파이프라인 Step3/4) 는 그대로 유지** — 아래 플래그/코드만 되돌리면 복구된다.
+관련 패턴: V4 블로그의 `V4_BLOG_ENABLED = false` (V4BlogView.tsx) 와 동일한 플래그
+게이팅 정책.
+
+### 33-1. 변형 출력 (내보내기 "출력 대상") 비활성 — commit `3ec8655`
+
+**현재 상태**: 출력 대상이 *원본만 / 변형만 / 원본+변형* 순서, **원본만 기본 선택**,
+*변형만·원본+변형 은 비활성* (회색 + 클릭 불가 + "준비 중" 툴팁).
+
+**코드 위치**:
+- `src/components/print/PrintOptionsPanel.tsx` `EXPORT_SOURCE_OPTIONS` — `variant`/
+  `both` 에 `disabled: true`. `ENABLED_EXPORT_SOURCES` 로 비활성 값이면 useEffect 가
+  `original` 로 coerce (옛 세션 보호).
+- `src/stores/wizardStore.ts` `exportSource` 기본값 = `"original"` (initialState +
+  `onRehydrateStorage` fallback 둘 다).
+- `src/components/ui/Segmented.tsx` — per-option `disabled`(+`title`) 지원 추가.
+
+**부활 절차**:
+1. `EXPORT_SOURCE_OPTIONS` 의 `variant`/`both` 에서 `disabled`/`title` 제거.
+2. (선택) `exportSource` 기본값을 `"original"` 유지할지 `"variant"` 로 되돌릴지
+   재결정 — wizardStore initialState + rehydrate fallback 두 곳 동시.
+3. Segmented 의 `disabled` 지원은 그대로 둬도 무방 (다른 곳에서 재사용 가능).
+4. coerce useEffect 는 비활성 옵션이 없으면 no-op 이라 그대로 둬도 안전.
+
+### 33-2. 변형 이력 섹션 숨김 — commit (이번 세션)
+
+**현재 상태**: DetailScreen 우측 사이드바의 *변형 이력* 섹션 **완전 숨김**.
+
+**코드 위치**: `src/components/detail/DetailMetaSidebar.tsx` `VARIANT_HISTORY_ENABLED
+= false` 플래그로 섹션 전체 게이팅. *최근 N개 + 더보기/접기* 렌더 로직
+(`VARIANT_PREVIEW_COUNT`, `showAllVariants`) 은 플래그 안에 **그대로 보존**.
+
+**데이터는 계속 쌓임**: `wizardSync.ts` 가 Step4 첫 seed 때 `insertVariantBatch`
+호출 → `variant_history` 적재. `loadVariantHistory` 도 그대로. 즉 플래그만 켜면
+과거 이력이 온전히 복구된다.
+
+**비활성 사유 (부활 시 판단 기준 — 재발 방지)**:
+1. **non-actionable** — 이력 카드가 `<div>` (onClick 없음). 클릭해도 과거 변형
+   *열기/재출력/비교/복원* 불가 → 읽기 전용 로그라 가치 낮음.
+2. **digitize 노이즈** — `goal === "digitize"`(원본 유지) 도 `insertVariantBatch`
+   로 기록 (intensity 0, "디지털화만 · 원본 유지"). 실제 변형이 아닌데 "변형
+   이력" 에 떠서 의미 어긋남.
+3. **변형 출력 자체 비활성** (§33-1) — 내보낼 수 없는 변형을 추적할 실익 적음.
+
+**부활 절차 (옵션 C — actionable 재설계 권장)**:
+- *최소* 복구: `VARIANT_HISTORY_ENABLED = true` 만 → 읽기 전용 그대로 부활.
+- *권장* 복구: 카드를 **actionable** 하게 — onClick → 해당 변형 배치 열기 / 재출력
+  / 원본 대비 비교. 핸들러 + 라우팅 추가 필요.
+- digitize(intensity 0) 이력은 "변형 이력" 에서 **제외하거나 별도 라벨** (위 사유 2).
+
+### 33-3. 부활 통합 체크리스트 (변형 기능 본격 출시 시)
+
+- [ ] 변형 생성 품질 검증 (Step3 옵션 → Step4 변형 결과 — similar/variant/targeted).
+- [ ] §33-1: `EXPORT_SOURCE_OPTIONS` 의 `disabled` 제거 (+ 기본값 정책 재결정).
+- [ ] §33-2: `VARIANT_HISTORY_ENABLED = true` (+ 가능하면 actionable 재설계).
+- [ ] digitize 이력을 "변형 이력" 에서 분리 or 별도 라벨.
+- [ ] 변형 출력 PDF/DOCX 실제 산출물 검증 (원본+변형 1단 layout 포함).
+
+**원칙**: "준비 중" 기능은 *삭제하지 말고 플래그 게이팅* — 데이터/스캐폴드 보존 +
+한 줄로 복구. 단 부활 시 *왜 껐었는지* (위 사유) 를 먼저 해소했는지 확인.
+

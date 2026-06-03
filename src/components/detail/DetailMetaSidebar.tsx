@@ -6,6 +6,18 @@ import { formatVariantLabel } from "@app/lib/conversionLabels";
 /** 변형 이력 기본 노출 개수 — 그 이상은 "더보기" 로 펼침 (사용자 결정 2026-06-04). */
 const VARIANT_PREVIEW_COUNT = 5;
 
+/**
+ * 변형 이력 섹션 노출 플래그 (사용자 결정 2026-06-04, 옵션 A — 지금은 숨김).
+ *
+ * 현재 비활성 사유: ① 카드가 non-actionable (클릭해도 과거 변형 열기/재출력/비교
+ * 불가, 읽기 전용) ② digitize(원본 유지)도 "변형"으로 기록돼 노이즈 ③ 변형 출력
+ * 자체가 "준비 중"(PrintOptionsPanel) 이라 추적 실익 적음.
+ *
+ * 변형 기능 본격 출시 시 *actionable 하게 재설계* 하며 true 로 (옵션 C). 데이터
+ * (variant_history / loadVariantHistory) 는 그대로 쌓이므로 플래그만 켜면 복구.
+ */
+const VARIANT_HISTORY_ENABLED = false;
+
 export interface DetailMetaSidebarProps {
   test: TestPaper;
   /** *변형 만들기* — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */
@@ -251,52 +263,57 @@ export const DetailMetaSidebar = ({
         </>
       )}
 
-      <Eyebrow className="mb-3">
-        변형 이력
-        {test.variants.length > 0 && (
-          <span className="ml-1.5 text-caption text-muted font-normal">
-            {test.variants.length}
-          </span>
-        )}
-      </Eyebrow>
-      {test.variants.length === 0 ? (
-        <div className="text-small text-muted">아직 생성된 변형이 없습니다.</div>
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          {(showAllVariants
-            ? test.variants
-            : test.variants.slice(0, VARIANT_PREVIEW_COUNT)
-          ).map((v) => (
-            <div
-              key={v.id}
-              className="flex items-center justify-between gap-2 p-2.5 rounded-r2 bg-surface2"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-small font-semibold text-text truncate">
-                  {formatVariantLabel(v.label) ?? `ver.${v.id} · ${v.count}개`}
+      {/* 변형 이력 — 옵션 A (지금은 숨김). VARIANT_HISTORY_ENABLED 플래그 참고.
+          최근 N개 + 더보기 로직은 actionable 재설계(옵션 C) 전까지 보존. */}
+      {VARIANT_HISTORY_ENABLED && (
+        <>
+          <Eyebrow className="mb-3">
+            변형 이력
+            {test.variants.length > 0 && (
+              <span className="ml-1.5 text-caption text-muted font-normal">
+                {test.variants.length}
+              </span>
+            )}
+          </Eyebrow>
+          {test.variants.length === 0 ? (
+            <div className="text-small text-muted">아직 생성된 변형이 없습니다.</div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {(showAllVariants
+                ? test.variants
+                : test.variants.slice(0, VARIANT_PREVIEW_COUNT)
+              ).map((v) => (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between gap-2 p-2.5 rounded-r2 bg-surface2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-small font-semibold text-text truncate">
+                      {formatVariantLabel(v.label) ?? `ver.${v.id} · ${v.count}개`}
+                    </div>
+                    <div className="text-caption text-muted truncate">{v.createdAt}</div>
+                  </div>
+                  <Chip tone="ok" size="sm" dot>
+                    완료
+                  </Chip>
                 </div>
-                <div className="text-caption text-muted truncate">{v.createdAt}</div>
-              </div>
-              <Chip tone="ok" size="sm" dot>
-                완료
-              </Chip>
+              ))}
+              {/* 최근 VARIANT_PREVIEW_COUNT 개만 기본 노출 + 더보기/접기. */}
+              {test.variants.length > VARIANT_PREVIEW_COUNT && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllVariants((s) => !s)}
+                  className="mt-1 self-start inline-flex items-center gap-1 text-caption text-accent hover:underline"
+                >
+                  <Icon name={showAllVariants ? "caret-up" : "caret-down"} size={11} />
+                  {showAllVariants
+                    ? "접기"
+                    : `더보기 (${test.variants.length - VARIANT_PREVIEW_COUNT}개 더)`}
+                </button>
+              )}
             </div>
-          ))}
-          {/* 최근 VARIANT_PREVIEW_COUNT 개만 기본 노출 + 더보기/접기 (사용자 결정
-              2026-06-04, 옵션 a). 변형 이력은 created_at desc (최신순) 정렬. */}
-          {test.variants.length > VARIANT_PREVIEW_COUNT && (
-            <button
-              type="button"
-              onClick={() => setShowAllVariants((s) => !s)}
-              className="mt-1 self-start inline-flex items-center gap-1 text-caption text-accent hover:underline"
-            >
-              <Icon name={showAllVariants ? "caret-up" : "caret-down"} size={11} />
-              {showAllVariants
-                ? "접기"
-                : `더보기 (${test.variants.length - VARIANT_PREVIEW_COUNT}개 더)`}
-            </button>
           )}
-        </div>
+        </>
       )}
     </aside>
   );
