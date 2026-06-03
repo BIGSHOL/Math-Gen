@@ -6,6 +6,6 @@
  * backend proxy.
  */
 
-export { generateMathProblem } from "./generate";
-export { anthropic, DEFAULT_MODEL, OPUS_MODEL } from "./client";
-export type { ModelId } from "./client";
+export { generateMathProblem } from "./generate.js";
+export { anthropic, DEFAULT_MODEL, OPUS_MODEL } from "./client.js";
+export type { ModelId } from "./client.js";

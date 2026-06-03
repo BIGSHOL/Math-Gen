@@ -18,18 +18,18 @@
  * 마이그레이션 후 `analyzeExamViaApi` 로 Vercel function 경유).
  */
 
-import { anthropic, SONNET_MODEL } from "./client";
-import { SYSTEM_BLOCKS } from "./generate";
-import { extractToolUseInput } from "./generate";
+import { anthropic, SONNET_MODEL } from "./client.js";
+import { SYSTEM_BLOCKS } from "./generate.js";
+import { extractToolUseInput } from "./generate.js";
 import {
   EXAM_ANALYSIS_TOOL,
   EXAM_ANALYSIS_TOOL_CHOICE,
-} from "./examAnalysisSchema";
+} from "./examAnalysisSchema.js";
 import {
   buildExamAnalysisPrompt,
   buildExamScopeSuffix,
-} from "./examAnalysisPrompts";
-import { processAnalysisResult } from "./examAnalysisPostProcess";
+} from "./examAnalysisPrompts.js";
+import { processAnalysisResult } from "./examAnalysisPostProcess.js";
 import { normalizeAnthropicUsage } from "@app/lib/pricing";
 import type {
   AnalyzeExamInput,

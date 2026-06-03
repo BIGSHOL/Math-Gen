@@ -12,12 +12,12 @@
  *   5. CommentaryResult 반환
  */
 
-import { anthropic, SONNET_MODEL } from "./client";
-import { SYSTEM_BLOCKS } from "./generate";
+import { anthropic, SONNET_MODEL } from "./client.js";
+import { SYSTEM_BLOCKS } from "./generate.js";
 import {
   COMMENTARY_SYSTEM_PROMPT,
   buildCommentaryUserPrompt,
-} from "./examCommentaryPrompts";
+} from "./examCommentaryPrompts.js";
 import type {
   AnalyzeCommentaryInput,
   AnalyzeCommentaryOutput,

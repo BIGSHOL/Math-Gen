@@ -8,9 +8,9 @@
  * record.commentary 에 머지 저장 (CommentaryResult 가 v4_* 필드 포함).
  */
 
-import { anthropic, SONNET_MODEL } from "./client";
-import { SYSTEM_BLOCKS } from "./generate";
-import { SYSTEM_PROMPT_V4, buildV4UserPrompt } from "./examV4Prompts";
+import { anthropic, SONNET_MODEL } from "./client.js";
+import { SYSTEM_BLOCKS } from "./generate.js";
+import { SYSTEM_PROMPT_V4, buildV4UserPrompt } from "./examV4Prompts.js";
 import type {
   BasicAnalysisResult,
   CommentaryResult,

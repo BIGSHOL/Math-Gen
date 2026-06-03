@@ -17,7 +17,7 @@
  */
 
 import type { OCRProblem } from "@app/stores/wizardStore";
-import { currentAccessToken } from "../api/supabase";
+import { currentAccessToken } from "../api/supabase.js";
 
 export interface GenerateDiagramImageInput {
   /** 사용자가 confirm modal 에서 편집 가능한 prompt (한국어 또는 영어). */

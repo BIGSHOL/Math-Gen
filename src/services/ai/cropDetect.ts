@@ -14,11 +14,11 @@
  * 강점이고 `OCR_PAGE_SCHEMA` 의 `images[].box` 와 동일 포맷이다.
  */
 
-import { getGeminiClient, GEMINI_3_FLASH } from "./gemini";
-import { getOpenAIClient, GPT_5_5_PRO } from "./openai";
-import { parseDataUrl } from "./sanitize";
-import { toGeminiSchema, parseJsonOrThrow, friendlyGeminiError } from "./ocr";
-import { stripCodeFences } from "./generate";
+import { getGeminiClient, GEMINI_3_FLASH } from "./gemini.js";
+import { getOpenAIClient, GPT_5_5_PRO } from "./openai.js";
+import { parseDataUrl } from "./sanitize.js";
+import { toGeminiSchema, parseJsonOrThrow, friendlyGeminiError } from "./ocr.js";
+import { stripCodeFences } from "./generate.js";
 
 /** 0–1000 정규화 bbox `[yMin, xMin, yMax, xMax]` (OCR_PAGE_SCHEMA `images[].box` 동일). */
 export type CropBox = readonly [number, number, number, number];
