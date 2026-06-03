@@ -520,7 +520,7 @@ Examine the page image carefully. Locate the printed problem number markers (e.g
  * 페이지 이미지(base64 dataURL)에서 문항별 크롭 박스를 검출.
  * Gemini 3 Flash 단일 호출. 실패 시 한국어 friendly 메시지로 throw.
  */
-export const detectCropBoxes = async (
+const detectCropBoxesDirect = async (
   pageBase64: string,
   signal?: AbortSignal,
 ): Promise<DetectedCrop[]> => {
@@ -595,3 +595,49 @@ export const detectCropBoxes = async (
     throw wrapped;
   }
 };
+
+/**
+ * 클라이언트 프로덕션 빌드 — `/api/ai-cropdetect` Vercel function 호출. prod
+ * 빌드는 `process.env.GEMINI_API_KEY` 가 클라이언트 번들에 안 박혀(vite define
+ * 제거) 직접 호출이 불가 → 이 함수 경유 (사용자 보고 2026-06-04: prod 에서
+ * "GEMINI_API_KEY is not set"). dev (USE_API=false) 는 direct SDK.
+ */
+const detectCropBoxesViaApi = async (
+  pageBase64: string,
+  signal?: AbortSignal,
+): Promise<DetectedCrop[]> => {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted before request", "AbortError");
+  }
+  // Bearer 첨부 → 서버가 user/tenant 추출해 ai_usage 기록 (ocr.ts 와 동일 패턴).
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch("/api/ai-cropdetect", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ pageBase64 }),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as { crops?: DetectedCrop[] };
+  return json.crops ?? [];
+};
+
+/**
+ * USE_API — 브라우저 PROD (또는 VITE_USE_API) 면 fetch path. 서버(Vercel
+ * function) 에서는 window 없음 → false → direct (자기 호출 무한루프 방지).
+ * ocr.ts USE_API 와 동일 정책.
+ */
+const USE_API: boolean =
+  typeof window !== "undefined" &&
+  typeof import.meta !== "undefined" &&
+  Boolean(import.meta.env?.PROD || import.meta.env?.VITE_USE_API === "true");
+
+export const detectCropBoxes: typeof detectCropBoxesDirect = USE_API
+  ? detectCropBoxesViaApi
+  : detectCropBoxesDirect;

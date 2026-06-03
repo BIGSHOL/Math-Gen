@@ -18,6 +18,7 @@ export interface LogAiUsageInput {
   tenantId: string | null;
   endpoint:
     | "ai-ocr"
+    | "ai-cropdetect"
     | "ai-solution"
     | "ai-variant"
     | "ai-image"

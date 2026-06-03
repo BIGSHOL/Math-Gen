@@ -158,8 +158,24 @@ export const useCropDetect = (): UseCropDetect => {
                 `[useCropDetect] page ${page.id} complex 문항 [${complexNums.join(",")}] — GPT-5.5 정밀 재검출`,
               );
             }
-            finalDetected = await refineCropBoxesWithGpt55(rotated, detected);
-            if (isCancelled(page.id)) return;
+            // refine(GPT-5.5) 은 best-effort enhancement — 실패해도 Gemini 결과
+            // 그대로 사용. 별도 try/catch 로 격리: 옛 구조는 detect+refine 이 한
+            // try 라 prod 에서 refine 이 throw(OpenAI 키 없음 등)하면 *성공한
+            // Gemini 결과까지 버려져* 페이지 전체 검출 실패했음 (사용자 보고
+            // 2026-06-04). AbortError 만 재throw (사용자 취소 존중).
+            try {
+              finalDetected = await refineCropBoxesWithGpt55(rotated, detected);
+              if (isCancelled(page.id)) return;
+            } catch (refineErr) {
+              if ((refineErr as Error).name === "AbortError") throw refineErr;
+              finalDetected = detected;
+              if (import.meta.env?.DEV) {
+                console.debug(
+                  `[useCropDetect] page ${page.id} refine 실패 — Gemini 결과 사용:`,
+                  (refineErr as Error).message,
+                );
+              }
+            }
           }
 
           // 6. 매핑 + store update (1 회 호출 — refined 결과로)
