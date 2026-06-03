@@ -549,7 +549,9 @@ const initialState = {
   bundle: { problems: true, answers: true, solutions: false, stats: false },
   filename: "변형시험지",
   printOptions: DEFAULT_PRINT_OPTIONS,
-  exportSource: "variant" as ExportSource,
+  // 기본 출력 대상 = 원본만. 변형 출력 준비 중이라 변형/원본+변형 은 UI 비활성
+  // (PrintOptionsPanel). 사용자 결정 2026-06-04.
+  exportSource: "original" as ExportSource,
 };
 
 export const useWizardStore = create<WizardState>()(
@@ -796,7 +798,7 @@ export const useWizardStore = create<WizardState>()(
         // VALID 6 union 에 없으면 fallback "jeongtong".
         state.printOptions.template = matchLegacyTemplate(state.printOptions.template);
         if (!state.exportSource) {
-          state.exportSource = "variant";
+          state.exportSource = "original";
         }
       },
     },

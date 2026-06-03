@@ -8,6 +8,10 @@ export interface SegmentedOption<T extends string = string> {
   label: string;
   /** Phosphor icon shown before the label. */
   icon?: string;
+  /** 비활성 — 선택 불가 (회색 + cursor-not-allowed + 클릭 차단). */
+  disabled?: boolean;
+  /** hover 툴팁 (예: 비활성 사유 "준비 중"). */
+  title?: string;
 }
 
 export interface SegmentedProps<T extends string = string> {
@@ -49,13 +53,19 @@ export const Segmented = <T extends string = string>({
     >
       {options.map((opt) => {
         const on = opt.value === value;
+        const disabled = Boolean(opt.disabled);
         return (
           <button
             key={opt.value}
             type="button"
             role="radio"
             aria-checked={on}
-            onClick={() => onChange(opt.value)}
+            aria-disabled={disabled || undefined}
+            disabled={disabled}
+            title={opt.title}
+            onClick={() => {
+              if (!disabled) onChange(opt.value);
+            }}
             className={cn(
               "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-r1 border-none",
               "transition-all duration-[120ms] ease-out",
@@ -66,6 +76,7 @@ export const Segmented = <T extends string = string>({
               on
                 ? "bg-surface text-text font-semibold shadow-s1"
                 : "bg-transparent text-muted font-medium",
+              disabled && "opacity-40 cursor-not-allowed",
             )}
           >
             {opt.icon && <Icon name={opt.icon} size={s.iconSize} weight={on ? "bold" : "regular"} />}

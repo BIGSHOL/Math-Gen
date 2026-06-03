@@ -47,11 +47,25 @@ const TEMPLATE_OPTIONS: Array<{ value: PrintTemplate; label: string; hint: strin
   { value: "yuhyung", label: "유형", hint: "유형 컴팩트" },
 ];
 
-const EXPORT_SOURCE_OPTIONS: Array<{ value: ExportSource; label: string; icon?: string }> = [
-  { value: "variant", label: "변형만", icon: "sparkle" },
+// 출력 대상 — 순서: 원본만 / 변형만 / 원본+변형. 원본만이 기본 (wizardStore
+// exportSource 기본값 "original"). 변형 기능 준비 중이라 변형만·원본+변형 은
+// 비활성 (사용자 결정 2026-06-04). 변형 출시 시 disabled 만 제거하면 복구.
+const EXPORT_SOURCE_OPTIONS: Array<{
+  value: ExportSource;
+  label: string;
+  icon?: string;
+  disabled?: boolean;
+  title?: string;
+}> = [
   { value: "original", label: "원본만", icon: "scan" },
-  { value: "both", label: "원본+변형", icon: "rows" },
+  { value: "variant", label: "변형만", icon: "sparkle", disabled: true, title: "변형 출력 준비 중" },
+  { value: "both", label: "원본+변형", icon: "rows", disabled: true, title: "변형 출력 준비 중" },
 ];
+
+/** 비활성 아닌(선택 가능한) 출력 대상 — 비활성 값 coerce 시 fallback. */
+const ENABLED_EXPORT_SOURCES = EXPORT_SOURCE_OPTIONS.filter((o) => !o.disabled).map(
+  (o) => o.value,
+);
 
 const COLUMNS_OPTIONS: Array<{ value: string; label: string; icon: string }> = [
   { value: "1", label: "1단", icon: "rectangle" },
@@ -112,6 +126,16 @@ export const PrintOptionsPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportSource]);
 
+  // 변형만/원본+변형 비활성 (변형 출력 준비 중) — 옛 세션 등으로 exportSource 가
+  // 비활성 값이면 원본으로 강제해 UI 선택과 실제 출력을 일치시킨다 (사용자 결정
+  // 2026-06-04). 변형 출시 시 EXPORT_SOURCE_OPTIONS 의 disabled 만 제거하면 복구.
+  useEffect(() => {
+    if (!ENABLED_EXPORT_SOURCES.includes(exportSource)) {
+      onChangeExportSource(ENABLED_EXPORT_SOURCES[0] ?? "original");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportSource]);
+
   const isBoth = exportSource === "both";
 
   return (
@@ -126,8 +150,8 @@ export const PrintOptionsPanel = ({
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* 1. 출력 대상 (사용자 결정 최우선) */}
-        <Section title="출력 대상" hint="변형 / 원본 / 둘 다">
+        {/* 1. 출력 대상 (사용자 결정 최우선). 현재 원본만 활성 — 변형 출력 준비 중. */}
+        <Section title="출력 대상" hint="원본만 (변형 준비 중)">
           <Segmented<ExportSource>
             value={exportSource}
             onChange={onChangeExportSource}
@@ -135,18 +159,10 @@ export const PrintOptionsPanel = ({
             size="sm"
             full
           />
-          {exportSource === "variant" && (
-            <p className="mt-2 text-caption text-muted">
-              <Icon name="info" size={11} color="#9CA3AF" />{" "}
-              변형 모드는 원본 도형이 포함되지 않습니다.
-            </p>
-          )}
-          {isBoth && (
-            <p className="mt-2 text-caption text-muted">
-              <Icon name="info" size={11} color="#9CA3AF" />{" "}
-              원본+변형 모드는 1단 layout 으로 자동 전환됩니다.
-            </p>
-          )}
+          <p className="mt-2 text-caption text-muted">
+            <Icon name="info" size={11} color="#9CA3AF" />{" "}
+            변형 출력은 준비 중입니다 — 현재는 원본만 내보낼 수 있습니다.
+          </p>
         </Section>
 
         {/* 2. 템플릿 — 6 신규 디자인 (design_handoff_print_templates 기반).
