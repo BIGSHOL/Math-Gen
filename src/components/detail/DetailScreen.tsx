@@ -155,7 +155,9 @@ export const DetailScreen = () => {
       eligible.length > 0 && eligible.every((p) => p.solution || p.solutionError);
     if (!solDone) return "해설 (4/7단계)";
     if (detail.reviews.length === 0) return "옵션 (5/7단계)";
-    return "검토 (6/7단계)";
+    // 이전에 내보내기(7/7)까지 도달했던 시험지는 거기서 이어감 — decideResumeStep
+    // 의 furthest_step 분기와 동일 (사용자 보고 2026-06-04). 라벨도 일치시킴.
+    return (test.furthestStep ?? 0) >= 6 ? "내보내기 (7/7단계)" : "검토 (6/7단계)";
   })();
 
   // Phase D — 활성 페이지의 hi-res URL → base64 dataURL (OCRItem 의 도형 crop 용)

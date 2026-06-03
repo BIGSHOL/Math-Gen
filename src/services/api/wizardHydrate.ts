@@ -29,15 +29,22 @@ export const getPageStoragePath = (pageId: string): string | null =>
 
 /**
  * 시험지 완성도로 재진입 step 판정 (위→아래 첫 매치).
- * step 0(업로드)·6(내보내기)로는 자동 진입하지 않는다 — 진입 후 Stepper 로 이동.
+ * step 0(업로드)로는 자동 진입하지 않는다 — 진입 후 Stepper 로 이동.
  *
  * Phase I-6 시점 step 매핑: 0=업로드, 1=검수, 2=OCR, 3=해설, 4=옵션, 5=검토,
  * 6=내보내기. 검수 단계는 자동 진입 안 함 (cropDetect 결과 박스 검토 의무
  * 아님 — 사용자가 명시적 다음 단계 클릭으로만 진입).
+ *
+ * `furthestStep` (tests.furthest_step, wizardSync 가 DB 저장) — 데이터가 모두
+ * 완료된 시험지일 때, *이전에 내보내기(6)까지 도달했으면* 그 단계에서 이어가게
+ * 한다. 사용자 보고 (2026-06-04): 내보내기(7/7)에서 저장 후 "이어하기" 하면 항상
+ * 검토(6/7)로 시작 — 마지막 단계 복원 안 됨. 단, 한 번도 내보내기에 안 갔던
+ * 시험지는 종전대로 검토(5)에서 시작 (첫 진입 시 내보내기 자동진입 안 함 유지).
  */
 export const decideResumeStep = (
   pages: WizardPage[],
   problems: ProblemReview[],
+  furthestStep = 0,
 ): WizardStepIndex => {
   const problemPages = pages.filter((p) => p.isProblemPage || p.forceOcr);
   if (problemPages.length === 0) return 2; // OCR — 추출된 문제 페이지 없음
@@ -50,7 +57,8 @@ export const decideResumeStep = (
     solEligible.every((it) => it.solution || it.solutionError);
   if (!solDone) return 3; // 해설 미완료
   if (problems.length === 0) return 4; // 옵션 — 변형 전
-  return 5; // 검토 (전부 확정이어도 내보내기 자동진입은 안 함)
+  // 데이터 완료 — 기본 검토(5). 단, 이전에 내보내기(6)까지 도달했으면 거기서 이어감.
+  return furthestStep >= 6 ? 6 : 5;
 };
 
 /**
@@ -88,7 +96,7 @@ export const hydrateWizardFromTest = async (
 
   return {
     testId,
-    step: decideResumeStep(pages, problems),
+    step: decideResumeStep(pages, problems, testRow?.furthest_step ?? 0),
     pages,
     problems,
     selectedGrade: (testRow?.grade ?? null) as GradeKey | null,
