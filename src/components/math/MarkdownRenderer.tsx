@@ -5,9 +5,9 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
-import katex from "katex";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
-import { cleanMalformedLatex, parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
+import { parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
+import { renderKatexSafe } from "@app/lib/katexRender";
 import { groupFigureRows, assignBoxesByReadingOrder, type FigBox } from "@app/lib/figureLayout";
 
 /**
@@ -292,51 +292,11 @@ const renderChoiceRowOrNull = (
  * katex.renderToString, then leave the resulting <span class="katex">…</span>
  * in place. rehype-raw passes that HTML through untouched.
  */
-/**
- * Pattern of characters KaTeX has no metrics for but our OCR content
- * routinely contains (Korean multiple-choice markers, KaTeX_Main has no
- * "circled digit" glyphs). When seen inside `$...$`, KaTeX logs noisy
- * "No character metrics" warnings to the console (one per char per render)
- * and falls back to default metrics — visually fine, but the console
- * floods. We silently filter just this specific warning while katex runs,
- * letting all other warnings through unchanged.
- */
-const KATEX_METRIC_WARN_RE = /No character metrics for/;
-
-const renderKatex = (tex: string, displayMode: boolean): string => {
-  const origWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
-    if (typeof args[0] === "string" && KATEX_METRIC_WARN_RE.test(args[0])) return;
-    origWarn.apply(console, args);
-  };
-  try {
-    // Final guard — preprocessMathText / sanitize 가 어떤 path 로 와도 못
-    // 잡은 모델 typo (\left\left, \approx, 빈 분수 등) 가 KaTeX 까지 도달하면
-    // 빨간 에러 fallback 으로 표시됨. KaTeX 가 받기 직전에 한 번 더 정상화.
-    // + 중첩/leak 된 `$` 제거 — `$$...$$` 안에 `$...$` 가 중첩되면 block 추출이
-    //   inner 의 `$` 까지 잡아 KaTeX 에 넘김 → `$` 가 math 모드 무효라 빨간
-    //   에러(사용자 보고 2026-06-02). `\$` (리터럴 달러)는 보존.
-    const safeTex = cleanMalformedLatex(tex).replace(/(?<!\\)\$/g, "");
-    return katex.renderToString(safeTex, {
-      throwOnError: false,
-      strict: false,
-      output: "html",
-      displayMode,
-      // Allow `\htmlClass` only — used by `uprightGeometryLabels` to tag
-      // arc-notation spans (`.geom-arc-wrap`) so CSS can draw a smooth ⌒
-      // curve via border-radius (KaTeX has no native smooth-arc accent).
-      // We deliberately don't allow `\href` / `\htmlData` / `\url` because
-      // OCR'd content is untrusted and those could inject links.
-      trust: (ctx) => ctx.command === "\\htmlClass",
-    });
-  } catch {
-    // Render failure → return the original LaTeX wrapped in <code> so the
-    // user can still see what was supposed to be there.
-    return `<code>${tex}</code>`;
-  } finally {
-    console.warn = origWarn;
-  }
-};
+// 붉은 글씨(katex-error) 절대 금지 렌더는 공유 모듈 `renderKatexSafe` 로 통일.
+// MarkdownRenderer 와 KaTeXInline 이 *같은* 안전망(1차 정리 → 실패 시 공격적
+// 재시도 → 그래도 실패면 빨강 대신 중립 .math-raw 폴백)을 쓴다 — 렌더 경로가
+// 분기돼 한쪽만 빨갛게 뜨는 multi-path 함정(§2-17) 을 구조적으로 차단.
+const renderKatex = renderKatexSafe;
 
 /**
  * Pre-render EVERY `$...$` and `$$...$$` in the input to HTML, store the

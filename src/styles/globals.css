@@ -81,6 +81,21 @@
   display: inline-block;
 }
 
+/* renderKatexSafe 의 최종 폴백 — KaTeX 가 끝내 렌더 못 한 식을 *빨강 대신
+   중립 회색 모노스페이스* 로 표시. 사용자 목표 2026-06-04: 붉은 글씨(katex-error)
+   가 화면에 절대 안 나오도록. 정상이라면 거의 등장 안 함(공격적 재시도까지 실패한
+   극히 드문 경우). 알람 같은 빨강 대신 "이 식은 렌더 못 함" 정도의 차분한 신호. */
+.math-raw {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  color: var(--color-text2, #555);
+  background: rgba(0, 0, 0, 0.045);
+  padding: 0 0.25em;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── KaTeX 분수 가독성 (사용자 요청 2026-05-29) ──
    분자·분모가 본문 대비 작게 보이는 것 방지. applyMathInnerNormalization 이
    \frac → \dfrac (displaystyle) 강제하지만 KaTeX 의 분자/분모는 여전히 본문

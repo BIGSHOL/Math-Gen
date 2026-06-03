@@ -8,7 +8,7 @@
  * SECURITY NOTE: this module only handles "broken icon" prevention. Full
  * XSS-safe SVG sanitization (DOMPurify) lands in Phase 5 — see the plan.
  */
-import { cleanMalformedLatex } from "../../lib/textPreprocess.js";
+import { cleanMalformedLatex, LATEX_WRAP_TRIGGER_SOURCE } from "../../lib/textPreprocess.js";
 
 const IMG_TAG_RE = /<img[^>]*>/gi;
 const MD_IMG_RE = /!\[.*?\]\(.*?\)/g;
@@ -340,8 +340,11 @@ const PRESERVE_MARK = String.fromCharCode(57344);
  * `5 - \frac…` 사이의 spacing 도 깨졌다. line 단위로 미리 wrap 해서 KaTeX
  * 에 통째로 넘기는 게 더 안정적.
  */
-const LATEX_HEAVY_CMD =
-  /\\(?:displaystyle|textstyle|frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|overrightarrow|overline|widehat|vec|max|min|log|ln|sin|cos|tan|alpha|beta|gamma|theta|pi|sigma|omega|infty|cup|cap|subset|supset|neq|leq|geq|approx|mathrm|mathbf|text|boxed|phantom)\b/g;
+// textPreprocess 의 Step 9 line-wrap 과 *동일* 소스 공유 (단일 source of truth).
+// 예전엔 여기 별도 리스트라 `\tfrac` / `\Bigl` 등이 누락 → 해당 명령어만 쓴 raw
+// 줄이 wrap 안 됨 (사용자 보고 "후보정 한번씩 덜됨" 2026-06-03). 새 명령어는
+// LATEX_WRAP_TRIGGER_SOURCE 한 곳만 고치면 양쪽 path 에 반영된다.
+const LATEX_HEAVY_CMD = new RegExp(LATEX_WRAP_TRIGGER_SOURCE, "g");
 const HANGUL_BOUNDARY = /[가-힣ㄱ-ㅎㅏ-ㅣ]/;
 
 const preWrapLatexHeavyLines = (text: string): string =>

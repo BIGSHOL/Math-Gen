@@ -264,8 +264,12 @@ export const cleanMalformedLatex = (s: string): string =>
     // 중복 명령어 (\left\left, \right\right, \frac\frac, \sqrt\sqrt) → 단일화
     .replace(/\\left(?=\\left\b)/g, "")
     .replace(/\\right(?=\\right\b)/g, "")
-    .replace(/\\bigl?(?=\\left\b)/g, "")
-    .replace(/\\bigr?(?=\\right\b)/g, "")
+    // 크기 구분자(\big \Big \bigg \Bigg + 옵션 l/r/m)가 \left/\right 앞에 붙은
+    // 모델 typo → 크기 구분자 제거. KaTeX 는 \left 다음에 *단일 구분자* 만
+    // 받으므로 `\Bigl\left(` 는 "Expected delimiter" 에러 → 빨간 raw 노출
+    // (사용자 보고 2026-06-03: `\Bigl\left(...\Bigr\right)`). 기존엔 소문자
+    // `\bigl?` 만 처리해서 대문자 `\Bigl` / `\bigg` / `\Bigg` 가 그대로 leak.
+    .replace(/\\(?:bigg?|Bigg?)[lrm]?(?=\\(?:left|right)\b)/g, "")
     .replace(/\\frac(?=\\frac\b)/g, "")
     .replace(/\\sqrt(?=\\sqrt\b)/g, "")
     .replace(/\\boxed(?=\\boxed\b)/g, "")
@@ -327,6 +331,13 @@ export const applyMathInnerNormalization = (inner: string): string => {
   //    - `\tfrac` / `\cfrac` 는 매치 안 함 (모델 명시 의도 보존).
   s = s.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
   s = injectDisplayStyle(s);
+  // 7) **최종 안전망 — 이 함수의 출력은 *항상* KaTeX-safe** (사용자 보고
+  //    "후보정 한번씩 덜됨" 2026-06-03). autoSizeBrackets 가 모델이 이미 emit
+  //    한 `\left(...\right)` 를 `\left\left(...\right\right)` 로 이중 wrap 할 수
+  //    있는데, 그 정리를 downstream guard(Step 10 / renderKatex)에 의존하면 그
+  //    guard 가 없는 path(KaTeXInline 등)에서 빨간 글씨로 leak. 함수 끝에서 한
+  //    번 더 cleanMalformedLatex → 어떤 caller 든 자기완결적으로 깨끗.
+  s = cleanMalformedLatex(s);
   return s;
 };
 
@@ -708,6 +719,32 @@ export const extractHangulFromMath = (content: string): string => {
 };
 
 /**
+ * 자동 wrap 트리거용 LaTeX 명령어 alternation (regex source 문자열).
+ *
+ * `$` 없이 흘러나온 raw LaTeX 줄을 감지하는 데 쓴다. 이 파일의 Step 9
+ * (line-level auto-wrap) 와 sanitize.ts 의 `preWrapLatexHeavyLines` 가 *이 한
+ * 소스* 를 공유한다 — 예전엔 두 곳이 각자 리스트를 들고 있어서 한쪽만 명령어를
+ * 늘리면 다른 path 에서 누락됐다 (사용자 보고 "후보정 한번씩 덜됨" 2026-06-03:
+ * `\tfrac` / `\Bigl` 만 쓴 줄이 raw 노출). 새 명령어는 *반드시 여기 한 곳만*
+ * 추가할 것.
+ *
+ * `new RegExp(LATEX_WRAP_TRIGGER_SOURCE, "g")` 로 인스턴스화해서 `.match()` 로
+ * 사용. `\b` 종료 경계로 `\bigcup` 같은 부분 매치를 막는다.
+ */
+export const LATEX_WRAP_TRIGGER_SOURCE =
+  "\\\\(?:displaystyle|textstyle|scriptstyle|d?frac|tfrac|cfrac|sqrt|left|right|" +
+  "bigg?[lrm]?|Bigg?[lrm]?|d?binom|tbinom|sum|prod|coprod|int|iint|iiint|oint|" +
+  "lim|limsup|liminf|cdot|times|div|pm|mp|cdots|ldots|dots|vdots|ddots|vec|" +
+  "widehat|widetilde|hat|tilde|bar|overline|underline|overrightarrow|" +
+  "overleftarrow|overset|underset|" +
+  "stackrel|begin|end|over|atop|max|min|log|ln|exp|sin|cos|tan|sec|csc|cot|" +
+  "partial|nabla|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|" +
+  "lambda|mu|nu|xi|rho|sigma|tau|upsilon|phi|chi|psi|omega|Gamma|Delta|Theta|" +
+  "Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|cup|cap|subset|supset|subseteq|" +
+  "supseteq|notin|in|neq|leq|geq|approx|equiv|cong|sim|angle|triangle|circ|" +
+  "prime|mathrm|mathbf|mathbb|mathcal|mathfrak|text|boxed|phantom|operatorname)\\b";
+
+/**
  * 수식 정규화 — KaTeX 입력 전 안전 변환.
  *  1) `\(\)` / `\[\]` → `$...$` / `$$...$$`
  *  2) `$A$$B$` → `$A$ $B$` (최대 5회 반복)
@@ -798,7 +835,10 @@ export const preprocessMathText = (content: string): string => {
   //     `LATEX_CMD` 에 `\displaystyle` 도 포함 — 위 (8) 단계가 `$` 밖 떠도는
   //     `\displaystyle` 을 strip 하지만, 이 (9) 가 먼저 line-level wrap 으로
   //     보존하면 strip 의 대상이 아니게 된다 (이미 `$...$` 안에 있음).
-  const LATEX_CMD = /\\(?:displaystyle|textstyle|frac|dfrac|sqrt|left|right|binom|sum|int|prod|lim|cdot|times|div|pm|mp|cdots|ldots|vec|hat|tilde|overline|underline|overrightarrow|begin|end|over|atop|max|min|log|ln|sin|cos|tan|alpha|beta|gamma|theta|pi|sigma|omega|infty|cup|cap|subset|supset|neq|leq|geq|approx|cdot|mathrm|mathbf|text|boxed|phantom)\b/g;
+  // sanitize.ts 의 preWrapLatexHeavyLines 와 *동일* 소스 공유 (단일 source of
+  // truth — LATEX_WRAP_TRIGGER_SOURCE). `\tfrac` / `\Bigl` / `\cfrac` 등 빠진
+  // 명령어로 인해 wrap 이 트리거 안 되던 함정 차단 (사용자 보고 2026-06-03).
+  const LATEX_CMD = new RegExp(LATEX_WRAP_TRIGGER_SOURCE, "g");
   // 한글 (Hangul Syllables + Jamo) — math 모드에선 안 그려지므로 boundary 로 사용.
   const HANGUL_RE = /[가-힣ㄱ-ㅎㅏ-ㅣ]/;
   masked = masked
@@ -808,9 +848,11 @@ export const preprocessMathText = (content: string): string => {
       if (line.includes(SENTINEL_BLOCK) || line.includes(SENTINEL_INLINE)) return line;
       // `$` 가 있으면 부분적으로라도 인용된 줄. 자동 wrap 하면 충돌 위험.
       if (line.includes("$")) return line;
-      // LaTeX 명령어가 2회 이상 — wrap 후보.
+      // 알려진 LaTeX 명령어가 1개 이상 — wrap 후보. (sanitize 의 preWrap 과 동일
+      // 하게 `< 1` 로 완화 — `\tfrac{1}{2}=\tfrac{2}{4}` 같이 한 종류 명령어만
+      // 쓰는 짧은 줄도 raw 로 새지 않게.)
       const cmds = line.match(LATEX_CMD);
-      if (!cmds || cmds.length < 2) return line;
+      if (!cmds || cmds.length < 1) return line;
       // enum marker 또는 blockquote prefix 보존.
       const m = line.match(/^(\s*(?:>\s?)?(?:[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+\.|\d+\)|-|\*)?\s*)([\s\S]+?)$/);
       const prefix = m ? m[1] : "";
