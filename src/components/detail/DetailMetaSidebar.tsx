@@ -3,6 +3,9 @@ import { Btn, Chip, Eyebrow, Icon } from "@app/components/ui";
 import type { TestPaper, TopicSlice } from "@app/types";
 import { formatVariantLabel } from "@app/lib/conversionLabels";
 
+/** 변형 이력 기본 노출 개수 — 그 이상은 "더보기" 로 펼침 (사용자 결정 2026-06-04). */
+const VARIANT_PREVIEW_COUNT = 5;
+
 export interface DetailMetaSidebarProps {
   test: TestPaper;
   /** *변형 만들기* — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */
@@ -79,6 +82,7 @@ export const DetailMetaSidebar = ({
 }: DetailMetaSidebarProps) => {
   const info = buildInfo(test);
   const [collapsed, setCollapsed] = useState(false);
+  const [showAllVariants, setShowAllVariants] = useState(false);
 
   // ── 접힌 상태 — 액션 아이콘 버튼만 (변형/이어서/공유/PDF) + 펼치기 토글 ──
   if (collapsed) {
@@ -247,12 +251,22 @@ export const DetailMetaSidebar = ({
         </>
       )}
 
-      <Eyebrow className="mb-3">변형 이력</Eyebrow>
+      <Eyebrow className="mb-3">
+        변형 이력
+        {test.variants.length > 0 && (
+          <span className="ml-1.5 text-caption text-muted font-normal">
+            {test.variants.length}
+          </span>
+        )}
+      </Eyebrow>
       {test.variants.length === 0 ? (
         <div className="text-small text-muted">아직 생성된 변형이 없습니다.</div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {test.variants.map((v) => (
+          {(showAllVariants
+            ? test.variants
+            : test.variants.slice(0, VARIANT_PREVIEW_COUNT)
+          ).map((v) => (
             <div
               key={v.id}
               className="flex items-center justify-between gap-2 p-2.5 rounded-r2 bg-surface2"
@@ -268,6 +282,20 @@ export const DetailMetaSidebar = ({
               </Chip>
             </div>
           ))}
+          {/* 최근 VARIANT_PREVIEW_COUNT 개만 기본 노출 + 더보기/접기 (사용자 결정
+              2026-06-04, 옵션 a). 변형 이력은 created_at desc (최신순) 정렬. */}
+          {test.variants.length > VARIANT_PREVIEW_COUNT && (
+            <button
+              type="button"
+              onClick={() => setShowAllVariants((s) => !s)}
+              className="mt-1 self-start inline-flex items-center gap-1 text-caption text-accent hover:underline"
+            >
+              <Icon name={showAllVariants ? "caret-up" : "caret-down"} size={11} />
+              {showAllVariants
+                ? "접기"
+                : `더보기 (${test.variants.length - VARIANT_PREVIEW_COUNT}개 더)`}
+            </button>
+          )}
         </div>
       )}
     </aside>
