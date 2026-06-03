@@ -6,7 +6,7 @@ import remarkBreaks from "remark-breaks";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
-import { parseImageTitle, preprocessMathText } from "@app/lib/textPreprocess";
+import { parseImageTitle, preprocessMathText, wrapBareConditionBoxes } from "@app/lib/textPreprocess";
 import { renderKatexSafe } from "@app/lib/katexRender";
 import { groupFigureRows, assignBoxesByReadingOrder, type FigBox } from "@app/lib/figureLayout";
 
@@ -713,6 +713,13 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   // independent layers of protection against text/line overlap and
   // sans-serif math typography.
   svgReplacedContent = normalizeInlineSvgs(svgReplacedContent);
+
+  // Stage 1.9: `<조건>` / `<보기>` 평문 블록을 blockquote 로 묶어 *한 박스* 로
+  // 렌더되게. 모델이 `>` 인용부호 없이 흘린 경우에도 테두리 박스 보장 (사용자
+  // 보고 2026-06-04). 렌더 시점 처리라 기존 시험지도 다시 열면 적용된다.
+  // KaTeXInline(commentary)은 preprocessMathText 만 호출하고 이 단계를 안 거치므로
+  // commentary 에 `> ` literal 이 새는 일 없음 (조건 박스는 문제 영역 전용).
+  svgReplacedContent = wrapBareConditionBoxes(svgReplacedContent);
 
   // Stage 2: normalize LaTeX delimiters, `\dfrac`, unicode → LaTeX commands.
   svgReplacedContent = preprocessMathText(svgReplacedContent);

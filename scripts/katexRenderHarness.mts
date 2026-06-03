@@ -16,7 +16,7 @@
 // 하네스를 돌려 실패를 재현 → 후처리(textPreprocess/sanitize) 보강 → 통과 확인.
 
 import katex from "katex";
-import { preprocessMathText } from "../src/lib/textPreprocess.js";
+import { preprocessMathText, wrapBareConditionBoxes } from "../src/lib/textPreprocess.js";
 import { renderKatexSafe } from "../src/lib/katexRender.js";
 
 /**
@@ -152,10 +152,50 @@ console.log(
   `\n${GUARD_CASES.length * 2 - guardFailed}/${GUARD_CASES.length * 2} guard passed`,
 );
 
-if (failed > 0 || guardFailed > 0) {
+// ── wrapBareConditionBoxes — <조건>/<보기> 항상 한 박스 ──
+// 사용자 보고 2026-06-04: `>` 인용부호 없이 평문으로 흘린 <조건> 이 박스 밖으로
+// 흩어짐. 헤더+항목을 blockquote 로 정규화해 한 박스로 묶이는지 검증.
+console.log("\n[wrapBareConditionBoxes — <조건>/<보기> 한 박스 보장]");
+const BOX_CASES: Array<{ name: string; input: string; expectWrap: boolean }> = [
+  {
+    name: "loose <조건> escaped (reported)",
+    input: "&lt;조건&gt;\n(가) $a$, $b$는 음의 정수이다.\n(나) $1 \\le x \\le 2$일 때 최댓값은 3이다.",
+    expectWrap: true,
+  },
+  { name: "loose <조건> raw", input: "<조건>\n(가) 첫째 조건.\n(나) 둘째 조건.", expectWrap: true },
+  { name: "loose <보기> ㄱㄴㄷ", input: "<보기>\nㄱ. $1$\nㄴ. $2$\nㄷ. $3$", expectWrap: true },
+  {
+    name: "already blockquote (불변)",
+    input: "> &lt;조건&gt;\n> (가) 첫째.\n> (나) 둘째.",
+    expectWrap: false,
+  },
+  { name: "헤더만, 항목 없음 (wrap X)", input: "<조건>\n그냥 평범한 본문 문장입니다.", expectWrap: false },
+];
+let boxFailed = 0;
+for (const b of BOX_CASES) {
+  const out = wrapBareConditionBoxes(b.input);
+  const header = out.split("\n").find((l) => /조\s*건|보\s*기/.test(l)) ?? "";
+  const headerQuoted = /^\s*>/.test(header);
+  // 모든 비어있지 않은 줄이 `>` 로 시작하는지(= 한 blockquote).
+  const allQuoted = out
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .every((l) => /^\s*>/.test(l));
+  const ok = b.expectWrap ? headerQuoted && allQuoted : out === b.input;
+  if (ok) console.log(`  PASS  ${b.name}`);
+  else {
+    boxFailed++;
+    console.log(`  FAIL  ${b.name}\n        out: ${JSON.stringify(out)}`);
+  }
+}
+console.log(`\n${BOX_CASES.length - boxFailed}/${BOX_CASES.length} box passed`);
+
+if (failed > 0 || guardFailed > 0 || boxFailed > 0) {
   if (failed > 0)
     console.error(`\n${failed} case(s) FAILED — 빨간 수식 회귀. 후처리(textPreprocess/sanitize) 보강 필요.`);
   if (guardFailed > 0)
     console.error(`\n${guardFailed} guard FAILED — renderKatexSafe 가 붉은 글씨를 냄. 폴백 보강 필요.`);
+  if (boxFailed > 0)
+    console.error(`\n${boxFailed} box FAILED — <조건>/<보기> 박스 후처리 보강 필요.`);
   process.exit(1);
 }

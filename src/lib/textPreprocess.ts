@@ -718,6 +718,56 @@ export const extractHangulFromMath = (content: string): string => {
   return out;
 };
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * `<조건>` / `<보기>` 평문 블록 → blockquote 박스 (사용자 보고 2026-06-04).
+ *
+ * 모델이 조건·보기 박스를 markdown blockquote (`> ` prefix) 로 emit 하면
+ * MarkdownRenderer 의 blockquote 컴포넌트가 테두리 박스로 그린다. 그런데 `>`
+ * 없이 *평문* 으로 흘리면(헤더+항목이 그냥 줄로) 박스 없이 흩어진다 — 사용자가
+ * 본 "박스 밖으로 나온 조건". 후처리에서 헤더+항목을 전부 `> ` 로 정규화해
+ * *한 박스* 로 보장한다. (렌더 시점 처리라 기존 시험지도 다시 열면 적용.)
+ *
+ * 헤더는 `<조건>` 또는 `&lt;조건&gt;` (sanitize 가 `<`/`>` 를 entity 로 escape
+ * 한 형태) 둘 다 인식. 재작성 시 `&lt;조건&gt;` (escaped) 로 통일 — raw `<조건>`
+ * 이 rehype-raw 에서 unknown tag 로 사라지는 것 방지(텍스트 라벨 보존).
+ *
+ * 보수적 트리거 (false positive 최소화):
+ *  - 헤더 줄 *전체* 가 `<조건>`/`<보기>` (공백·cols·entity 허용) 여야 함.
+ *  - 뒤따르는 항목이 (가)/(ㄱ)/ㄱ./①/1. 마커로 시작하는 연속 줄 *1 개 이상*.
+ *  - 이미 블록 전체가 `>` 면 손대지 않음(현재 잘 그려지는 박스 보존).
+ * ─────────────────────────────────────────────────────────────────────────── */
+const COND_BOX_HEADER_RE =
+  /^\s*(?:>\s?)?(?:<|&lt;)\s*(조\s*건|보\s*기)(?::cols=(?:auto|[123]))?\s*(?:>|&gt;)\s*$/;
+const COND_BOX_ITEM_RE =
+  /^\s*(?:>\s?)?(?:\([가-힣ㄱ-ㅎ]\)|[ㄱ-ㅎ]\.|[①②③④⑤⑥⑦⑧⑨⑩]|\d+[.)])/;
+
+export const wrapBareConditionBoxes = (content: string): string => {
+  if (!/(?:<|&lt;)\s*(?:조\s*건|보\s*기)/.test(content)) return content; // fast path
+  const lines = content.split("\n");
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const hm = lines[i].match(COND_BOX_HEADER_RE);
+    if (!hm) continue;
+    // 헤더 다음 연속 항목 줄 수집.
+    let j = i + 1;
+    while (j < lines.length && COND_BOX_ITEM_RE.test(lines[j])) j++;
+    if (j === i + 1) continue; // 항목 없음 → 박스로 묶을 의미 없음.
+    // 헤더+항목이 *전부 이미* blockquote 면 현재 박스가 정상 — 건드리지 않음.
+    if (lines.slice(i, j).every((l) => /^\s*>/.test(l))) {
+      i = j - 1;
+      continue;
+    }
+    const kind = hm[1].replace(/\s+/g, ""); // "조건" | "보기"
+    lines[i] = `> &lt;${kind}&gt;`; // 헤더 — escaped 라벨 통일.
+    for (let k = i + 1; k < j; k++) {
+      lines[k] = /^\s*>/.test(lines[k]) ? lines[k] : `> ${lines[k].replace(/^\s+/, "")}`;
+    }
+    changed = true;
+    i = j - 1;
+  }
+  return changed ? lines.join("\n") : content;
+};
+
 /**
  * 자동 wrap 트리거용 LaTeX 명령어 alternation (regex source 문자열).
  *
