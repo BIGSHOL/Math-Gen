@@ -1,4 +1,6 @@
 import { supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
+import { compressForStorage, estimateDataUrlBytes } from "@app/lib/imagePreprocess";
+import { showToast } from "@app/stores/toastStore";
 
 /**
  * Supabase Storage 추상화 — 3 buckets (`pdfs` / `page-images` / `page-thumbnails`).
@@ -19,6 +21,61 @@ export type BucketName = "pdfs" | "page-images" | "page-thumbnails";
 
 const PDF_BUCKET: BucketName = "pdfs";
 const IMAGE_BUCKET: BucketName = "page-images";
+
+/**
+ * page-images 버킷의 파일 크기 한도 (bytes). **Supabase 대시보드 버킷 설정과
+ * 동기화** (현재 10MB). 초과하는 페이지는 업로드 전 JPEG 압축으로 fit (silent
+ * 400 "exceeded maximum allowed size" 회피 — 사용자 보고 2026-06-04).
+ */
+const STORAGE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Storage 업로드 에러 메시지 → *사용자가 이해할 구체적 원인*. 두루뭉술한 "저장
+ * 실패" 대신 용량/권한/네트워크/공간 등 정확한 사유 (사용자 요청 2026-06-04).
+ * 분류 안 되면 원문 일부를 그대로 노출 — 절대 vague 하지 않게.
+ */
+const classifyUploadError = (msg: string | undefined): string => {
+  const m = (msg ?? "").toLowerCase();
+  if (/exceeded the maximum allowed size|payload too large|413|entity too large|too large/.test(m))
+    return "용량 한도 초과 (페이지 이미지가 버킷 한도보다 큼)";
+  if (/403|unauthorized|not authorized|permission|row-level|rls|policy|jwt|token/.test(m))
+    return "권한 오류 (로그인 세션 만료 가능 — 재로그인 후 다시 시도)";
+  if (/quota|storage.*full|exceeded.*quota|insufficient_storage|507/.test(m))
+    return "저장 공간 부족 (Supabase 용량 한도 초과)";
+  if (/network|failed to fetch|load failed|timeout|timed out|50[234]|gateway|econn|aborted/.test(m))
+    return "네트워크 오류 (연결 불안정 — 잠시 후 다시 시도)";
+  const raw = (msg ?? "알 수 없는 오류").trim().slice(0, 80);
+  return `오류: ${raw}`;
+};
+
+/**
+ * 페이지 이미지 클라우드 저장 실패를 *원인 + 페이지 번호* 와 함께 사용자에게 알림
+ * (silent failure 방지 — 사용자 요청 2026-06-04). 페이지 loop 의 다중 실패는
+ * 900ms debounce 로 모아 *토스트 1개* 에 페이지 목록 + 사유 표시 (스팸 방지).
+ * dual-write 라 로컬(IndexedDB)은 정상이므로 *경고(warn)* 수준 — 작업은 계속 진행.
+ */
+let pendingUploadFailures: Array<{ pageNum: number; reason: string }> = [];
+let uploadFailFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+const surfacePageImageUploadFailure = (pageNum: number, errorMessage?: string): void => {
+  pendingUploadFailures.push({ pageNum, reason: classifyUploadError(errorMessage) });
+  if (uploadFailFlushTimer) clearTimeout(uploadFailFlushTimer);
+  uploadFailFlushTimer = setTimeout(() => {
+    const failures = pendingUploadFailures;
+    pendingUploadFailures = [];
+    uploadFailFlushTimer = null;
+    if (failures.length === 0) return;
+    const pages = failures.map((f) => f.pageNum).sort((a, b) => a - b);
+    const reasons = Array.from(new Set(failures.map((f) => f.reason)));
+    const pageText =
+      pages.length === 1 ? `${pages[0]}페이지` : `${pages.length}개 페이지 (${pages.join(", ")})`;
+    showToast({
+      kind: "warn",
+      message: `${pageText} 이미지 클라우드 저장 실패 — ${reasons.join(" / ")}. 다른 기기·‘이어서 작업’ 에서 해당 페이지가 안 보일 수 있어요.`,
+      durationMs: 8000,
+    });
+  }, 900);
+};
 const THUMB_BUCKET: BucketName = "page-thumbnails";
 
 /**
@@ -67,14 +124,36 @@ export const uploadPageImage = async (
 ): Promise<string | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   const userId = await currentUserId();
-  const path = `${userId}/${testId}/${pageNum}.png`;
-  const blob = dataUrlToBlob(dataUrl);
+
+  // 사전 크기 체크 — 버킷 한도 초과 페이지만 JPEG 압축 (정상 크기는 PNG 원본
+  // 그대로 = 품질 손실 0). 무손실 PNG 스캔본이 한도 초과 시 silent 400 으로
+  // 클라우드 사본이 통째로 누락되던 함정 (사용자 보고 2026-06-04) 방지.
+  let uploadUrl = dataUrl;
+  let ext = "png";
+  let fallbackContentType = "image/png";
+  if (estimateDataUrlBytes(dataUrl) > STORAGE_IMAGE_MAX_BYTES) {
+    try {
+      uploadUrl = await compressForStorage(dataUrl, {
+        maxBytes: Math.floor(STORAGE_IMAGE_MAX_BYTES * 0.9),
+      });
+      ext = "jpg";
+      fallbackContentType = "image/jpeg";
+    } catch (e) {
+      console.warn("[api/storage] page image 압축 실패 — 원본으로 시도:", (e as Error).message);
+    }
+  }
+
+  const path = `${userId}/${testId}/${pageNum}.${ext}`;
+  const blob = dataUrlToBlob(uploadUrl);
   const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
-    contentType: blob.type || "image/png",
+    contentType: blob.type || fallbackContentType,
     upsert: true,
   });
   if (error) {
+    // 압축까지 했는데도 실패 (한도 매우 작거나 네트워크 등) — silent 금지,
+    // 사용자에게 surface. dual-write 라 로컬 OCR 진행은 영향 없음.
     console.warn("[api/storage] uploadPageImage failed:", error.message);
+    surfacePageImageUploadFailure(pageNum, error.message);
     return null;
   }
   return path;

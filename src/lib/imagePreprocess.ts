@@ -196,3 +196,57 @@ export const preprocessForOcr = async (
     return dataUrl;
   }
 };
+
+/**
+ * base64 dataUrl 의 실제 byte 수 추정 (디코드 없이 — base64 4char→3byte).
+ * Storage 업로드 사전 크기 체크용.
+ */
+export const estimateDataUrlBytes = (dataUrl: string): number => {
+  const comma = dataUrl.indexOf(",");
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+};
+
+/** canvas 를 scale 배율로 축소한 새 canvas. ctx 획득 실패 시 원본 반환. */
+const scaleCanvas = (src: HTMLCanvasElement, scale: number): HTMLCanvasElement => {
+  const dst = document.createElement("canvas");
+  dst.width = Math.max(1, Math.round(src.width * scale));
+  dst.height = Math.max(1, Math.round(src.height * scale));
+  const ctx = dst.getContext("2d");
+  if (!ctx) return src;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, dst.width, dst.height);
+  return dst;
+};
+
+/**
+ * Storage 업로드용 압축 — page-images 버킷 크기 한도(schema-storage.sql)를 넘는
+ * 페이지만 JPEG 재인코딩 + 필요 시 다운스케일해서 한도 아래로 맞춘다.
+ *
+ * 사용자 보고 (2026-06-04): "The object exceeded the maximum allowed size" —
+ * 무손실 PNG 스캔본이 버킷 한도 초과 → silent 400. **원본 PNG 는 IndexedDB 에
+ * 그대로** 두므로 (초기 OCR 품질 영향 0), 클라우드 사본만 압축 (hydrate 표시·
+ * lazy 재OCR 용). 한도 초과 페이지에만 호출돼 *정상 크기 페이지는 품질 손실 0*.
+ *
+ * 단계: (1) 긴 변 maxDim 초과면 다운스케일 → (2) JPEG quality 단계 하향으로
+ * maxBytes 충족 → (3) 그래도 크면 0.7배 추가 축소 + 최저 quality.
+ */
+export const compressForStorage = async (
+  dataUrl: string,
+  opts: { maxBytes?: number; maxDim?: number } = {},
+): Promise<string> => {
+  const maxBytes = opts.maxBytes ?? 9_000_000;
+  const maxDim = opts.maxDim ?? 3000;
+  const src = await loadDataUrlToCanvas(dataUrl);
+  let canvas: HTMLCanvasElement = src;
+  const longest = Math.max(src.width, src.height);
+  if (longest > maxDim) canvas = scaleCanvas(src, maxDim / longest);
+  for (const q of [0.85, 0.78, 0.7, 0.62, 0.55]) {
+    const out = canvas.toDataURL("image/jpeg", q);
+    if (estimateDataUrlBytes(out) <= maxBytes) return out;
+  }
+  const smaller = scaleCanvas(canvas, 0.7);
+  return smaller.toDataURL("image/jpeg", 0.55);
+};

@@ -4,7 +4,8 @@
 -- 실행 방법:
 --   1. Storage 탭에서 3 buckets 먼저 생성 (대시보드 직접):
 --      - `pdfs`           — private, MIME: application/pdf,         50 MB limit
---      - `page-images`    — private, MIME: image/png, image/jpeg,    5 MB limit
+--      - `page-images`    — private, MIME: image/png, image/jpeg,   10 MB limit
+--        (초과 페이지는 클라이언트가 JPEG 압축으로 fit — storage.ts STORAGE_IMAGE_MAX_BYTES 동기)
 --      - `page-thumbnails`— private, MIME: image/jpeg,             500 KB limit
 --   2. SQL Editor 에 *이 파일 통째로* paste → Run.
 --   3. 마지막에 "Storage policies OK" 메시지 확인.
