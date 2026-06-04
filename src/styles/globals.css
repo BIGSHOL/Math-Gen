@@ -307,6 +307,27 @@ svg text {
   vertical-align: middle;
 }
 
+/* ── 인쇄 표 — 단(column) 폭 초과 방지 (사용자 보고 2026-06-04: 22번 제곱근표
+   같은 7열 숫자표가 단을 넘어감). 숫자 셀은 줄바꿈이 안 돼 표 min-content 가
+   단 폭(≈334px)을 초과 → max-width:100% 로도 못 줄어 overflow. 인쇄 본문
+   (.printable-math-content)에서만 *폰트·셀패딩 축소* 로 표를 단 폭 안에 맞춘다.
+   실측: 표 396px(font 0.9em·padding 6/12px) → padding 1.5/4 + font 0.82em 으로
+   ≈260px (< 334) 로 fit. 스크린(OCRItem) 표는 .prose table 그대로(무영향) —
+   아래 규칙은 .prose table 과 동일 특이도라 *source order* 로 인쇄에만 override.
+   table-layout 은 auto 유지(작은 표 안 늘어남·colspan 안전) + max-width:100%
+   (.prose 상속). 폰트·패딩 축소로 대부분 fit, 아주 넓은 표는 break-word 로 wrap
+   (overflow 대신) — 최종적으로 단 폭을 절대 안 넘김. */
+.printable-math-content table {
+  font-size: 0.82em;
+  max-width: 100%;
+}
+.printable-math-content table th,
+.printable-math-content table td {
+  padding: 1.5px 4px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* 도형 정렬 */
 .diagram-align-center {
   display: block;
