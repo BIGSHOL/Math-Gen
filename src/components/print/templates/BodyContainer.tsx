@@ -72,6 +72,58 @@ export function BodyContainer({
         ))
       : nodes;
 
+  // 2단 + count: 좌우 *같은 행* 문항을 정렬하려면 독립 flex 컬럼이 아니라 2D 그리드.
+  // grid row 트랙 하나가 좌우 셀 높이를 공유 → 같은 행 문항이 같은 y 에서 시작
+  // (사용자 보고 2026-06-04: "1·3행은 정렬됐는데 2·4행도 맞춰줘"). 각 셀은 행 높이
+  // 만큼 stretch → 문항 상단 + 풀이여백 아래. minmax(auto,1fr): 행 ≥ 내용(겹침 방지)
+  // + 남는 공간 균등(풀이여백).
+  if (columns === 2 && distribute) {
+    const items = React.Children.toArray(children);
+    const split = splitIndex ?? Math.ceil(items.length / 2);
+    const left = items.slice(0, split);
+    const right = items.slice(split);
+    const rows = Math.max(left.length, right.length, 1);
+    const hasRule = columnRule !== null;
+    return (
+      <div
+        className={mergedClass}
+        style={{
+          flex: 1,
+          display: "grid",
+          gridTemplateColumns: hasRule ? "1fr 1px 1fr" : "1fr 1fr",
+          gridTemplateRows: `repeat(${rows}, minmax(auto, 1fr))`,
+          columnGap: `${columnGap / 2}px`,
+          rowGap: "12px",
+          ...style,
+        }}
+      >
+        {left.map((child, i) => (
+          <div key={`l${i}`} style={{ gridColumn: 1, gridRow: i + 1, minWidth: 0 }}>
+            {child}
+          </div>
+        ))}
+        {hasRule && (
+          <div
+            style={{
+              gridColumn: 2,
+              gridRow: "1 / -1",
+              width: 1,
+              background: columnRule || PAPER_COLORS.ink08,
+            }}
+          />
+        )}
+        {right.map((child, i) => (
+          <div
+            key={`r${i}`}
+            style={{ gridColumn: hasRule ? 3 : 2, gridRow: i + 1, minWidth: 0 }}
+          >
+            {child}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (columns === 2) {
     const items = React.Children.toArray(children);
     const split = splitIndex ?? Math.ceil(items.length / 2);
