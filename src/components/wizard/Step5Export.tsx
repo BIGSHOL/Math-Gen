@@ -48,7 +48,6 @@ import { GRADE_LABELS } from "@app/services/ai/mathDefense";
 export const Step5Export = () => {
   const rawProblems = useWizardStore((s) => s.problems);
   const pages = useWizardStore((s) => s.pages);
-  const goal = useWizardStore((s) => s.goal);
   const printOptions = useWizardStore((s) => s.printOptions);
   const exportSource = useWizardStore((s) => s.exportSource);
   const bundle = useWizardStore((s) => s.bundle);
@@ -58,15 +57,21 @@ export const Step5Export = () => {
   const setExport = useWizardStore((s) => s.setExport);
   const goBackToStep4 = useWizardStore((s) => s.prev);
 
-  // digitize: 변형 snapshot 이 stale 할 수 있다 — 재OCR/해설 재생성 후 Step4(검토)를
-  // 거치지 않고 바로 내보내기로 점프하면 `problems` 에 옛 해설이 남는다. digitize 는
-  // 변형 = ocrResult 순수 복사라 항상 live 로 도출(사용자 편집 손실 0, §16-7 무관).
-  // 비-digitize 는 AI 생성 변형이므로 snapshot(rawProblems) 그대로 사용.
-  // (useVariantGen 도 digitize staleness 재시드를 하지만, 검토를 건너뛴 직접 점프는
-  //  훅이 마운트되지 않으므로 여기서 한 번 더 방어한다.)
+  // 내보내기 "출력 대상"이 *원본*이면(현재 §33-1 로 항상 original — variant/both 비활성)
+  // 저장된 변형 snapshot(rawProblems)이 아니라 *현재 ocrResult* 를 그대로 출력한다.
+  // 그러지 않으면:
+  //   - 보관함에서 *바로 내보내기*로 진입 → hydrate 된 옛 변형 snapshot
+  //     (problem_reviews)의 stale original 이 노출 (사용자 보고 2026-06-04:
+  //     OCR 은 7/16 인데 내보내기는 옛 similar 변형 11/36).
+  //   - 단계를 이어서 가면 digitize 는 useVariantGen 재시드로 우연히 맞지만,
+  //     similar/variant goal + 직접 진입은 안 맞음 → goal 무관 방어 필요.
+  // buildDigitizeReviews 는 original===variant 로 만들어 print 경로가 어느 필드를
+  // 읽든 현재 OCR 이 나오므로 안전. exportSource 가 variant/both 로 부활(§33-3)하면
+  // 그땐 실제 변형 snapshot(rawProblems)이 필요하므로 분기는 유지한다.
   const problems = useMemo(
-    () => (goal === "digitize" ? buildDigitizeReviews(pages) : rawProblems),
-    [goal, pages, rawProblems],
+    () =>
+      exportSource === "original" ? buildDigitizeReviews(pages) : rawProblems,
+    [exportSource, pages, rawProblems],
   );
 
   const sourceTest = useLibraryStore((s) => (testId ? s.getTest(testId) : undefined));
