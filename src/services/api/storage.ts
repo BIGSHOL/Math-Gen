@@ -183,6 +183,34 @@ export const uploadPageThumbnail = async (
 };
 
 /**
+ * ai-crop freeze — *작은* 크롭 PNG 를 `page-images` 버킷에 업로드, path 반환.
+ * 경로 `{userId}/{testId}/crop-{ocrProblemId}-{idx}.png` 는 testId 폴더 *직속 파일*
+ * 이라 `removeTestFolder` 의 list({userId}/{testId}) 에 잡혀 시험지 삭제 시 자동 정리
+ * (ai-gen orphan 개선). 크롭은 수십 KB 라 압축 불필요. upsert:true — box 편집 후 같은
+ * 경로 덮어씀. 실패 시 null (caller 가 페이지 재크롭 fallback, dual-source).
+ */
+export const uploadCropImage = async (
+  testId: string,
+  ocrProblemId: string,
+  idx: number,
+  dataUrl: string,
+): Promise<string | null> => {
+  if (!SUPABASE_ENABLED || !supabase) return null;
+  const userId = await currentUserId();
+  const path = `${userId}/${testId}/crop-${ocrProblemId}-${idx}.png`;
+  const blob = dataUrlToBlob(dataUrl);
+  const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, blob, {
+    contentType: blob.type || "image/png",
+    upsert: true,
+  });
+  if (error) {
+    console.warn("[api/storage] uploadCropImage failed:", error.message);
+    return null;
+  }
+  return path;
+};
+
+/**
  * Signed URL — Phase C detail/preview 가 SRC 로 사용. TTL 기본 1시간.
  */
 export const getSignedUrl = async (

@@ -338,6 +338,7 @@ export const Step2OCRReview = () => {
               item={item}
               pageImageDataUrl={pageImage}
               testId={testId}
+              persistCrops
             />
           ))}
         </div>

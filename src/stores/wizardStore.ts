@@ -227,6 +227,13 @@ export interface OCRImage {
   prompt?: string;
   /** ai-gen timestamp (ms). dedupe 캐시 + UI 표시. */
   generatedAt?: number;
+  /**
+   * ai-crop freeze — 첫 렌더 시 크롭 PNG 를 Storage 에 업로드한 path.
+   * 있으면 `ensureCropImage(path)` 로 작은 크롭만 복원(5.8MB 페이지 재로드 0).
+   * 없으면 기존대로 `cropPageImageData` 로 페이지에서 재크롭(fallback). box 편집/
+   * Pass-2 재크롭 시 stale 방지 위해 비워짐.
+   */
+  storagePath?: string;
 }
 
 /**

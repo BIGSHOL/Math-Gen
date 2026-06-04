@@ -1,5 +1,11 @@
 import type { WizardPage } from "@app/stores/wizardStore";
-import { getPageImage, putPageImage, putThumbnail } from "@app/lib/imageStore";
+import {
+  getPageImage,
+  putPageImage,
+  putThumbnail,
+  getCropImage,
+  putCropImage,
+} from "@app/lib/imageStore";
 import { getSignedUrl } from "@app/services/api/storage";
 
 /**
@@ -59,6 +65,28 @@ export const ensurePageImage = async (
   if (!dataUrl) return null;
   const ref = await putPageImage({ pageNum: pageNumFromPath(storagePath), dataUrl });
   return { ref, dataUrl };
+};
+
+/**
+ * ai-crop freeze 복원 — frozen 크롭(Storage path)을 dataUrl 로 보장.
+ *  1) IndexedDB `cropImages` 캐시 hit → 즉시 반환 (페이지 5.8MB 재로드 0).
+ *  2) miss → `page-images` signed URL → dataUrl → 캐시 후 반환.
+ *  3) 실패(경로 만료·네트워크 등) → null → caller 가 페이지 재크롭 fallback.
+ *
+ * `ensurePageImage` 와 동일 패턴(getSignedUrl→fetchAsDataUrl→IndexedDB 캐시)이되
+ * key 가 *path* 라 UUID ref 없이 hydrate 후에도 안정 복원.
+ */
+export const ensureCropImage = async (
+  storagePath: string,
+): Promise<string | null> => {
+  const cached = await getCropImage(storagePath);
+  if (cached) return cached;
+  const signedUrl = await getSignedUrl("page-images", storagePath, 3600);
+  if (!signedUrl) return null;
+  const dataUrl = await fetchAsDataUrl(signedUrl);
+  if (!dataUrl) return null;
+  await putCropImage(storagePath, dataUrl);
+  return dataUrl;
 };
 
 /**

@@ -529,10 +529,14 @@ export const usePageOcr = () => {
                     // 모델이 박스 안 번호를 잘못 읽을 수 있음 — 원래 번호 강제.
                     number: figItem.number,
                     ocrModel: model,
-                    images: matched.images?.map((im) => ({
-                      ...im,
-                      box: remap(im.box),
-                    })),
+                    images: matched.images?.map((im) => {
+                      // box 가 (remap 으로) 바뀌므로 옛 ai-crop freeze path 는 무효 →
+                      // strip 해서 다음 렌더가 새 box 로 재크롭·재freeze 하게 한다.
+                      // (matched 는 fresh Pass-2 라 보통 storagePath 없지만 방어적으로.)
+                      const { storagePath: _drop, ...rest } = im;
+                      void _drop;
+                      return { ...rest, box: remap(im.box) };
+                    }),
                     figures: matched.figures?.map((f) => ({
                       ...f,
                       box: remap(f.box),

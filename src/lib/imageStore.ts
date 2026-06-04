@@ -21,10 +21,12 @@ import { openDB, type IDBPDatabase } from "idb";
  */
 
 const DB_NAME = "mathgen";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PAGE_IMAGES = "pageImages";
 const PAGE_THUMBNAILS = "pageThumbnails";
 const PDF_BLOBS = "pdfBlobs";
+// ai-crop freeze 캐시 — Storage path(string) key 로 작은 크롭 dataUrl 보관.
+const CROP_IMAGES = "cropImages";
 
 export interface PageImage {
   pageNum: number;
@@ -60,6 +62,10 @@ const getDb = (): Promise<IDBPDatabase> => {
         }
         if (!db.objectStoreNames.contains(PDF_BLOBS)) {
           db.createObjectStore(PDF_BLOBS);
+        }
+        // v3 (additive) — ai-crop freeze 캐시. 기존 store 무변경이라 v2 데이터 보존.
+        if (!db.objectStoreNames.contains(CROP_IMAGES)) {
+          db.createObjectStore(CROP_IMAGES);
         }
       },
       blocked(currentVersion, blockedVersion) {
@@ -171,4 +177,19 @@ export const putPdfBlob = async (testId: string, file: File): Promise<void> => {
 export const getPdfBlob = async (testId: string): Promise<File | undefined> => {
   const db = await getDb();
   return db.get(PDF_BLOBS, testId);
+};
+
+/**
+ * ai-crop freeze 캐시 — Supabase Storage path 를 key 로 *작은* 크롭 dataUrl 보관.
+ * 페이지 이미지(5.8MB) 재로드 없이 ai-crop 을 렌더하기 위한 로컬 캐시.
+ * key 는 path(재현 가능) — page 의 UUID ref 와 달리 hydrate 후에도 안정적.
+ */
+export const putCropImage = async (path: string, dataUrl: string): Promise<void> => {
+  const db = await getDb();
+  await db.put(CROP_IMAGES, dataUrl, path);
+};
+
+export const getCropImage = async (path: string): Promise<string | undefined> => {
+  const db = await getDb();
+  return db.get(CROP_IMAGES, path);
 };

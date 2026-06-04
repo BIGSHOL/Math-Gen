@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import MarkdownRenderer, {
   type DiagramSvgItem,
 } from "@app/components/math/MarkdownRenderer";
 import { modelShortName } from "@app/lib/modelLabel";
 import { cropPageImageData } from "@app/lib/pdfProcessor";
+import { ensureCropImage } from "@app/lib/imageRestore";
+import { uploadCropImage } from "@app/services/api/storage";
 import {
   logDiagramIssues,
   renderDiagram,
@@ -51,7 +53,21 @@ export interface OCRItemProps {
    * 일 때만 의미 있음. null/undefined 면 피드백 패널 숨김.
    */
   testId?: string | null;
+  /**
+   * ai-crop freeze 활성화 — 편집 가능한 위자드(Step2)에서만 true. 첫 렌더 시 크롭
+   * 결과를 Storage 에 업로드하고 storagePath 를 store 에 기록한다. Detail(readonly)
+   * 은 store write 가 no-op 이라 전달 X (canPersist 게이트가 readonly·testId 도 확인).
+   */
+  persistCrops?: boolean;
 }
+
+/** images[idx] 에 storagePath 를 박은 새 배열 (freeze 후 store 기록용). */
+const setStoragePathAt = (
+  images: OCRImage[] | undefined,
+  idx: number,
+  path: string,
+): OCRImage[] | undefined =>
+  images?.map((im, i) => (i === idx ? { ...im, storagePath: path } : im));
 
 /**
  * Crops every `item.images` bbox out of the cached page dataURL.
@@ -85,14 +101,26 @@ interface DisplayCrop {
   originalImage: OCRImage;
 }
 
+/** ai-crop freeze 옵션 — 편집 가능한 위자드에서만 주입 (Detail 은 생략). */
+interface CropFreezeOpts {
+  canPersist: boolean;
+  testId?: string | null;
+  ocrProblemId: string;
+  /** 업로드 완료 path → store 기록 (부모가 최신 images 에 merge). */
+  onFreeze: (idx: number, path: string) => void;
+}
+
 const useCroppedImages = (
   images: OCRProblem["images"],
   pageImageDataUrl: string | null | undefined,
+  freeze?: CropFreezeOpts,
 ): DisplayCrop[] => {
   const [crops, setCrops] = useState<DisplayCrop[]>([]);
+  // 업로드 in-flight dedupe (StrictMode 2회 호출 · effect 재실행 대비). key=`${id}:${idx}`.
+  const uploadingRef = useRef<Set<string>>(new Set());
   // Stable cache key — re-cropping is expensive (canvas + paint) and
-  // unnecessary when only sibling state changes. 신규 필드 (source/url/dataUrl)
-  // 도 변경 시 재계산 트리거.
+  // unnecessary when only sibling state changes. storagePath 포함 → freeze 후
+  // effect 재실행되어 *캐시 복원 분기* 로 전환 (재크롭/재업로드 0).
   const bboxKey = useMemo(
     () =>
       JSON.stringify(
@@ -101,6 +129,7 @@ const useCroppedImages = (
           source: i.source,
           url: i.url,
           hasDataUrl: !!i.dataUrl,
+          storagePath: i.storagePath,
         })) ?? [],
       ),
     [images],
@@ -114,19 +143,47 @@ const useCroppedImages = (
     let cancelled = false;
     (async () => {
       const out: DisplayCrop[] = [];
-      for (const im of images) {
+      for (let idx = 0; idx < images.length; idx++) {
+        const im = images[idx];
         const source: DisplayCrop["source"] = im.source ?? "ai-crop";
         try {
           if (source === "user-crop" && im.dataUrl) {
             out.push({ src: im.dataUrl, label: im.label, source, originalImage: im });
           } else if (source === "ai-gen" && im.url) {
             out.push({ src: im.url, label: im.label, source, originalImage: im });
-          } else if (pageImageDataUrl) {
-            // ai-crop (default) — bbox 기반 cropPageImageData
-            const dataUrl = await cropPageImageData(pageImageDataUrl, im.box, {
-              margin: 0.04,
-            });
-            out.push({ src: dataUrl, label: im.label, source: "ai-crop", originalImage: im });
+          } else {
+            // ai-crop — (1) frozen 캐시 우선(페이지 5.8MB 재로드 0), (2) miss/없음
+            // 이면 페이지에서 재크롭.
+            let dataUrl: string | null = null;
+            if (im.storagePath) dataUrl = await ensureCropImage(im.storagePath);
+            let freshlyCropped = false;
+            if (!dataUrl && pageImageDataUrl) {
+              dataUrl = await cropPageImageData(pageImageDataUrl, im.box, { margin: 0.04 });
+              freshlyCropped = true;
+            }
+            if (dataUrl) {
+              out.push({ src: dataUrl, label: im.label, source: "ai-crop", originalImage: im });
+              // (3) freeze — 방금 재크롭했고 path 없으면 1회 Storage 업로드 후 store 기록.
+              if (
+                freshlyCropped &&
+                freeze?.canPersist &&
+                !im.storagePath &&
+                freeze.testId &&
+                freeze.ocrProblemId
+              ) {
+                const fkey = `${freeze.ocrProblemId}:${idx}`;
+                if (!uploadingRef.current.has(fkey)) {
+                  uploadingRef.current.add(fkey);
+                  const captured = dataUrl;
+                  const f = freeze;
+                  void uploadCropImage(f.testId as string, f.ocrProblemId, idx, captured)
+                    .then((path) => {
+                      if (path) f.onFreeze(idx, path);
+                    })
+                    .finally(() => uploadingRef.current.delete(fkey));
+                }
+              }
+            }
           }
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -166,7 +223,14 @@ const StatusChip = ({ status, reviewed }: { status: OCRProblem["status"]; review
   );
 };
 
-export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OCRItemProps) => {
+export const OCRItem = ({
+  pageId,
+  item,
+  pageImageDataUrl,
+  readonly,
+  testId,
+  persistCrops,
+}: OCRItemProps) => {
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
 
   const [editing, setEditing] = useState(false);
@@ -178,7 +242,21 @@ export const OCRItem = ({ pageId, item, pageImageDataUrl, readonly, testId }: OC
   // 원본 (ai-crop bbox) 만 표시. DiagramFallbackPanel 이 setShowOriginal 호출.
   const [showOriginal, setShowOriginal] = useState(false);
 
-  const crops = useCroppedImages(item.images, pageImageDataUrl);
+  // ai-crop freeze — 편집 가능(Step2, !readonly) + persisted test 일 때만. Detail
+  // (readonly) 의 OCRItem 은 useDetailData 기반이라 updateOCRItem 이 no-op → canPersist
+  // false 로 업로드 안 함. onFreeze 는 *최신* store images 에 merge (병렬 업로드 clobber 방지).
+  const crops = useCroppedImages(item.images, pageImageDataUrl, {
+    canPersist: !!persistCrops && !readonly && !!testId,
+    testId,
+    ocrProblemId: item.id,
+    onFreeze: (idx, path) => {
+      const st = useWizardStore.getState();
+      const current = st.pages
+        .find((p) => p.id === pageId)
+        ?.ocrResult.find((it) => it.id === item.id)?.images;
+      updateOCRItem(pageId, item.id, { images: setStoragePathAt(current, idx, path) });
+    },
+  });
 
   // 사용자 결정 (2026-05-27): 본문에 [그림N] 마커가 있는데 SVG 가 채우지 못하는
   // 경우, 크롭 이미지를 inline 으로 본문에 inject (하단 중복 표시 차단).
