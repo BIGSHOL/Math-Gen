@@ -45,22 +45,86 @@ function chunkByCount(problems: ProblemReview[], perPage: number): PackedPage[] 
 }
 
 /**
- * count 모드 — *컬럼당 정확히 perColumn 개* (페이지당 perColumn×columns).
- * 문항 높이 무시. 여백은 렌더 측(BodyContainer `distribute` = space-evenly)이
- * 컬럼 높이에 맞춰 자동 균등 분배. splitIndex 는 1단=전체, 2단=perColumn.
+ * count 모드 — 컬럼당 *최대* perColumn 개. **높이 인지** — perColumn 개가 페이지에
+ * 안 들어가면(특히 키 큰 서술형·표) 더 적게 담아 *페이지 넘침(잘림) 방지* (사용자
+ * 보고 2026-06-04: "줄맞춤하면서 여백 무시하고 넘어가면 의미없다"). 들어가면
+ * perColumn 개, 그 안에서 렌더가 풀이여백을 균등 분배.
+ *
+ * 2단은 *행 단위* 로 fit 검사 — 행 높이 = max(좌 문항, 우 문항). 좌우 정렬 그리드의
+ * 실제 행 높이를 그대로 합산해 availH 초과 안 하도록 R(행 수)을 정한다. SAFETY 8px.
  */
+const COUNT_GAP = 12; // 슬롯/행 사이 최소 간격 (BodyContainer distribute 와 동일)
+const COUNT_SAFETY = 8; // 측정↔렌더 미세 오차 여유
 function chunkByColumnCount(
   problems: ProblemReview[],
+  heights: number[],
   perColumn: number,
   columns: 1 | 2,
+  avail: { first: number; cont: number },
 ): PackedPage[] {
   const per = Math.max(1, perColumn);
-  const perPage = per * columns;
   const pages: PackedPage[] = [];
-  for (let i = 0; i < problems.length; i += perPage) {
-    const slice = problems.slice(i, i + perPage);
-    const splitIndex = columns === 1 ? slice.length : Math.min(per, slice.length);
-    pages.push({ problems: slice, splitIndex, startingNumber: i + 1 });
+  let i = 0;
+  let startingNumber = 1;
+
+  while (i < problems.length) {
+    const availH = (pages.length === 0 ? avail.first : avail.cont) - COUNT_SAFETY;
+    let pageProblems: ProblemReview[];
+    let splitIndex: number;
+
+    if (columns === 1) {
+      // 1단: 최대 per 개, 높이 초과 시 조기 종료.
+      const slice: ProblemReview[] = [];
+      let used = 0;
+      while (i < problems.length && slice.length < per) {
+        const h = heights[i] ?? 0;
+        const g = slice.length > 0 ? COUNT_GAP : 0;
+        if (slice.length > 0 && used + g + h > availH) break;
+        slice.push(problems[i]);
+        used += g + h;
+        i++;
+      }
+      if (slice.length === 0) {
+        // 한 문항이 페이지보다 큼 — 단독 배치(넘침 불가피, 그리디와 동일 정책).
+        slice.push(problems[i]);
+        devWarnOversized(problems[i], heights[i] ?? 0, availH);
+        i++;
+      }
+      pageProblems = slice;
+      splitIndex = slice.length;
+    } else {
+      // 2단: 단일 문항이 페이지보다 크면 단독 배치.
+      if ((heights[i] ?? 0) > availH) {
+        pageProblems = [problems[i]];
+        devWarnOversized(problems[i], heights[i] ?? 0, availH);
+        splitIndex = 1;
+        i++;
+      } else {
+        // 행 단위 fit — R 행(좌 R + 우 R)의 행높이 합이 availH 이하인 최대 R(≤per).
+        let bestR = 1;
+        for (let R = 1; R <= per; R++) {
+          if (i + R > problems.length) break; // 좌측에 R 개도 안 남음
+          let total = 0;
+          for (let k = 0; k < R; k++) {
+            const lh = heights[i + k] ?? 0;
+            const rIdx = i + R + k;
+            const rh = rIdx < problems.length ? heights[rIdx] ?? 0 : 0;
+            total += Math.max(lh, rh) + (k > 0 ? COUNT_GAP : 0);
+          }
+          if (total <= availH) bestR = R;
+          else break;
+        }
+        const R = bestR;
+        const left = problems.slice(i, i + R);
+        const right = problems.slice(i + R, i + 2 * R);
+        pageProblems = [...left, ...right];
+        splitIndex = left.length;
+        i += left.length + right.length;
+      }
+    }
+
+    pages.push({ problems: pageProblems, splitIndex, startingNumber });
+    startingNumber += pageProblems.length;
   }
   return pages;
 }
@@ -88,10 +152,10 @@ export function packProblems(input: PackInput): PackedPage[] {
   const { template, columns, spacing } = options;
   const g = TEMPLATE_GEOMETRY[template];
 
-  // count 모드 — 단별 문항 수 고정 (사용자 지정). 여백/높이 무시하고 컬럼당 N개씩.
-  // 여백은 렌더가 자동 균등 분배. 모든 템플릿 공통 (stretch1Col 보다 우선).
+  // count 모드 — 컬럼당 최대 perColumn 개 (높이 인지 — 안 들어가면 더 적게 → 넘침
+  // 방지). 여백은 렌더가 균등 분배. 모든 템플릿 공통 (stretch1Col 보다 우선).
   if (options.layoutMode === "count") {
-    return chunkByColumnCount(problems, options.problemsPerColumn ?? 3, columns);
+    return chunkByColumnCount(problems, heights, options.problemsPerColumn ?? 3, columns, avail);
   }
 
   // workbook/jaseup 1단 = 풀이공간 flex:1 stretch → 자연 높이 무의미 → 개수 패킹.
