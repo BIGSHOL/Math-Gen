@@ -8,6 +8,7 @@ import {
   type PaginatedAnswerPage,
 } from "@app/lib/printLayout";
 import { usePrintLayout } from "@app/hooks/usePrintLayout";
+import { buildDigitizeReviews } from "@app/lib/problemAdapter";
 import type { PackedPage } from "@app/lib/printPack";
 import { usePreviewScale, A4_HEIGHT_PX, A4_WIDTH_PX } from "@app/hooks/usePreviewScale";
 import { A4Page } from "@app/components/print/A4Page";
@@ -45,7 +46,9 @@ import { GRADE_LABELS } from "@app/services/ai/mathDefense";
  * 페이지/컬럼 분할 (measureNode 를 return 트리에 렌더).
  */
 export const Step5Export = () => {
-  const problems = useWizardStore((s) => s.problems);
+  const rawProblems = useWizardStore((s) => s.problems);
+  const pages = useWizardStore((s) => s.pages);
+  const goal = useWizardStore((s) => s.goal);
   const printOptions = useWizardStore((s) => s.printOptions);
   const exportSource = useWizardStore((s) => s.exportSource);
   const bundle = useWizardStore((s) => s.bundle);
@@ -54,6 +57,17 @@ export const Step5Export = () => {
   const selectedGrade = useWizardStore((s) => s.selectedGrade);
   const setExport = useWizardStore((s) => s.setExport);
   const goBackToStep4 = useWizardStore((s) => s.prev);
+
+  // digitize: 변형 snapshot 이 stale 할 수 있다 — 재OCR/해설 재생성 후 Step4(검토)를
+  // 거치지 않고 바로 내보내기로 점프하면 `problems` 에 옛 해설이 남는다. digitize 는
+  // 변형 = ocrResult 순수 복사라 항상 live 로 도출(사용자 편집 손실 0, §16-7 무관).
+  // 비-digitize 는 AI 생성 변형이므로 snapshot(rawProblems) 그대로 사용.
+  // (useVariantGen 도 digitize staleness 재시드를 하지만, 검토를 건너뛴 직접 점프는
+  //  훅이 마운트되지 않으므로 여기서 한 번 더 방어한다.)
+  const problems = useMemo(
+    () => (goal === "digitize" ? buildDigitizeReviews(pages) : rawProblems),
+    [goal, pages, rawProblems],
+  );
 
   const sourceTest = useLibraryStore((s) => (testId ? s.getTest(testId) : undefined));
   const backToLibrary = useAppStore((s) => s.backToLibrary);

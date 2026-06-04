@@ -3,13 +3,43 @@ import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
 import { reportError } from "@app/lib/errorReporter";
 import { generateVariant } from "@app/services/ai/variants";
-import { ocrToGenerated } from "@app/lib/problemAdapter";
+import {
+  buildDigitizeReviews,
+  eligibleOcrProblems,
+  ocrToGenerated,
+} from "@app/lib/problemAdapter";
 import {
   useWizardStore,
-  type OCRProblem,
   type ProblemReview,
 } from "@app/stores/wizardStore";
 import type { GeneratedProblem } from "@app/types";
+
+/**
+ * digitize 재시드 판단 — 현재 `problems` 와 live 도출 `fresh` 가 (id·본문·해설·답·
+ * 보기) 중 하나라도 다르면 true. 같으면 `setProblems` 를 생략해 effect 무한 루프를
+ * 막는다(수렴). 재OCR/해설 재생성으로 ocrResult 가 바뀌면 여기서 stale 로 감지된다.
+ */
+const CHOICE_JOIN = String.fromCharCode(1);
+const digitizeReviewsChanged = (
+  current: ProblemReview[],
+  fresh: ProblemReview[],
+): boolean => {
+  if (current.length !== fresh.length) return true;
+  for (let i = 0; i < fresh.length; i++) {
+    const c = current[i];
+    const f = fresh[i];
+    if (c.id !== f.id) return true;
+    if (c.variant.question !== f.variant.question) return true;
+    if (c.variant.solution !== f.variant.solution) return true;
+    if (c.variant.answer !== f.variant.answer) return true;
+    if (
+      (c.variant.choices?.join(CHOICE_JOIN) ?? "") !==
+      (f.variant.choices?.join(CHOICE_JOIN) ?? "")
+    )
+      return true;
+  }
+  return false;
+};
 
 /**
  * Step 4 orchestrator — fan out variant generation across every OCR'd
@@ -65,23 +95,27 @@ export const useVariantGen = (): {
   // effect-B 가 자연 픽업하므로 별도 트리거 X.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (problems.length > 0) return;
-    // 변형 가능 문항 필터 (B10 방어): text + !bodyMissing + !choicesMissing +
-    // solution 있음 + !solutionError. 결손 문항은 시드 안 함.
-    const eligible: OCRProblem[] = pages
-      .filter((p) => p.isProblemPage || p.forceOcr)
-      .flatMap((p) => p.ocrResult)
-      .filter(
-        (it) =>
-          it.text &&
-          !it.bodyMissing &&
-          !it.choicesMissing &&
-          it.solution &&
-          !it.solutionError,
-      );
-    if (eligible.length === 0) return;
-    // OCRProblem → GeneratedProblem 변환 (problemAdapter).
     const isDigitize = goal === "digitize";
+
+    // ── 이미 시드된 경우 ──────────────────────────────────────────────
+    if (problems.length > 0) {
+      // 비-digitize: 사용자가 생성/편집한 변형 보존 → 자동 재시드 안 함.
+      // (옵션 변경 시 명시적 "옵션 재생성" = reseedAll 로만, §16-7.)
+      if (!isDigitize) return;
+      // digitize: 변형 = ocrResult 순수 복사 (사용자 편집 없음). 재OCR/해설 재생성으로
+      // ocrResult 가 바뀌면 live 반영 위해 재시드 — 안 하면 옛 해설 snapshot 이
+      // 내보내기에 노출된다 (사용자 결정 2026-06-04 "digitize면 live ocrResult 사용").
+      const fresh = buildDigitizeReviews(pages);
+      if (fresh.length === 0) return; // live eligible 비면 기존 유지 (재OCR transient 보호)
+      // stale 일 때만 setProblems — 같으면 생략해 무한 루프 방지(수렴).
+      if (digitizeReviewsChanged(problems, fresh)) setProblems(fresh);
+      return;
+    }
+
+    // ── 최초 시드 ────────────────────────────────────────────────────
+    // 변형 가능 문항(eligible)만 시드. 결손 문항(본문/보기/해설 누락)은 제외.
+    const eligible = eligibleOcrProblems(pages);
+    if (eligible.length === 0) return;
     const seeded: ProblemReview[] = eligible.map((it) => {
       const original = ocrToGenerated(it);
       return {
@@ -95,7 +129,7 @@ export const useVariantGen = (): {
       };
     });
     setProblems(seeded);
-  }, [pages, problems.length, goal, setProblems]);
+  }, [pages, problems, goal, setProblems]);
 
   // ── effect-B: dispatch ──────────────────────────────────────────────
   // 각 pending problem 에 대해 generateVariant 호출. 변경된 problems 마다

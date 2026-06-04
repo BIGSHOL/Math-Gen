@@ -15,7 +15,11 @@
  *   images 그대로 사용).
  */
 
-import type { OCRProblem } from "@app/stores/wizardStore";
+import type {
+  OCRProblem,
+  ProblemReview,
+  WizardPage,
+} from "@app/stores/wizardStore";
 import type { GeneratedProblem } from "@app/types";
 
 /** 마커 + 보기 내용 매치. lookahead 로 다음 마커 직전까지 캡처. */
@@ -90,3 +94,50 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     choicesLayout: it.choicesLayout ?? "auto",
   };
 };
+
+/**
+ * 변형 가능(eligible) OCR 문항 필터 — **단일 source of truth**.
+ *
+ * `useVariantGen` 시드 / `Step3Options` 카운트 / `Step5Export` digitize live 도출이
+ * *모두* 이 함수를 호출해야 한다. 예전엔 같은 필터가 여러 곳에 복붙돼 있어 한 곳만
+ * 룰을 바꾸면 "Step3 30문항 → Step4 15문항" 류 불일치가 났다 (CLAUDE.md §16-8).
+ *
+ * 조건: 문항 페이지(또는 forceOcr) 의 ocrResult 중 본문 있음 + !bodyMissing +
+ * !choicesMissing + solution 있음 + !solutionError. 결손 문항은 제외.
+ */
+export const eligibleOcrProblems = (pages: WizardPage[]): OCRProblem[] =>
+  pages
+    .filter((p) => p.isProblemPage || p.forceOcr)
+    .flatMap((p) => p.ocrResult)
+    .filter(
+      (it) =>
+        !!it.text &&
+        !it.bodyMissing &&
+        !it.choicesMissing &&
+        !!it.solution &&
+        !it.solutionError,
+    );
+
+/**
+ * digitize 전용 — 현재 `ocrResult` 를 `ProblemReview[]` (status `confirmed`) 로 변환.
+ *
+ * **배경** (사용자 결정 2026-06-04 "digitize면 live ocrResult 사용"): digitize 는
+ * 변형을 만들지 않고 OCR 결과를 *그대로* 쓴다. 그런데 `useVariantGen` 은 한 번만
+ * 시드하므로(`problems.length === 0` 가드), 시드 *후* 재OCR/해설 재생성으로
+ * `ocrResult` 가 바뀌어도 변형 snapshot(= 옛 해설 포함)이 stale 로 남아 내보내기에
+ * 옛 해설이 노출됐다. digitize 변형은 ocrResult 순수 복사라 *사용자 편집이 없으므로*
+ * 항상 live 로 재도출해도 손실 0 (§16-7 의 edit-loss 우려는 digitize 에 무관).
+ *
+ * `useVariantGen` (staleness 재시드) 와 `Step5Export` (내보내기 시 live 도출) 가 공유.
+ */
+export const buildDigitizeReviews = (pages: WizardPage[]): ProblemReview[] =>
+  eligibleOcrProblems(pages).map((it) => {
+    const original = ocrToGenerated(it);
+    return {
+      id: it.id,
+      original,
+      variant: original,
+      status: "confirmed",
+      generating: false,
+    };
+  });
