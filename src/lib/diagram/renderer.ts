@@ -63,7 +63,7 @@ function getViewBox(spec: DiagramParams): string {
         [cx - r, cy - r],
         [cx + r, cy + r],
       ];
-      return computeViewBox(points, 50);
+      return computeViewBox(points, 30);
     }
     case "quadrilateral":
       return computeViewBox(
@@ -77,7 +77,7 @@ function getViewBox(spec: DiagramParams): string {
       return solidViewBox(spec);
     case "composite": {
       const allPoints = collectPoints(spec);
-      return allPoints.length > 0 ? computeViewBox(allPoints, 50) : "0 0 400 300";
+      return allPoints.length > 0 ? computeViewBox(allPoints, 30) : "0 0 400 300";
     }
     default:
       return "0 0 400 300";

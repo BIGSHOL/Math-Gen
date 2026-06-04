@@ -114,8 +114,11 @@ export function boundingBox(points: Point[]): {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-/** viewBox 문자열 생성 (패딩 포함) */
-export function computeViewBox(points: Point[], padding: number = 40): string {
+/** viewBox 문자열 생성 (패딩 포함).
+ *  기본 패딩 30 (이전 40) — viewBox 안 여백이 도형 위아래 빈 공간으로 렌더돼
+ *  문제↔도형↔보기 사이가 벌어졌다 (사용자 보고 2026-06-04: 12번). 점 라벨은
+ *  vertex 바깥 offset 20 + 글자 extent(~10) 까지 → 30 이면 라벨 안 잘리는 하한. */
+export function computeViewBox(points: Point[], padding: number = 30): string {
   const bb = boundingBox(points);
   return `${bb.minX - padding} ${bb.minY - padding} ${bb.width + padding * 2} ${bb.height + padding * 2}`;
 }
