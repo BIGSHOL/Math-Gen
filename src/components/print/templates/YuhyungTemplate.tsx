@@ -1,6 +1,8 @@
 // YuhyungTemplate.tsx (T6) — 유형 훈련지 (같은 유형 반복, 컴팩트)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
+import type { ProblemReview } from "@app/stores/wizardStore";
+import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { QuestionNumber } from "./ProblemMeta";
@@ -14,9 +16,55 @@ export function YuhyungTemplate({
   problems,
   startingNumber,
   options,
+  splitIndex,
+  measure,
 }: PrintTemplateProps) {
   const accent = options.color || PAPER_COLORS.accentSlate;
   const isFirstPage = page === 1;
+  const fs = bodyFontSize("yuhyung", columns);
+  const gap = Math.max(0, options.spacing);
+
+  const renderItem = (p: ProblemReview, i: number) => {
+    const num = startingNumber + i;
+    return (
+      <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid", paddingBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "baseline", marginBottom: 4 }}>
+          <QuestionNumber template="yuhyung" num={num} accent={accent} />
+          {options.showChapter && p.variant.topic && (
+            <span
+              style={{
+                fontFamily: "var(--paper-font-sans)",
+                fontSize: 9,
+                color: PAPER_COLORS.ink50,
+                letterSpacing: "0.08em",
+              }}
+            >
+              {p.variant.topic}
+            </span>
+          )}
+        </div>
+        <ProblemBody problem={p.variant} fontSize={fs} />
+      </div>
+    );
+  };
+
+  // 측정 모드 — 본문만 1단 flow, 타겟 컬럼 폭.
+  if (measure) {
+    return (
+      <div
+        style={{
+          width: measure.columnWidthPx,
+          fontFamily: "var(--paper-font-serif)",
+          fontSize: fs,
+          lineHeight: 1.65,
+        }}
+      >
+        <BodyContainer columns={1} gap={gap}>
+          {problems.map(renderItem)}
+        </BodyContainer>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -138,46 +186,13 @@ export function YuhyungTemplate({
 
       <BodyContainer
         columns={columns}
-        gap={columns === 1 ? 14 : 16}
+        gap={gap}
         columnGap={22}
         columnRule={PAPER_COLORS.ink08}
-        style={{
-          fontSize: columns === 1 ? 12.5 : 11.5,
-          lineHeight: 1.65,
-        }}
+        splitIndex={splitIndex}
+        style={{ fontSize: fs, lineHeight: 1.65 }}
       >
-        {problems.map((p, i) => {
-          const num = startingNumber + i;
-          return (
-            <div key={p.id} style={{ breakInside: "avoid", paddingBottom: 4 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  marginBottom: 4,
-                }}
-              >
-                <QuestionNumber template="yuhyung" num={num} accent={accent} />
-                {options.showChapter && p.variant.topic && (
-                  <span
-                    style={{
-                      fontFamily: "var(--paper-font-sans)",
-                      fontSize: 9,
-                      color: PAPER_COLORS.ink50,
-                      letterSpacing: "0.08em",
-                    }}
-                  >
-                    {p.variant.topic}
-                  </span>
-                )}
-              </div>
-              <ProblemBody
-                problem={p.variant}
-                fontSize={columns === 1 ? 12.5 : 11.5}
-              />
-            </div>
-          );
-        })}
+        {problems.map(renderItem)}
       </BodyContainer>
 
       {/* 푸터 — 진도 바 */}

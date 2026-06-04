@@ -25,6 +25,11 @@ interface BodyContainerProps {
   columnGap?: number;
   /** 2단일 때 가운데 세로선. `null` 이면 안 그림. CSS 색상 문자열. */
   columnRule?: string | null;
+  /**
+   * 2단 우측 컬럼 시작 인덱스. usePrintLayout 의 측정 패킹이 정한 분할점.
+   * 없으면 children 개수 절반 (Math.ceil(n/2)) — 기존 동작 (회귀 0).
+   */
+  splitIndex?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -35,12 +40,17 @@ export function BodyContainer({
   gap = 16,
   columnGap = 26,
   columnRule,
+  splitIndex,
   className,
   style,
 }: BodyContainerProps) {
+  // `measure-body` — probe shell 이 가용 높이를 읽고, 긴 수식 clamp CSS 가 거는
+  // 마커. 모든 BodyContainer 에 부여 (preview·print·measure 모두 동일 적용).
+  const mergedClass = ["measure-body", className].filter(Boolean).join(" ");
+
   if (columns === 2) {
     const items = React.Children.toArray(children);
-    const half = Math.ceil(items.length / 2);
+    const split = splitIndex ?? Math.ceil(items.length / 2);
     const colStyle: React.CSSProperties = {
       display: "flex",
       flexDirection: "column",
@@ -49,7 +59,7 @@ export function BodyContainer({
     };
     return (
       <div
-        className={className}
+        className={mergedClass}
         style={{
           flex: 1,
           display: "grid",
@@ -58,7 +68,7 @@ export function BodyContainer({
           ...style,
         }}
       >
-        <div style={colStyle}>{items.slice(0, half)}</div>
+        <div style={colStyle}>{items.slice(0, split)}</div>
         {columnRule !== null && (
           <div
             style={{
@@ -67,7 +77,7 @@ export function BodyContainer({
             }}
           />
         )}
-        <div style={colStyle}>{items.slice(half)}</div>
+        <div style={colStyle}>{items.slice(split)}</div>
       </div>
     );
   }
@@ -75,7 +85,7 @@ export function BodyContainer({
   // 1단
   return (
     <div
-      className={className}
+      className={mergedClass}
       style={{
         flex: 1,
         display: "flex",

@@ -1,17 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Btn, Heading, Icon } from "@app/components/ui";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
 import { useWizardStore } from "@app/stores/wizardStore";
-import { getPageImage } from "@app/lib/imageStore";
-import { cropPageImageData } from "@app/lib/pdfProcessor";
 import {
   paginateAnswerKey,
-  paginateProblems,
   type PaginatedAnswerPage,
-  type PaginatedPage,
 } from "@app/lib/printLayout";
-import { usePreviewScale, A4_HEIGHT_PX } from "@app/hooks/usePreviewScale";
+import { usePrintLayout } from "@app/hooks/usePrintLayout";
+import type { PackedPage } from "@app/lib/printPack";
+import { usePreviewScale, A4_HEIGHT_PX, A4_WIDTH_PX } from "@app/hooks/usePreviewScale";
 import { A4Page } from "@app/components/print/A4Page";
 import { PrintAnswerKeyPage } from "@app/components/print/PrintAnswerKeyPage";
 import { PrintOptionsPanel } from "@app/components/print/PrintOptionsPanel";
@@ -40,15 +38,14 @@ import { GRADE_LABELS } from "@app/services/ai/mathDefense";
  *   - PDF 캡처도 같은 hidden DOM 을 사용 — `pdfExporter` 의 onclone 이 display
  *     강제로 paint 가능하게 함
  *
- * **두 effect**:
- *   1. bundle.answers seed (mount 1회) — Step3 의 answers 옵션이 켜져 있으면
- *      Step5 진입 시 자동으로 printOptions.showAnswers = true
- *   2. originalDiagramMap — exportSource 가 "original" 또는 "both" 일 때만
- *      문항별 원본 도형 (OCRImage bbox) crop 일괄 실행
+ * **effect**: bundle.answers seed (mount 1회) — Step3 의 answers 옵션이 켜져
+ * 있으면 Step5 진입 시 자동으로 printOptions.showAnswers = true.
+ *
+ * **레이아웃**: usePrintLayout 이 문항·헤더를 화면 밖에서 실측 → printPack 으로
+ * 페이지/컬럼 분할 (measureNode 를 return 트리에 렌더).
  */
 export const Step5Export = () => {
   const problems = useWizardStore((s) => s.problems);
-  const pages = useWizardStore((s) => s.pages);
   const printOptions = useWizardStore((s) => s.printOptions);
   const exportSource = useWizardStore((s) => s.exportSource);
   const bundle = useWizardStore((s) => s.bundle);
@@ -72,84 +69,39 @@ export const Step5Export = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── effect 2: originalDiagramMap (exportSource 변경 시 재계산) ─────────
-  const [originalDiagramMap, setOriginalDiagramMap] = useState<
-    Map<string, Array<{ dataUrl: string; label: string }>>
-  >(new Map());
+  const gradeBadge = selectedGrade ? GRADE_LABELS[selectedGrade] : undefined;
+  const testTitle = sourceTest?.title ?? filename ?? "변형 시험지";
 
-  useEffect(() => {
-    if (exportSource === "variant") {
-      // 변형만 보여줄 때는 원본 도형 crop 불필요.
-      setOriginalDiagramMap(new Map());
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const next = new Map<string, Array<{ dataUrl: string; label: string }>>();
-      // 페이지 이미지 dataUrl 캐시 (한 페이지 안에 여러 item 이 같은 이미지 사용).
-      const pageImageCache = new Map<string, string | null>();
-
-      for (const page of pages) {
-        for (const item of page.ocrResult) {
-          if (!item.images || item.images.length === 0) continue;
-          // problems 에 매칭되는 ProblemReview 가 있는지 확인.
-          const matched = problems.find((p) => p.id === item.id);
-          if (!matched) continue;
-
-          let pageDataUrl = pageImageCache.get(page.id);
-          if (pageDataUrl === undefined) {
-            const img = await getPageImage(page.imageRef);
-            pageDataUrl = img?.dataUrl ?? null;
-            pageImageCache.set(page.id, pageDataUrl);
-          }
-          if (!pageDataUrl) continue;
-
-          const crops: Array<{ dataUrl: string; label: string }> = [];
-          for (const ocrImg of item.images) {
-            try {
-              const cropped = await cropPageImageData(pageDataUrl, ocrImg.box, {
-                margin: 0.04,
-              });
-              crops.push({ dataUrl: cropped, label: ocrImg.label });
-            } catch (err) {
-              // best-effort — 한 도형 실패는 다른 도형에 영향 X
-              // eslint-disable-next-line no-console
-              console.warn("[Step5Export] crop 실패:", item.id, err);
-            }
-          }
-          if (crops.length > 0) {
-            next.set(item.id, crops);
-          }
-        }
-      }
-      if (!cancelled) setOriginalDiagramMap(next);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [exportSource, problems, pages]);
-
-  // 페이지 분할 — printOptions / problems / diagramMap 의존.
-  const diagramFlagMap = useMemo(() => {
-    const m = new Map<string, boolean>();
-    for (const [id, crops] of originalDiagramMap) {
-      m.set(id, crops.length > 0);
-    }
-    return m;
-  }, [originalDiagramMap]);
-
-  const layoutPages: PaginatedPage[] = useMemo(
-    () =>
-      paginateProblems({
-        problems,
-        exportSource,
-        template: printOptions.template,
-        columns: printOptions.columns,
-        spacing: printOptions.spacing,
-        diagramMap: diagramFlagMap,
-      }),
-    [problems, exportSource, printOptions.template, printOptions.columns, printOptions.spacing, diagramFlagMap],
+  // 시험지 메타 — usePrintLayout(probe 헤더 높이 측정) 과 PageBody(렌더) 가 *동일*
+  // 객체 사용. 참조 안정(useMemo) 이라야 측정 key 가 매 렌더 흔들리지 않음.
+  const meta: PrintMeta = useMemo(
+    () => ({
+      title: testTitle,
+      schoolName: undefined,
+      grade: gradeBadge,
+      subject: "수학",
+      semester: undefined,
+      examDate: new Date().toISOString().slice(0, 10),
+      examDuration: undefined,
+      examiner: undefined,
+      totalScore: 100,
+      academyName: undefined,
+      instructorName: undefined,
+      conceptNote: undefined,
+      todayGoal: undefined,
+      patternName: undefined,
+      patternStrategy: undefined,
+    }),
+    [testTitle, gradeBadge],
   );
+
+  // 측정 기반 페이지 분할 — 문항·헤더 실측 후 printPack. measureNode 는 화면 밖에
+  // 렌더해야 함 (return 트리에 포함).
+  const {
+    pages: layoutPages,
+    ready: layoutReady,
+    measureNode,
+  } = usePrintLayout({ problems, options: printOptions, exportSource, meta });
 
   const answerLayoutPages: PaginatedAnswerPage[] = useMemo(() => {
     if (!printOptions.showAnswers || problems.length === 0) return [];
@@ -162,8 +114,7 @@ export const Step5Export = () => {
   }, [printOptions.showAnswers, printOptions.quickAnswerOnly, printOptions.spacing, problems, exportSource]);
 
   const totalPages = layoutPages.length + answerLayoutPages.length;
-  const gradeBadge = selectedGrade ? GRADE_LABELS[selectedGrade] : undefined;
-  const testTitle = sourceTest?.title ?? filename ?? "변형 시험지";
+  const layoutPending = !layoutReady && layoutPages.length === 0;
 
   const { scale, scalePercent, galleryRef, fitToContainer, setScale, setScaleFromSlider } =
     usePreviewScale();
@@ -228,41 +179,50 @@ export const Step5Export = () => {
           style={{ minHeight: A4_HEIGHT_PX * 0.5 }}
         >
           <div className="flex flex-col items-center gap-8">
-            {/* 문제 페이지 — 6 신규 template 이 자체 padding 보유. bare. */}
-            {layoutPages.map((page, pageIdx) => (
-              <A4Page key={`q-${pageIdx}`} scale={scale} bare>
-                <PageBody
-                  page={page}
-                  pageIdx={pageIdx}
-                  totalPages={totalPages}
-                  testTitle={testTitle}
-                  gradeBadge={gradeBadge}
-                  options={printOptions}
-                  exportSource={exportSource}
-                  originalDiagramMap={originalDiagramMap}
-                />
-              </A4Page>
-            ))}
-
-            {/* 정답 + 해설 페이지 — 기존 padding 유지 (template-agnostic). */}
-            {answerLayoutPages.map((ap, apIdx) => (
-              <A4Page
-                key={`a-${apIdx}`}
-                scale={scale}
-                paddingClass="px-10 py-7"
+            {layoutPending ? (
+              <div
+                className="flex flex-col items-center justify-center gap-3 bg-white shadow-lg border border-slate-200 rounded-sm"
+                style={{ width: A4_WIDTH_PX * scale, height: A4_HEIGHT_PX * scale }}
               >
-                <PrintAnswerKeyPage
-                  questionNumbers={ap.questionNumbers}
-                  allProblems={problems}
-                  options={printOptions}
-                  exportSource={exportSource}
-                  testTitle={testTitle}
-                  gradeBadge={gradeBadge}
-                  pageInfo={`${layoutPages.length + apIdx + 1} / ${totalPages}`}
-                  isFirstAnswerPage={apIdx === 0}
-                />
-              </A4Page>
-            ))}
+                <div className="w-7 h-7 rounded-full border-2 border-slate-200 border-t-accent animate-spin" />
+                <span className="text-small text-muted">레이아웃 계산 중…</span>
+              </div>
+            ) : (
+              <>
+                {/* 문제 페이지 — 6 신규 template 이 자체 padding 보유. bare. */}
+                {layoutPages.map((page, pageIdx) => (
+                  <A4Page key={`q-${pageIdx}`} scale={scale} bare>
+                    <PageBody
+                      page={page}
+                      pageIdx={pageIdx}
+                      totalPages={totalPages}
+                      meta={meta}
+                      options={printOptions}
+                    />
+                  </A4Page>
+                ))}
+
+                {/* 정답 + 해설 페이지 — 기존 padding 유지 (template-agnostic). */}
+                {answerLayoutPages.map((ap, apIdx) => (
+                  <A4Page
+                    key={`a-${apIdx}`}
+                    scale={scale}
+                    paddingClass="px-10 py-7"
+                  >
+                    <PrintAnswerKeyPage
+                      questionNumbers={ap.questionNumbers}
+                      allProblems={problems}
+                      options={printOptions}
+                      exportSource={exportSource}
+                      testTitle={testTitle}
+                      gradeBadge={gradeBadge}
+                      pageInfo={`${layoutPages.length + apIdx + 1} / ${totalPages}`}
+                      isFirstAnswerPage={apIdx === 0}
+                    />
+                  </A4Page>
+                ))}
+              </>
+            )}
           </div>
         </div>
       </main>
@@ -294,11 +254,8 @@ export const Step5Export = () => {
               page={page}
               pageIdx={pageIdx}
               totalPages={totalPages}
-              testTitle={testTitle}
-              gradeBadge={gradeBadge}
+              meta={meta}
               options={printOptions}
-              exportSource={exportSource}
-              originalDiagramMap={originalDiagramMap}
             />
           </div>
         ))}
@@ -325,76 +282,44 @@ export const Step5Export = () => {
           </div>
         ))}
       </div>
+
+      {/* 측정 전용 노드 — 화면 밖(position:fixed). usePrintLayout 이 문항·헤더
+          실측 → printPack. 미리보기/인쇄 DOM 과 분리. */}
+      {measureNode}
     </div>
   );
 };
 
 // ── PageBody — template dispatcher ──────────────────────────────────────
 //
-// 신규 6 template (design_handoff_print_templates) 의 standalone 컴포넌트가
-// 각자 헤더 + 본문 + 푸터를 자체 통합. PageBody 는 *template switch* + props
-// 합성 + 컴포넌트 호출 만 담당.
+// 신규 6 template 의 standalone 컴포넌트가 각자 헤더 + 본문 + 푸터를 자체 통합.
+// PageBody 는 *template switch* + props 합성 + 컴포넌트 호출 만 담당.
 //
-// `page.columns.flat()` 으로 평탄 배열 전달 — BodyContainer 안의
-// `React.Children.toArray + half split` 가 2단을 자체 분할.
+// `page.problems`(읽기순서 flat) + `page.splitIndex`(우측 컬럼 시작) 를 전달 —
+// usePrintLayout 의 측정 패킹이 정한 분할을 BodyContainer 가 그대로 적용 (구
+// `.flat()` + 개수 절반 분할 모순 해소).
 interface PageBodyProps {
-  page: PaginatedPage;
+  page: PackedPage;
   pageIdx: number;
   totalPages: number;
-  testTitle: string;
-  gradeBadge?: string;
+  meta: PrintMeta;
   options: ReturnType<typeof useWizardStore.getState>["printOptions"];
-  exportSource: ReturnType<typeof useWizardStore.getState>["exportSource"];
-  // (deprecated, kept for prop drilling) 원본 도형 — 향후 ProblemBody 에
-  // diagrams prop 으로 흘림. 현재는 6 신규 template 내부 호출이 diagrams
-  // prop 안 받음 — Phase 2 후속에서 추가.
-  originalDiagramMap: Map<string, Array<{ dataUrl: string; label: string }>>;
 }
 
-const PageBody = ({
-  page,
-  pageIdx,
-  totalPages,
-  testTitle,
-  gradeBadge,
-  options,
-  exportSource,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  originalDiagramMap,
-}: PageBodyProps) => {
-  const meta: PrintMeta = {
-    title: testTitle,
-    schoolName: undefined,
-    grade: gradeBadge,
-    subject: "수학",
-    semester: undefined,
-    examDate: new Date().toISOString().slice(0, 10),
-    examDuration: undefined,
-    examiner: undefined,
-    totalScore: 100,
-    academyName: undefined,
-    instructorName: undefined,
-    conceptNote: undefined,
-    todayGoal: undefined,
-    patternName: undefined,
-    patternStrategy: undefined,
-  };
-
-  const flatProblems = page.columns.flat();
-
+const PageBody = ({ page, pageIdx, totalPages, meta, options }: PageBodyProps) => {
   const props: PrintTemplateProps = {
     page: pageIdx + 1,
     totalPages,
     columns: options.columns,
     meta,
-    problems: flatProblems,
+    problems: page.problems,
     startingNumber: page.startingNumber,
+    splitIndex: page.splitIndex,
     options,
   };
 
   // fontPack CSS variable 주입 — 6 template 의 inline `fontFamily: var(...)`
-  // 가 이 wrapper 의 변수를 참조. 사용자가 PrintOptionsPanel 의 폰트 옵션
-  // 변경 시 즉시 반영.
+  // 가 이 wrapper 의 변수를 참조. PrintOptionsPanel 의 폰트 옵션 변경 시 즉시 반영.
   const fontPack = getFontPack(options.fontPack);
   const fontVars = {
     "--paper-font-serif": fontPack.serif,
@@ -422,10 +347,5 @@ const PageBody = ({
 
   return <div style={fontVars}>{templateNode}</div>;
 };
-
-// exportSource 는 향후 ProblemBody 의 tag prop 으로 흐를 예정 (Phase 2 후속).
-// 현재 6 template 의 ProblemBody 호출은 `problem={p.variant}` 만 사용.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _exportSourceUnused = (_x: string) => _x;
 
 export default Step5Export;
