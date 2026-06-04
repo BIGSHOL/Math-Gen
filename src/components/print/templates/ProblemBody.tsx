@@ -13,6 +13,7 @@ import MarkdownRenderer, {
 import type { GeneratedProblem } from "@app/types";
 import { resolveChoiceCols } from "@app/lib/printLayout";
 import { renderDiagram } from "@app/lib/diagram";
+import { extractChoices, stripChoicesLine } from "@app/lib/problemAdapter";
 
 export interface ProblemBodyProps {
   /** 문항. design_handoff 의 prop name (`problem`) 그대로 통일. */
@@ -58,6 +59,19 @@ export const ProblemBody = ({
   }
   const showBboxFallback = !svgList && diagrams && diagrams.length > 0;
 
+  // 보기 일관 렌더 (사용자 보고 2026-06-04: 인쇄 1단/2단 보기 크기 불일치).
+  // choices[] 가 있으면 그대로, 비어있고 question 본문에 ①②③④⑤ 가 inline 으로
+  // 남아 있으면 추출해서 *동일한 choices grid* 로 렌더한다. 그렇지 않으면 그 보기는
+  // MarkdownRenderer 가 본문 크기(fontSize, 더 큼)로 inline 렌더돼 다른 문항의
+  // grid 보기(fontSize-1)와 크기/폰트가 달라 보였다. 추출 성공 시 본문에서 보기
+  // 줄을 제거해 grid 와 중복 inline 을 방지.
+  const hasChoicesArr = !!problem.choices && problem.choices.length > 0;
+  const extractedChoices = hasChoicesArr ? null : extractChoices(problem.question);
+  const effectiveChoices = hasChoicesArr ? problem.choices : (extractedChoices ?? undefined);
+  const questionBody = extractedChoices
+    ? stripChoicesLine(problem.question)
+    : problem.question;
+
   return (
     <div>
       {tag && (
@@ -74,7 +88,7 @@ export const ProblemBody = ({
         className="text-slate-900 leading-relaxed printable-math-content"
         style={{ fontSize: `${fontSize}px` }}
       >
-        <MarkdownRenderer content={problem.question} diagramSvgs={svgList} />
+        <MarkdownRenderer content={questionBody} diagramSvgs={svgList} />
       </div>
 
       {/* 원본 OCR bbox crop 도형 (vector spec 이 없을 때만 fallback) */}
@@ -92,15 +106,15 @@ export const ProblemBody = ({
       )}
 
       {/* Choices grid — Phase #7: original 보기 layout 상속 (auto fallback 시 길이 휴리스틱). */}
-      {!hideChoices && problem.choices && problem.choices.length > 0 && (
+      {!hideChoices && effectiveChoices && effectiveChoices.length > 0 && (
         <div
           className={`grid gap-x-4 gap-y-2 text-slate-700 mt-1.5 ${printGridClass(
-            problem.choices,
+            effectiveChoices,
             problem.choicesLayout,
           )}`}
           style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }}
         >
-          {problem.choices.map((choice, ci) => {
+          {effectiveChoices.map((choice, ci) => {
             const cleanChoice = choice.replace(/^[①②③④⑤]\s*/, "").trim();
             return (
               <div key={ci} className="flex items-start gap-1.5">

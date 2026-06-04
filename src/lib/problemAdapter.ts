@@ -24,34 +24,27 @@ const CHOICE_RE = /([①②③④⑤])\s*((?:(?![①②③④⑤]).)+)/g;
 /**
  * 본문 텍스트에서 ①②③④⑤ 5 마커 보기를 분리해 string 배열로 반환.
  *
- * **알고리즘** (OCR_PAGE_PROMPT rule 4b 와 일관):
- * - 마지막 *비어있지 않은 줄* 부터 역순으로 검사
- * - 그 줄에서 마커가 정확히 5 개 매치 → 객관식, 보기 5개 반환
- * - 5 미만 (부분 매치) → undefined (손상된 OCR 결과로 간주, 변형 skip)
- * - 0 매치 → 한 줄 더 앞으로 (다른 줄 검사 X — 첫 마커 줄에서 결정)
+ * **알고리즘**: 마지막 `①` 위치부터 끝까지(tail)를 검사 — 한 줄(`① a ② b …`)
+ * 이든 여러 줄(`① a\n② b\n…`, 줄당 1 보기)이든 모두 처리. tail 의 마커가 정확히
+ * ①②③④⑤ 5개 순서면 객관식.
  *
- * **반환값**:
- * - `string[]` (5개) — 객관식
- * - `undefined` — 주관식 또는 손상
+ * 이전엔 *한 줄에 5 마커* 만 인식 → **줄당 1 보기 형식**(흔함)이 "부분 매치 =
+ * 손상" 으로 오인돼 choices 미추출 → 인쇄 시 choices 가 question 본문 inline 으로
+ * (작은 grid 대신) *큰 본문 크기* 로 렌더되는 1단/2단 불일치 버그 (사용자 보고
+ * 2026-06-04). tail 기반으로 멀티라인 지원.
+ *
+ * **반환값**: `string[]`(5개) 객관식 / `undefined` 주관식·손상.
  */
+const CHOICE_ORDER = "①②③④⑤";
 export const extractChoices = (text: string): string[] | undefined => {
   if (!text) return undefined;
-  const lines = text.split("\n").filter((l) => l.trim());
-  // 역순 검사 — 본문 끝에 보기가 있는 게 표준.
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const matches = [...lines[i].matchAll(CHOICE_RE)];
-    if (matches.length === 5) {
-      return matches.map((m) => m[2].trim());
-    }
-    if (matches.length > 0) {
-      // 부분 매치 — 손상된 보기로 간주, 추출 포기.
-      return undefined;
-    }
-    // 0 매치 — 그 줄엔 보기 없음. 더 앞 줄도 보기 없으면 주관식.
-    // (보통 본문 줄에는 ①②③ 안 나옴 — 한 줄만 검사해도 충분하지만
-    //  multi-line choices 가능성 위해 계속 역행.)
-  }
-  return undefined;
+  const lastOne = text.lastIndexOf("①");
+  if (lastOne < 0) return undefined;
+  const tail = text.slice(lastOne);
+  const matches = [...tail.matchAll(CHOICE_RE)];
+  if (matches.length !== 5) return undefined; // 5개 아니면 주관식/손상
+  if (!matches.every((m, i) => m[1] === CHOICE_ORDER[i])) return undefined; // ①②③④⑤ 순서 확인
+  return matches.map((m) => m[2].trim());
 };
 
 /**
