@@ -62,10 +62,13 @@ export function BodyContainer({
   // 문항은 상단 정렬, 마지막 문항도 하단에 안 붙고 풀이공간을 가진다 (사용자 보고
   // 2026-06-04: "n등분 + 문제풀이공간 3~5줄"). gap 12px 는 슬롯 사이 최소 간격.
   const colGap = distribute ? 12 : gap;
+  // flex "1 0 auto": basis=문항 자연높이, grow=1(남는 공간 균등 배분 → 풀이여백),
+  // shrink=0(문항 높이 아래로 줄지 않음 → 다음 문항과 겹침/잘림 방지). 키 큰 문항도
+  // 안전하고, 각 문항이 *균등한 풀이공간* 을 아래에 가진다(마지막 포함).
   const wrapSlots = (nodes: React.ReactNode): React.ReactNode =>
     distribute
       ? React.Children.map(nodes, (child) => (
-          <div style={{ flex: "1 1 0", minHeight: 0 }}>{child}</div>
+          <div style={{ flex: "1 0 auto" }}>{child}</div>
         ))
       : nodes;
 
