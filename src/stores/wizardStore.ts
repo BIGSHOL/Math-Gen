@@ -720,15 +720,24 @@ export const useWizardStore = create<WizardState>()(
       setExport: (patch) => set((state) => ({ ...state, ...patch })),
 
       startWizard: (testId) => set({ ...initialState, testId }),
-      hydrateFromTest: (snapshot) =>
+      hydrateFromTest: (snapshot) => {
+        // 도달한 step 추정 — 데이터 기반. resume step(snapshot.step) 만으로는 완료된
+        // 시험지인데도 furthestStep 이 낮아 Stepper 앞 단계 클릭이 막혔다 (사용자 보고
+        // 2026-06-04: "모든 단계 저장했는데 다음 단계 선택이 안 됨"). OCR/해설/변형
+        // 데이터로 실제 진행 단계를 추정해 max → 앞 단계 자유 이동.
+        const ocr = snapshot.pages.flatMap((p) => p.ocrResult ?? []);
+        let reached = 1; // 업로드 후 검수
+        if (ocr.length > 0) reached = 2; // OCR 결과 있음
+        if (ocr.some((it) => it.solution)) reached = 3; // 해설 있음
+        if (snapshot.problems.length > 0) reached = 6; // 변형/검토 → 내보내기까지
+        const furthest = Math.max(snapshot.step as number, reached) as WizardStepIndex;
         set({
           ...initialState,
           ...snapshot,
-          // Phase #16: 보관함 재열기 시 — 도달한 step 까지 자동 done.
-          // snapshot.step 이 decideResumeStep 결과 → furthestStep 동일 set.
-          furthestStep: (snapshot.step ?? 0) as WizardStepIndex,
+          furthestStep: furthest,
           justHydrated: true,
-        }),
+        });
+      },
       reset: () => set(initialState),
     }),
     {
@@ -753,6 +762,10 @@ export const useWizardStore = create<WizardState>()(
       partialize: (s) => ({
         testId: s.testId,
         step: s.step,
+        // 도달한 가장 먼 step — 미persist 면 새로고침 후 0 으로 reset 돼 Stepper 가
+        // 앞 단계를 future(클릭 불가) 로 처리, 사용자는 하단 "다음" 으로만 이동 가능
+        // (사용자 보고 2026-06-04). step 과 함께 persist 해 앞 단계 클릭 이동 유지.
+        furthestStep: s.furthestStep,
         uploadedFileName: s.uploadedFileName,
         selectedGrade: s.selectedGrade,
         examCategory: s.examCategory,

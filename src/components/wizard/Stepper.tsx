@@ -39,12 +39,14 @@ export const Stepper = ({ steps, current, furthest, completed, onJump }: Stepper
   <ol className="flex items-center w-full" role="list">
     {steps.map((s, i) => {
       const isLastStep = i === steps.length - 1;
-      // Phase #16: furthest 가 있으면 그 이하 step (current 제외) 도 done 으로.
-      // furthest 미설정 (옛 호출처) 면 기존 동작 — current 미만만 done.
-      // + completed: 마지막 step 을 current 로 보고 있어도 "저장 마무리" 면 done.
-      const reachedMax = (furthest ?? current) as number;
+      // reachedMax = 도달한 가장 먼 step. `furthest ?? current` 는 furthest=0 일 때
+      // 0 을 그대로 써 버그 → Math.max(furthest, current) 로 보정.
+      const reachedMax = Math.max((furthest ?? 0) as number, current as number);
+      // 도달한(≤reachedMax) step 은 current 제외 모두 done → 클릭 이동 가능.
+      // 이전엔 `< reachedMax` 라 *가장 먼 step 자체*(예: 내보내기)는 안 눌렸다
+      // (사용자 보고 2026-06-04: 저장했는데도 앞 단계 클릭 이동 불가, 하단 "다음"만 동작).
       const isDone =
-        (s.index !== current && (s.index < current || s.index < reachedMax)) ||
+        (s.index !== current && s.index <= reachedMax) ||
         (completed === true && isLastStep);
       const state: "done" | "active" | "future" = isDone
         ? "done"
@@ -104,9 +106,8 @@ export const Stepper = ({ steps, current, furthest, completed, onJump }: Stepper
               <span
                 className={cn(
                   "absolute inset-y-0 left-0 bg-ink transition-[width] duration-[280ms] ease-spring",
-                  // Phase #16: connector line — step N 이 done 이면 fill 유지.
-                  // (furthest 가 있으면 그 이하 connector 도 done.)
-                  s.index < current || s.index < (furthest ?? current) ? "w-full" : "w-0",
+                  // connector line — step N 이 reachedMax 미만이면 fill 유지.
+                  s.index < reachedMax ? "w-full" : "w-0",
                 )}
               />
             </span>

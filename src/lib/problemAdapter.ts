@@ -90,6 +90,12 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     topic: it.topic ?? "",
     difficulty: "중",
     diagramSVG: null,
+    // 원본 도형(vector spec) 보존 — 내보내기(원본 출력) 와 변형 카드가 도형을 그릴
+    // 수 있도록 carry. 이전엔 drop 해서 buildDigitizeReviews 로 도출한 내보내기 문제에
+    // 도형이 통째로 사라졌다 (사용자 보고 2026-06-04: 21번 — OCR 엔 보이는데 내보내기
+    // 미리보기엔 전혀 안 보임). artwork 같은 *이미지* 도형(it.images)은 GeneratedProblem
+    // 에 필드가 없어 아직 미전달 — 별도 plumbing 후속.
+    diagramParams: it.diagramParams ?? null,
     // Phase #7: OCR 원본 보기 배치 상속 — 변형 카드에서도 원본과 동일 grid.
     choicesLayout: it.choicesLayout ?? "auto",
   };

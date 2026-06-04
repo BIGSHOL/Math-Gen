@@ -317,15 +317,40 @@ svg text {
    table-layout 은 auto 유지(작은 표 안 늘어남·colspan 안전) + max-width:100%
    (.prose 상속). 폰트·패딩 축소로 대부분 fit, 아주 넓은 표는 break-word 로 wrap
    (overflow 대신) — 최종적으로 단 폭을 절대 안 넘김. */
+/* 특이도 주의: 아래쪽 `.prose table { font-size: 0.9em }` (≈line 520) 가 같은
+   특이도(0,1,1)면서 *source 가 더 뒤* 라 0.82em 을 덮어써 표 축소가 안 먹던 버그
+   (사용자 보고 2026-06-04 "표 폰트 축소 적용 안 됨"). → `.printable-math-content
+   .prose table` (0,2,1) 로 특이도를 높여 source order 무관하게 항상 이긴다.
+   + table-layout:fixed + width:100% 로 *단 폭에 강제 fit* (7열 숫자표도 절대 안 넘침).
+   숫자 셀은 word-break 로 최후 wrap. (작은 표는 폭이 늘어날 수 있으나 — 수학 표는
+   대부분 넓은 숫자표라 fit 우선.) */
+.printable-math-content .prose table,
 .printable-math-content table {
-  font-size: 0.82em;
+  font-size: 0.7em;
+  width: 100%;
+  table-layout: fixed;
   max-width: 100%;
 }
+.printable-math-content .prose table th,
+.printable-math-content .prose table td,
 .printable-math-content table th,
 .printable-math-content table td {
-  padding: 1.5px 4px;
+  padding: 1px 3px;
   overflow-wrap: anywhere;
   word-break: break-word;
+  white-space: normal;
+}
+
+/* 인쇄 본문 도형 — 위아래 여백 축소 (사용자 보고 2026-06-04: 12번 도형과 문제·보기
+   사이 빈 공간 과다). 화면(.prose svg margin:8px / .diagram-svg-inline margin:10px)
+   대비 인쇄는 촘촘히. 특이도(0,2,*)로 기존 규칙(0,1,*) 위에 override. */
+.printable-math-content .diagram-svg-inline {
+  margin: 2px auto;
+}
+.printable-math-content .prose svg:not(:where(.katex *)),
+.printable-math-content .diagram-svg-inline svg {
+  margin: 2px auto;
+  max-height: 220px;
 }
 
 /* 도형 정렬 */
