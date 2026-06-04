@@ -59,7 +59,16 @@ export interface PrintOptions {
   /** 강조 색상 (hex). default: mathg-gen accent (#0EA5E9). */
   color: string;
   columns: 1 | 2;
-  /** 문항 간 세로 여백 (px). 0~150. */
+  /**
+   * 레이아웃 모드 (택일):
+   *  - "spacing": 세로 여백(spacing) 직접 지정 — 높이 기반 그리디 패킹.
+   *  - "count": 단별 문항 수(problemsPerColumn) 지정 — 컬럼당 정확히 N개씩 채우고
+   *    여백은 자동 균등 분배(space-evenly). 2단이면 페이지당 N*2.
+   */
+  layoutMode: "spacing" | "count";
+  /** count 모드 — 1단(컬럼)당 문항 수 (2 | 3 | 4). 2단이면 페이지당 ×2. */
+  problemsPerColumn: number;
+  /** 문항 간 세로 여백 (px). 0~150. spacing 모드에서만 사용. */
   spacing: number;
   /** 정답 + 해설 페이지 포함 여부. */
   showAnswers: boolean;
@@ -83,6 +92,8 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   template: "jeongtong", // 한국 학교 시험지 표 양식 — 가장 일반적
   color: "#1B2A4E", // navy — jeongtong / modern 의 default accent
   columns: 1, // jeongtong 기본 1단
+  layoutMode: "spacing", // 기본은 여백 직접 지정 (기존 동작 유지)
+  problemsPerColumn: 3, // count 모드 기본 — 1단당 3문항
   spacing: 18,
   showAnswers: false,
   quickAnswerOnly: false,

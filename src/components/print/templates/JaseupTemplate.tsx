@@ -265,7 +265,12 @@ export function JaseupTemplate({
         </>
       )}
 
-      <BodyContainer columns={columns} gap={gap} splitIndex={splitIndex}>
+      <BodyContainer
+        columns={columns}
+        gap={gap}
+        splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
+      >
         {problems.map(renderItem)}
       </BodyContainer>
 

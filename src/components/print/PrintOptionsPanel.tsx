@@ -110,6 +110,15 @@ const matchSpacingPreset = (spacing: number): SpacingPresetValue => {
   return closestValue;
 };
 
+// 세로 배치 모드 — 여백 직접 지정 vs 단별 문항 수 지정 (택일, 사용자 요청 2026-06-04).
+const LAYOUT_MODE_OPTIONS: Array<{ value: "spacing" | "count"; label: string }> = [
+  { value: "spacing", label: "여백 지정" },
+  { value: "count", label: "문항 수 지정" },
+];
+
+// count 모드 — 1단(컬럼)당 문항 수. 2단이면 페이지당 ×2 (4/6/8).
+const PER_COLUMN_OPTIONS = [2, 3, 4];
+
 export const PrintOptionsPanel = ({
   printOptions,
   exportSource,
@@ -273,20 +282,61 @@ export const PrintOptionsPanel = ({
           )}
         </Section>
 
-        {/* 5. 세로 여백 — 5 단계 preset. (자유 슬라이더는 drag 느림 + 결정
-            부담. flex justify-between 컬럼 패턴에서 spacing 은 *최소 여백*
-            의미라 5 단계로 충분.) */}
-        <Section title="세로 여백">
-          <Segmented<SpacingPresetValue>
-            value={matchSpacingPreset(printOptions.spacing)}
-            onChange={(v) => {
-              const preset = SPACING_PRESETS.find((p) => p.value === v);
-              if (preset) onChangePrintOptions({ spacing: preset.spacing });
-            }}
-            options={SPACING_OPTIONS}
+        {/* 5. 세로 배치 — 택일: 여백 직접 지정 vs 단별 문항 수 지정.
+            "문항 수 지정" 시 컬럼당 N개씩 채우고 여백은 자동 균등 분배
+            (space-evenly). 2단이면 페이지당 N×2 (사용자 요청 2026-06-04). */}
+        <Section title="세로 배치">
+          <Segmented<"spacing" | "count">
+            value={printOptions.layoutMode}
+            onChange={(v) => onChangePrintOptions({ layoutMode: v })}
+            options={LAYOUT_MODE_OPTIONS}
             size="sm"
             full
           />
+          {printOptions.layoutMode === "spacing" ? (
+            <div className="mt-2.5">
+              <Segmented<SpacingPresetValue>
+                value={matchSpacingPreset(printOptions.spacing)}
+                onChange={(v) => {
+                  const preset = SPACING_PRESETS.find((p) => p.value === v);
+                  if (preset) onChangePrintOptions({ spacing: preset.spacing });
+                }}
+                options={SPACING_OPTIONS}
+                size="sm"
+                full
+              />
+            </div>
+          ) : (
+            <div className="mt-2.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                {PER_COLUMN_OPTIONS.map((n) => {
+                  const on = printOptions.problemsPerColumn === n;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => onChangePrintOptions({ problemsPerColumn: n })}
+                      className={`h-11 rounded-r2 border text-small font-medium transition-colors flex flex-col items-center justify-center ${
+                        on
+                          ? "bg-accent-soft border-accent text-accent-ink font-semibold"
+                          : "bg-surface border-line text-text2 hover:border-accent"
+                      }`}
+                    >
+                      <span>1단당 {n}</span>
+                      <span className="text-caption text-text2/60 font-normal leading-none mt-0.5">
+                        페이지당 {n * printOptions.columns}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-caption text-muted leading-tight">
+                <Icon name="info" size={11} color="#9CA3AF" /> 컬럼당{" "}
+                {printOptions.problemsPerColumn}문항씩 — 여백은 자동으로 균등
+                분배됩니다.
+              </p>
+            </div>
+          )}
         </Section>
 
         {/* 6. 헤더/문항 옵션 토글 */}

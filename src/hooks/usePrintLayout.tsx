@@ -78,8 +78,16 @@ export function usePrintLayout({
   exportSource,
   meta,
 }: UsePrintLayoutArgs): UsePrintLayoutResult {
-  const { template, columns, spacing, fontPack, showChapter, showDifficulty } =
-    options;
+  const {
+    template,
+    columns,
+    spacing,
+    fontPack,
+    showChapter,
+    showDifficulty,
+    layoutMode,
+    problemsPerColumn,
+  } = options;
 
   // 측정에 영향 주는 입력만 (spacing 제외 — gap 은 item offsetHeight 에 영향 X).
   const measureKey = useMemo(() => {
@@ -105,6 +113,8 @@ export function usePrintLayout({
       showChapter ? 1 : 0,
       showDifficulty ? 1 : 0,
       exportSource,
+      layoutMode,
+      problemsPerColumn,
       JSON.stringify(meta),
       content,
     ].join("~");
@@ -116,6 +126,8 @@ export function usePrintLayout({
     showChapter,
     showDifficulty,
     exportSource,
+    layoutMode,
+    problemsPerColumn,
     meta,
   ]);
 
@@ -181,11 +193,20 @@ export function usePrintLayout({
       problems,
       heights: measured.heights,
       avail: measured.avail,
-      options: { template, columns, spacing },
+      options: { template, columns, spacing, layoutMode, problemsPerColumn },
     });
     prevPagesRef.current = packed;
     return packed;
-  }, [measured, measureKey, problems, template, columns, spacing]);
+  }, [
+    measured,
+    measureKey,
+    problems,
+    template,
+    columns,
+    spacing,
+    layoutMode,
+    problemsPerColumn,
+  ]);
 
   const ready = measured !== null && measured.key === measureKey;
 

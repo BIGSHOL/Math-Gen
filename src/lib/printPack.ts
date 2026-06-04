@@ -27,7 +27,10 @@ export interface PackInput {
   heights: number[];
   /** 측정된 가용 컨텐츠 높이 — 첫 페이지 / 이후 페이지. */
   avail: { first: number; cont: number };
-  options: Pick<PrintOptions, "template" | "columns" | "spacing">;
+  options: Pick<
+    PrintOptions,
+    "template" | "columns" | "spacing" | "layoutMode" | "problemsPerColumn"
+  >;
 }
 
 /** 페이지당 개수 고정 분할 (workbook/jaseup 1단 풀이공간 stretch 전용). */
@@ -37,6 +40,27 @@ function chunkByCount(problems: ProblemReview[], perPage: number): PackedPage[] 
   for (let i = 0; i < problems.length; i += n) {
     const slice = problems.slice(i, i + n);
     pages.push({ problems: slice, splitIndex: slice.length, startingNumber: i + 1 });
+  }
+  return pages;
+}
+
+/**
+ * count 모드 — *컬럼당 정확히 perColumn 개* (페이지당 perColumn×columns).
+ * 문항 높이 무시. 여백은 렌더 측(BodyContainer `distribute` = space-evenly)이
+ * 컬럼 높이에 맞춰 자동 균등 분배. splitIndex 는 1단=전체, 2단=perColumn.
+ */
+function chunkByColumnCount(
+  problems: ProblemReview[],
+  perColumn: number,
+  columns: 1 | 2,
+): PackedPage[] {
+  const per = Math.max(1, perColumn);
+  const perPage = per * columns;
+  const pages: PackedPage[] = [];
+  for (let i = 0; i < problems.length; i += perPage) {
+    const slice = problems.slice(i, i + perPage);
+    const splitIndex = columns === 1 ? slice.length : Math.min(per, slice.length);
+    pages.push({ problems: slice, splitIndex, startingNumber: i + 1 });
   }
   return pages;
 }
@@ -63,6 +87,12 @@ export function packProblems(input: PackInput): PackedPage[] {
   if (problems.length === 0) return [];
   const { template, columns, spacing } = options;
   const g = TEMPLATE_GEOMETRY[template];
+
+  // count 모드 — 단별 문항 수 고정 (사용자 지정). 여백/높이 무시하고 컬럼당 N개씩.
+  // 여백은 렌더가 자동 균등 분배. 모든 템플릿 공통 (stretch1Col 보다 우선).
+  if (options.layoutMode === "count") {
+    return chunkByColumnCount(problems, options.problemsPerColumn ?? 3, columns);
+  }
 
   // workbook/jaseup 1단 = 풀이공간 flex:1 stretch → 자연 높이 무의미 → 개수 패킹.
   if (columns === 1 && g.stretch1Col) {

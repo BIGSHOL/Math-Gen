@@ -23,6 +23,12 @@ interface BodyContainerProps {
   gap?: number;
   /** 2단일 때 좌우 컬럼 사이 gap (px). 기본 26. */
   columnGap?: number;
+  /**
+   * count 모드 — 컬럼당 고정 개수일 때, 문항을 컬럼 높이에 맞춰 *자동 균등 분배*
+   * (justify-content: space-evenly). gap 대신 작은 최소 간격(12px)만 두고 남는
+   * 공간을 위·사이·아래 균등 배분 → "단별 N문항 + 깔끔한 여백" (사용자 요청).
+   */
+  distribute?: boolean;
   /** 2단일 때 가운데 세로선. `null` 이면 안 그림. CSS 색상 문자열. */
   columnRule?: string | null;
   /**
@@ -41,6 +47,7 @@ export function BodyContainer({
   columnGap = 26,
   columnRule,
   splitIndex,
+  distribute,
   className,
   style,
 }: BodyContainerProps) {
@@ -48,13 +55,18 @@ export function BodyContainer({
   // 마커. 모든 BodyContainer 에 부여 (preview·print·measure 모두 동일 적용).
   const mergedClass = ["measure-body", className].filter(Boolean).join(" ");
 
+  // count 모드: gap 대신 작은 최소 간격 + space-evenly 로 컬럼 높이 균등 채움.
+  const colGap = distribute ? 12 : gap;
+  const colJustify = distribute ? ("space-evenly" as const) : undefined;
+
   if (columns === 2) {
     const items = React.Children.toArray(children);
     const split = splitIndex ?? Math.ceil(items.length / 2);
     const colStyle: React.CSSProperties = {
       display: "flex",
       flexDirection: "column",
-      gap: `${gap}px`,
+      gap: `${colGap}px`,
+      justifyContent: colJustify,
       minWidth: 0,
     };
     return (
@@ -90,7 +102,8 @@ export function BodyContainer({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        gap: `${gap}px`,
+        gap: `${colGap}px`,
+        justifyContent: colJustify,
         ...style,
       }}
     >

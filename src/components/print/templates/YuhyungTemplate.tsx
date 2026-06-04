@@ -190,6 +190,7 @@ export function YuhyungTemplate({
         columnGap={22}
         columnRule={PAPER_COLORS.ink08}
         splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
         style={{ fontSize: fs, lineHeight: 1.65 }}
       >
         {problems.map(renderItem)}

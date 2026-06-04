@@ -253,6 +253,7 @@ export function ModernTemplate({
         gap={gap}
         columnGap={32}
         splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
         style={{ fontSize: fs, lineHeight: 1.85 }}
       >
         {problems.map(renderItem)}

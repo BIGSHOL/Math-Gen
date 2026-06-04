@@ -163,6 +163,7 @@ export function PyeonggaTemplate({
         columns={columns}
         gap={gap}
         splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
         style={{ padding: "0 56px 30px", fontSize: fs, lineHeight: 1.75 }}
       >
         {problems.map(renderItem)}

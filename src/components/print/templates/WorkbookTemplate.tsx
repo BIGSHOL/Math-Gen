@@ -254,6 +254,7 @@ export function WorkbookTemplate({
         columns={columns}
         gap={gap}
         splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
         style={{ marginTop: 16 }}
       >
         {problems.map(renderItem)}

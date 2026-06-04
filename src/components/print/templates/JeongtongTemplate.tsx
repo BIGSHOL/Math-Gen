@@ -233,6 +233,7 @@ export function JeongtongTemplate({
         columns={columns}
         gap={gap}
         splitIndex={splitIndex}
+        distribute={options.layoutMode === "count"}
         style={{
           marginTop: isFirstPage ? 18 : 0,
           marginBottom: 8,
