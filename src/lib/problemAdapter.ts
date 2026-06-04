@@ -82,6 +82,17 @@ export const stripChoicesLine = (text: string): string => {
  */
 export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
   const choices = extractChoices(it.text);
+  // 벡터화 불가 이미지 도형(작품 사진 등) carry — 내보내기 표시 (#14, 사용자 보고
+  // 2026-06-04: 21번 고흐 작품). inline 인 user-crop(dataUrl)·ai-gen(url)만 동기로.
+  // ai-crop(box-only)은 비동기 crop + diagramParams 와 중복 위험이라 제외(후속).
+  const images = (it.images ?? [])
+    .map((im) => {
+      const src = im.source ?? "ai-crop";
+      if (src === "user-crop" && im.dataUrl) return { dataUrl: im.dataUrl, label: im.label };
+      if (src === "ai-gen" && im.url) return { dataUrl: im.url, label: im.label };
+      return null;
+    })
+    .filter((x): x is { dataUrl: string; label: string } => x !== null);
   return {
     question: choices ? stripChoicesLine(it.text) : it.text,
     choices,
@@ -96,6 +107,7 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     // 미리보기엔 전혀 안 보임). artwork 같은 *이미지* 도형(it.images)은 GeneratedProblem
     // 에 필드가 없어 아직 미전달 — 별도 plumbing 후속.
     diagramParams: it.diagramParams ?? null,
+    images: images.length > 0 ? images : undefined,
     // Phase #7: OCR 원본 보기 배치 상속 — 변형 카드에서도 원본과 동일 grid.
     choicesLayout: it.choicesLayout ?? "auto",
   };

@@ -62,6 +62,13 @@ export interface GeneratedProblem {
    * 명명 = rows × cols. "auto" | "1x5" | "2x3" | "3x2" | "5x1".
    */
   choicesLayout?: "auto" | "1x5" | "2x3" | "3x2" | "5x1";
+  /**
+   * 벡터화 불가 *이미지 도형* (이미 해석된 dataUrl/url). 작품 사진(user-crop)·
+   * AI 생성 이미지(ai-gen) 처럼 diagramParams 로 못 그리는 도형을 내보내기에서
+   * 표시 (#14). ocrToGenerated 가 inline 이미지(user-crop dataUrl / ai-gen url)만
+   * 동기 carry — ai-crop(box-only)은 벡터 중복 위험 + 비동기라 제외.
+   */
+  images?: Array<{ dataUrl: string; label: string }>;
 }
 
 export type GenerationMode = "curriculum" | "image" | "exact" | "diagram";

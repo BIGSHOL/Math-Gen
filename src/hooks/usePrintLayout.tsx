@@ -103,6 +103,7 @@ export function usePrintLayout({
           v.points ?? "",
           v.diagramParams?.length ?? 0,
           v.diagramSVG ? 1 : 0,
+          v.images?.length ?? 0,
         ].join("§");
       })
       .join("‖");

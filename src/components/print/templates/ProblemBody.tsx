@@ -105,6 +105,22 @@ export const ProblemBody = ({
         </div>
       )}
 
+      {/* 이미지 도형 (작품 사진 user-crop · AI 생성 ai-gen — 벡터 불가). 내보내기
+          표시 (#14, 사용자 보고 2026-06-04: 21번 고흐 작품). diagramParams(벡터)와
+          별개 도형 — 둘이 겹치는 문항 없음. */}
+      {problem.images && problem.images.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-2 justify-center">
+          {problem.images.map((img, ii) => (
+            <img
+              key={ii}
+              src={img.dataUrl}
+              alt={img.label || `이미지${ii + 1}`}
+              className="max-w-[320px] max-h-[260px] border border-slate-200 rounded"
+            />
+          ))}
+        </div>
+      )}
+
       {/* Choices grid — Phase #7: original 보기 layout 상속 (auto fallback 시 길이 휴리스틱). */}
       {!hideChoices && effectiveChoices && effectiveChoices.length > 0 && (
         <div
