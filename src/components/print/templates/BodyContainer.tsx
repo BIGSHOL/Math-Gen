@@ -57,10 +57,17 @@ export function BodyContainer({
   // 마커. 모든 BodyContainer 에 부여 (preview·print·measure 모두 동일 적용).
   const mergedClass = ["measure-body", className].filter(Boolean).join(" ");
 
-  // count 모드: 첫 문항 상단 정렬 + 남는 공간을 문항 사이에 균등 분배 (space-between).
-  // gap 12px 는 최소 간격 (문항이 많아 꽉 차면 이 간격).
+  // count 모드(distribute): 컬럼을 *문항 수만큼 N등분*. 각 문항을 flex:1 슬롯으로
+  // 감싸 균등 분할 → 문항은 슬롯 *상단* 에 붙고 남는 슬롯 높이가 *풀이 여백*. 첫
+  // 문항은 상단 정렬, 마지막 문항도 하단에 안 붙고 풀이공간을 가진다 (사용자 보고
+  // 2026-06-04: "n등분 + 문제풀이공간 3~5줄"). gap 12px 는 슬롯 사이 최소 간격.
   const colGap = distribute ? 12 : gap;
-  const colJustify = distribute ? ("space-between" as const) : undefined;
+  const wrapSlots = (nodes: React.ReactNode): React.ReactNode =>
+    distribute
+      ? React.Children.map(nodes, (child) => (
+          <div style={{ flex: "1 1 0", minHeight: 0 }}>{child}</div>
+        ))
+      : nodes;
 
   if (columns === 2) {
     const items = React.Children.toArray(children);
@@ -69,8 +76,10 @@ export function BodyContainer({
       display: "flex",
       flexDirection: "column",
       gap: `${colGap}px`,
-      justifyContent: colJustify,
       minWidth: 0,
+      // 슬롯(flex:1)이 컬럼 높이를 나누려면 컬럼이 definite height 여야 함 — grid
+      // stretch + height:100% 로 보장 (distribute 일 때만).
+      ...(distribute ? { height: "100%" } : {}),
     };
     return (
       <div
@@ -83,7 +92,7 @@ export function BodyContainer({
           ...style,
         }}
       >
-        <div style={colStyle}>{items.slice(0, split)}</div>
+        <div style={colStyle}>{wrapSlots(items.slice(0, split))}</div>
         {columnRule !== null && (
           <div
             style={{
@@ -92,7 +101,7 @@ export function BodyContainer({
             }}
           />
         )}
-        <div style={colStyle}>{items.slice(split)}</div>
+        <div style={colStyle}>{wrapSlots(items.slice(split))}</div>
       </div>
     );
   }
@@ -106,11 +115,10 @@ export function BodyContainer({
         display: "flex",
         flexDirection: "column",
         gap: `${colGap}px`,
-        justifyContent: colJustify,
         ...style,
       }}
     >
-      {children}
+      {wrapSlots(children)}
     </div>
   );
 }
