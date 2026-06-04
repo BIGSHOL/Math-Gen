@@ -25,8 +25,10 @@ interface BodyContainerProps {
   columnGap?: number;
   /**
    * count 모드 — 컬럼당 고정 개수일 때, 문항을 컬럼 높이에 맞춰 *자동 균등 분배*
-   * (justify-content: space-evenly). gap 대신 작은 최소 간격(12px)만 두고 남는
-   * 공간을 위·사이·아래 균등 배분 → "단별 N문항 + 깔끔한 여백" (사용자 요청).
+   * (justify-content: space-between). 첫 문항은 *상단에 붙이고*(사용자 보고
+   * 2026-06-04: 최상단 문항은 항상 상단 정렬), 남는 공간을 문항 *사이* 에 균등
+   * 배분 → "단별 N문항 + 깔끔한 여백". 마지막 페이지 1문항도 space-between 이면
+   * 가운데가 아니라 상단 정렬됨. gap 12px 는 최소 간격.
    */
   distribute?: boolean;
   /** 2단일 때 가운데 세로선. `null` 이면 안 그림. CSS 색상 문자열. */
@@ -55,9 +57,10 @@ export function BodyContainer({
   // 마커. 모든 BodyContainer 에 부여 (preview·print·measure 모두 동일 적용).
   const mergedClass = ["measure-body", className].filter(Boolean).join(" ");
 
-  // count 모드: gap 대신 작은 최소 간격 + space-evenly 로 컬럼 높이 균등 채움.
+  // count 모드: 첫 문항 상단 정렬 + 남는 공간을 문항 사이에 균등 분배 (space-between).
+  // gap 12px 는 최소 간격 (문항이 많아 꽉 차면 이 간격).
   const colGap = distribute ? 12 : gap;
-  const colJustify = distribute ? ("space-evenly" as const) : undefined;
+  const colJustify = distribute ? ("space-between" as const) : undefined;
 
   if (columns === 2) {
     const items = React.Children.toArray(children);
