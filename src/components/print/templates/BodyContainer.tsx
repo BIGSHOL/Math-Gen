@@ -62,21 +62,22 @@ export function BodyContainer({
   // 문항은 상단 정렬, 마지막 문항도 하단에 안 붙고 풀이공간을 가진다 (사용자 보고
   // 2026-06-04: "n등분 + 문제풀이공간 3~5줄"). gap 12px 는 슬롯 사이 최소 간격.
   const colGap = distribute ? 12 : gap;
-  // flex "1 0 auto": basis=문항 자연높이, grow=1(남는 공간 균등 배분 → 풀이여백),
-  // shrink=0(문항 높이 아래로 줄지 않음 → 다음 문항과 겹침/잘림 방지). 키 큰 문항도
-  // 안전하고, 각 문항이 *균등한 풀이공간* 을 아래에 가진다(마지막 포함).
+  // flex "1 1 0" + minHeight 0: 슬롯을 *균등*(N등분) + 컬럼 높이에 *바운드*(넘침 방지).
+  // 문항은 슬롯 상단, 남는 슬롯 높이 = 풀이공간(마지막 포함). 컬럼당 개수는 packing 이
+  // 높이 인지로 정해 칸 넘침 최소화.
   const wrapSlots = (nodes: React.ReactNode): React.ReactNode =>
     distribute
       ? React.Children.map(nodes, (child) => (
-          <div style={{ flex: "1 0 auto" }}>{child}</div>
+          <div style={{ flex: "1 1 0", minHeight: 0 }}>{child}</div>
         ))
       : nodes;
 
-  // 2단 + count: 좌우 *같은 행* 문항을 정렬하려면 독립 flex 컬럼이 아니라 2D 그리드.
-  // grid row 트랙 하나가 좌우 셀 높이를 공유 → 같은 행 문항이 같은 y 에서 시작
-  // (사용자 보고 2026-06-04: "1·3행은 정렬됐는데 2·4행도 맞춰줘"). 각 셀은 행 높이
-  // 만큼 stretch → 문항 상단 + 풀이여백 아래. minmax(auto,1fr): 행 ≥ 내용(겹침 방지)
-  // + 남는 공간 균등(풀이여백).
+  // 2단 + count: 좌우 *같은 행* 문항 정렬 → 2D 그리드 (row 트랙 하나가 좌우 셀
+  // 높이 공유 → 같은 행 문항이 같은 y). N등분 = repeat(N, minmax(0,1fr)) 로 *균등*
+  // 행 + grid 를 page body(flex:1)에 *물리적으로 바운드*(minHeight:0) → 어떤 경우에도
+  // 페이지를 넘지 않음 (사용자 보고 2026-06-04: "줄맞춤하면서 넘어가면 의미없다").
+  // 각 셀 stretch → 문항 상단 + 남는 높이 = 풀이공간. 컬럼당 문항 수는 packing 이
+  // 높이 인지로 정해(안 들어가면 적게) 칸 넘침 최소화.
   if (columns === 2 && distribute) {
     const items = React.Children.toArray(children);
     const split = splitIndex ?? Math.ceil(items.length / 2);
@@ -89,9 +90,10 @@ export function BodyContainer({
         className={mergedClass}
         style={{
           flex: 1,
+          minHeight: 0,
           display: "grid",
           gridTemplateColumns: hasRule ? "1fr 1px 1fr" : "1fr 1fr",
-          gridTemplateRows: `repeat(${rows}, minmax(auto, 1fr))`,
+          gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
           columnGap: `${columnGap / 2}px`,
           rowGap: "12px",
           ...style,
@@ -167,6 +169,9 @@ export function BodyContainer({
       className={mergedClass}
       style={{
         flex: 1,
+        // distribute(count) 면 minHeight:0 으로 page body 에 바운드 → 슬롯 균등 분할
+        // 이 페이지를 안 넘김. spacing 모드는 자연 흐름(기존) 유지.
+        ...(distribute ? { minHeight: 0 } : {}),
         display: "flex",
         flexDirection: "column",
         gap: `${colGap}px`,

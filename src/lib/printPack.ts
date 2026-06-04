@@ -53,8 +53,8 @@ function chunkByCount(problems: ProblemReview[], perPage: number): PackedPage[] 
  * 2단은 *행 단위* 로 fit 검사 — 행 높이 = max(좌 문항, 우 문항). 좌우 정렬 그리드의
  * 실제 행 높이를 그대로 합산해 availH 초과 안 하도록 R(행 수)을 정한다. SAFETY 8px.
  */
-const COUNT_GAP = 12; // 슬롯/행 사이 최소 간격 (BodyContainer distribute 와 동일)
-const COUNT_SAFETY = 8; // 측정↔렌더 미세 오차 여유
+const COUNT_GAP = 12; // 슬롯/행 사이 간격 (BodyContainer distribute 와 동일)
+const COUNT_SAFETY = 12; // 측정↔렌더 미세 오차 여유 (보수적)
 function chunkByColumnCount(
   problems: ProblemReview[],
   heights: number[],
@@ -69,54 +69,49 @@ function chunkByColumnCount(
 
   while (i < problems.length) {
     const availH = (pages.length === 0 ? avail.first : avail.cont) - COUNT_SAFETY;
+
+    // 렌더는 *균등 N등분*(minmax(0,1fr)) + page body 에 바운드. 따라서 n 등분 시 각 칸
+    // 높이 = (availH - (n-1)*gap)/n. 칸 넘침/겹침을 막으려면 *가장 큰 문항* 이 칸에
+    // 들어가야 한다. n 을 1→per 로 키우며(칸이 점점 작아짐) 가장 큰 문항이 칸을 넘기
+    // 직전까지가 최대 n. (count = 그 페이지 문항 수: 1단 n, 2단 2n.)
+    const fits = (n: number, count: number): boolean => {
+      const slotH = (availH - (n - 1) * COUNT_GAP) / n;
+      let maxH = 0;
+      for (let j = 0; j < count && i + j < problems.length; j++) {
+        maxH = Math.max(maxH, heights[i + j] ?? 0);
+      }
+      return maxH <= slotH;
+    };
+
     let pageProblems: ProblemReview[];
     let splitIndex: number;
 
     if (columns === 1) {
-      // 1단: 최대 per 개, 높이 초과 시 조기 종료.
-      const slice: ProblemReview[] = [];
-      let used = 0;
-      while (i < problems.length && slice.length < per) {
-        const h = heights[i] ?? 0;
-        const g = slice.length > 0 ? COUNT_GAP : 0;
-        if (slice.length > 0 && used + g + h > availH) break;
-        slice.push(problems[i]);
-        used += g + h;
-        i++;
+      let bestK = 1;
+      for (let k = 1; k <= per && i + k <= problems.length; k++) {
+        if (fits(k, k)) bestK = k;
+        else break;
       }
-      if (slice.length === 0) {
-        // 한 문항이 페이지보다 큼 — 단독 배치(넘침 불가피, 그리디와 동일 정책).
-        slice.push(problems[i]);
+      pageProblems = problems.slice(i, i + bestK);
+      splitIndex = pageProblems.length;
+      if (bestK === 1 && (heights[i] ?? 0) > availH)
         devWarnOversized(problems[i], heights[i] ?? 0, availH);
-        i++;
-      }
-      pageProblems = slice;
-      splitIndex = slice.length;
+      i += pageProblems.length;
     } else {
-      // 2단: 단일 문항이 페이지보다 크면 단독 배치.
+      // 2단: 단일 문항이 한 페이지보다 크면 단독 배치(분할 불가).
       if ((heights[i] ?? 0) > availH) {
         pageProblems = [problems[i]];
         devWarnOversized(problems[i], heights[i] ?? 0, availH);
         splitIndex = 1;
         i++;
       } else {
-        // 행 단위 fit — R 행(좌 R + 우 R)의 행높이 합이 availH 이하인 최대 R(≤per).
         let bestR = 1;
-        for (let R = 1; R <= per; R++) {
-          if (i + R > problems.length) break; // 좌측에 R 개도 안 남음
-          let total = 0;
-          for (let k = 0; k < R; k++) {
-            const lh = heights[i + k] ?? 0;
-            const rIdx = i + R + k;
-            const rh = rIdx < problems.length ? heights[rIdx] ?? 0 : 0;
-            total += Math.max(lh, rh) + (k > 0 ? COUNT_GAP : 0);
-          }
-          if (total <= availH) bestR = R;
+        for (let R = 1; R <= per && i + R <= problems.length; R++) {
+          if (fits(R, 2 * R)) bestR = R;
           else break;
         }
-        const R = bestR;
-        const left = problems.slice(i, i + R);
-        const right = problems.slice(i + R, i + 2 * R);
+        const left = problems.slice(i, i + bestR);
+        const right = problems.slice(i + bestR, i + 2 * bestR);
         pageProblems = [...left, ...right];
         splitIndex = left.length;
         i += left.length + right.length;
