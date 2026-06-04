@@ -30,6 +30,34 @@ export interface ProblemBodyProps {
   hideChoices?: boolean;
 }
 
+/** 서술형 소문항 풀이공간 (px) — 사용자 요청 2026-06-04: 소문항마다 2~3줄. */
+const SUB_SOLVE_SPACE = 60;
+
+/**
+ * 서술형 본문을 *소문항* 경계로 분리. 줄 시작이 (1)/(2)/(가)/(나) 형태면 새 소문항.
+ * intro(첫 마커 전 문제 설명)는 isSub=false. 각 소문항 뒤에 풀이공간을 넣기 위함.
+ * 인쇄 전용 (ProblemBody) — 학생이 소문항별로 답을 쓸 공간 확보.
+ */
+const splitSubQuestions = (
+  text: string,
+): Array<{ text: string; isSub: boolean }> => {
+  const isMarker = (l: string) => /^\s*\((?:\d{1,2}|[가-힣])\)\s/.test(l);
+  const parts: Array<{ text: string; isSub: boolean }> = [];
+  let cur: string[] = [];
+  let curIsSub = false;
+  for (const line of text.split("\n")) {
+    if (isMarker(line)) {
+      if (cur.length) parts.push({ text: cur.join("\n").trim(), isSub: curIsSub });
+      cur = [line];
+      curIsSub = true;
+    } else {
+      cur.push(line);
+    }
+  }
+  if (cur.length) parts.push({ text: cur.join("\n").trim(), isSub: curIsSub });
+  return parts.filter((p) => p.text);
+};
+
 export const ProblemBody = ({
   problem,
   fontSize = 13,
@@ -72,6 +100,12 @@ export const ProblemBody = ({
     ? stripChoicesLine(problem.question)
     : problem.question;
 
+  // 서술형(보기 없음) + 도형 없음 + 소문항((1)(2)…) 있으면 소문항마다 풀이공간.
+  // 도형 있으면 [그림N] placeholder 인덱싱이 복잡해져 split 안 함(전체 + 슬롯 여백).
+  const isEssay = !effectiveChoices || effectiveChoices.length === 0;
+  const subParts = isEssay && !svgList ? splitSubQuestions(questionBody) : null;
+  const hasSubQ = !!subParts && subParts.length > 1 && subParts.some((p) => p.isSub);
+
   return (
     <div>
       {tag && (
@@ -88,7 +122,17 @@ export const ProblemBody = ({
         className="text-slate-900 leading-relaxed printable-math-content"
         style={{ fontSize: `${fontSize}px` }}
       >
-        <MarkdownRenderer content={questionBody} diagramSvgs={svgList} />
+        {hasSubQ ? (
+          subParts!.map((p, pi) => (
+            <div key={pi}>
+              <MarkdownRenderer content={p.text} />
+              {/* 소문항마다 풀이공간 2~3줄 (학생 답안 작성). intro 는 제외. */}
+              {p.isSub && <div aria-hidden style={{ height: SUB_SOLVE_SPACE }} />}
+            </div>
+          ))
+        ) : (
+          <MarkdownRenderer content={questionBody} diagramSvgs={svgList} />
+        )}
       </div>
 
       {/* 원본 OCR bbox crop 도형 (vector spec 이 없을 때만 fallback) */}
