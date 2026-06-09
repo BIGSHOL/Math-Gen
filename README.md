@@ -14,7 +14,9 @@
    생성. 항목별 재생성·편집.
 3. **변환 옵션** — 변형 생성 목표·난이도·동봉 자료 (placeholder).
 4. **문항별 검토** — 원본 vs 변형 좌우 비교 (placeholder).
-5. **내보내기** — PDF / DOCX / Online (placeholder).
+5. **내보내기** — 저장 완료 플로우 우선. PDF / DOCX / Online 버튼은 아직
+   사용자용으로 비활성화되어 있으며, 서버 PDF API는 인증·입력 검증을 거쳐
+   재활성화할 수 있는 상태.
 
 ### 보조 화면
 - **모델 비교 벤치** (`?bench`) — 같은 페이지를 여러 모델로 동시 OCR 해서
@@ -24,6 +26,10 @@
   기하 표기, 삼각함수·로그, 적분·미분, 행렬 등). Direct vs Pipeline 비교.
 - **레거시 단일 페이지 UI** (`?legacy`) — 초기 SaaS rebuild 이전 UI.
 - **디자인 시스템 playground** (`?ui`) — `src/components/ui` 컴포넌트 카탈로그.
+
+> 운영 빌드에서는 `?bench`, `?croptest`, `?katex`, `?legacy`, `?ui` 같은
+> 개발·검증 라우트가 기본 차단된다. 로컬 개발 중이거나
+> `VITE_ENABLE_DEV_TOOLS=true` 일 때만 접근 가능하다.
 
 ## 로컬 실행
 
@@ -46,11 +52,12 @@ npm run dev
 npm run build
 ```
 
-> **보안 주의**: Phase 0.5 단계라 모든 API 호출이 **브라우저에서 직접** 나감
-> (`dangerouslyAllowBrowser: true`). 프로덕션 배포 시 반드시 백엔드 프록시
-> 경유하도록 옮길 것. `.env.local` 은 `.gitignore` 로 보호되어 있고
-> `vite.config.ts` 의 `readEnvLocal()` 이 shell 환경변수 우선순위 충돌을
-> 우회한다.
+> **보안 주의**: 비용이 발생하는 `/api/ai-*` 및 `/api/export-pdf` 는
+> Supabase Bearer 토큰이 있어야 호출된다. `vite.config.ts` 는 Vite의
+> `loadEnv(..., "")` 를 쓰지 않고 허용된 환경변수만 읽는다. 서비스 role key
+> 같은 서버 전용 비밀값을 `VITE_*` 또는 클라이언트 번들에 넣지 말 것.
+> 과거 빌드 디버그 로그에 실제 키가 노출된 적이 있으므로, 배포 전 노출된
+> provider key와 Supabase service-role key는 회전하는 것이 안전하다.
 
 ## 모델 라우팅
 
@@ -76,10 +83,30 @@ provider 별 골격:
 - **Framework**: React 19 + Vite 6 + TypeScript
 - **Styling**: Tailwind CSS + 자체 디자인 토큰
 - **상태**: Zustand + sessionStorage persist
-- **PDF**: pdfjs-dist 5.x (worker = unpkg, standardFontDataUrl 포함)
+- **PDF**: pdfjs-dist 5.x (worker = unpkg, standardFontDataUrl 포함),
+  jsPDF 4.x + html2canvas 클라이언트 fallback, Puppeteer 서버 PDF API
 - **AI SDKs**: `@anthropic-ai/sdk`, `@google/genai`, `openai`
 - **수식**: KaTeX (npm import) + react-markdown + remark-math + rehype-katex
 - **저장**: IndexedDB (`pageImages`, `pageThumbnails`, `pdfBlobs`)
+
+## 검증 체크리스트
+
+보안·배포 변경 후에는 최소 아래 명령을 통과시킨다.
+
+```bash
+npx tsc --noEmit --pretty false
+npm audit --omit=dev
+npm run build
+```
+
+빌드 산출물에는 실제 provider key 또는 Supabase service-role key가 없어야 한다.
+
+```bash
+rg -o "sk-ant|sk-proj|AIza|SUPABASE_SERVICE_ROLE" dist
+```
+
+2026-06-09 보안 패치 기준 확인 결과: 타입체크 통과, production build 통과,
+`npm audit --omit=dev` 0건, `dist` 비밀값 패턴 0건.
 
 ## 프로젝트 구조 (요약)
 

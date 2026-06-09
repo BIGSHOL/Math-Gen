@@ -4236,3 +4236,109 @@ tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
 **원칙**: "준비 중" 기능은 *삭제하지 말고 플래그 게이팅* — 데이터/스캐폴드 보존 +
 한 줄로 복구. 단 부활 시 *왜 껐었는지* (위 사유) 를 먼저 해소했는지 확인.
 
+## 34. 보안 검수 패치 기준선 (2026-06-09, commit `4fa6722`)
+
+이번 섹션은 과거 메모 중 `api/export-pdf.ts deps missing`, `tsc exit 0 (api/export-pdf 제외)`,
+브라우저 직접 AI 호출 전제, 개발 라우트 운영 노출 전제를 **대체**한다. 이후 검수는 아래
+상태를 기준으로 진행한다.
+
+### 34-1. Vite env 로딩: `loadEnv(..., "")` 금지
+
+`vite.config.ts` 에서 Vite `loadEnv(mode, cwd, "")` 를 쓰면 shell/Vercel env 전체가
+resolved config 로 들어가고, `vite --debug` 계열 로그에 provider key 또는 Supabase
+service-role key 가 찍힐 수 있다.
+
+현재 기준:
+- shell env 는 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+  `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_ENABLED` 만 읽는다.
+- `.env.example` placeholder 는 fallback 에만 쓰고, placeholder 값은 strip 한다.
+- production build 에서는 AI provider key define 을 주입하지 않는다.
+- Supabase anon key 는 공개 가능하지만 service-role key 는 절대 `VITE_*` 로 두지 않는다.
+
+운영 조치: 2026-06-09 검수 중 과거 build debug 로그에 실제 키가 출력된 정황이 있었으므로
+provider key 와 Supabase service-role key 는 배포 전에 회전한다.
+
+### 34-2. 비용 API 는 `requireAuth` 를 통과해야 한다
+
+`api/_jwt.ts` 의 `requireAuth(req, res)` 가 `resolveAuth` 결과에 `userId` 가 없으면
+401 을 반환한다. 비용이 발생하는 서버 함수는 익명 호출을 허용하지 않는다.
+
+현재 적용 대상:
+- `api/ai-ocr.ts`
+- `api/ai-solution.ts`
+- `api/ai-variant.ts`
+- `api/ai-cropdetect.ts`
+- `api/ai-exam-analysis.ts`
+- `api/ai-exam-commentary.ts`
+- `api/ai-exam-v4.ts`
+- `api/ai-image.ts`
+- `api/export-pdf.ts`
+
+새 AI/PDF endpoint 를 추가하면 `resolveAuth` 만 호출하지 말고 `requireAuth` 를 먼저 적용한다.
+
+### 34-3. 개발 라우트는 운영에서 닫혀 있어야 한다
+
+`?bench`, `?croptest`, `?katex`, `?legacy`, `?ui` 는 개발/검증 도구다. 특히 `?bench`,
+`?croptest` 는 AI 비용이 발생할 수 있으므로 production 에서 기본 차단한다.
+
+현재 기준:
+- `import.meta.env.DEV` 또는 `VITE_ENABLE_DEV_TOOLS=true` 일 때만 dev tool route 허용.
+- `admin` 포함 모든 route 는 `AuthGate` 뒤에서 렌더링한다.
+- `AdminScreen` 은 `AuthGate` 초기화 없이 직접 열리지 않는다.
+
+### 34-4. `/api/export-pdf` 보안 경계
+
+서버 PDF endpoint 는 더 이상 미설치/미검증 상태가 아니다. `@sparticuz/chromium-min`
+`149.0.0` 과 `puppeteer-core` 가 package dependency 에 추가되어 있고, Chromium pack URL 도
+`v149.0.0` 으로 맞춰져 있다.
+
+현재 방어선:
+- POST only
+- `requireAuth` 필수
+- HTML 최대 길이 제한
+- CSS URL 개수 제한
+- same-origin `.css` 만 `<link>` 로 주입
+- Puppeteer request interception 으로 `about:blank`, `data:`, `blob:`, same-origin
+  document/stylesheet/font/image 만 허용
+- title / Content-Disposition filename sanitize
+- error log 는 인증된 `userId`, `tenantId` 기준으로 기록
+
+프론트 호출부(`PrintActionPanel`)는 서버 PDF 호출 시 `currentAccessToken()` 으로 Bearer
+토큰을 붙인다. 버튼은 아직 UX 상 비활성 상태지만, 재활성화할 때 인증 헤더 경로를 유지한다.
+
+### 34-5. `expr-eval` 제거 및 audit 기준
+
+`expr-eval@2.0.2` 는 prototype pollution / evaluate function 제한 문제 advisory 가 있고
+공식 fix 가 없어 제거했다. `src/lib/diagram/eval-expr.ts` 는 제한된 수식 파서로 대체했다.
+
+지원 범위:
+- 숫자, `x`, `pi`/`PI`, `e`/`E`
+- `+ - * / % ^`, 괄호, 암시적 곱셈(`2x`, `2(x+1)`)
+- 허용된 Math 함수: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`,
+  `abs`, `log`, `ln`, `log2`, `log10`, `exp`, `ceil`, `floor`, `round`, `min`, `max`, `pow`
+
+`jspdf` 는 `^4.2.1` 로 올렸고 `dompurify` advisory 도 함께 해소했다.
+
+### 34-6. 2차 검증 명령
+
+2026-06-09 2차 검증에서 아래를 모두 통과하고 `origin/main` 에 push 했다.
+
+```bash
+npx.cmd tsc --noEmit --pretty false
+npm.cmd audit --omit=dev
+npm.cmd run build
+```
+
+결과:
+- TypeScript: exit 0
+- npm audit: `found 0 vulnerabilities`
+- production build: exit 0
+- dist secret scan: `sk-ant=0`, `sk-proj=0`, `AIza=0`, `SUPABASE_SERVICE_ROLE=0`,
+  `long-sk-token=0`
+
+남은 경고:
+- Anthropic SDK 의 Node built-in externalization warning 이 production build 에 남아 있다.
+- main chunk / `pdfExporter` chunk 가 500 kB 를 넘는다.
+
+둘 다 현재 실패 조건은 아니지만, 다음 성능/번들 최적화 작업의 우선 후보로 둔다.
+
