@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "./_types.js";
 import OpenAI from "openai";
-import { resolveAuth } from "./_jwt.js";
+import { requireAuth } from "./_jwt.js";
 import { getServiceClient } from "./_supabase.js";
 import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
 
@@ -98,7 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "POST only" });
   }
   const t0 = Date.now();
-  const auth = await resolveAuth(req);
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
   const input = (req.body ?? {}) as AiImageInput;
   if (!input.prompt || typeof input.prompt !== "string") {
     return res.status(400).json({ error: "prompt field required (string)" });
@@ -106,12 +107,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!input.ocrProblemId || typeof input.ocrProblemId !== "string") {
     return res.status(400).json({ error: "ocrProblemId field required (string)" });
   }
-  if (!auth.userId) {
-    return res
-      .status(401)
-      .json({ error: "로그인 필요 — AI 이미지 생성은 인증 사용자 전용" });
-  }
-
   try {
     const openai = getOpenAIClient();
     // Step 1: 한국어 → 영어 번역 (translate=false 면 skip)

@@ -4,7 +4,7 @@ import {
   type AnalyzeExamInput,
 } from "../src/services/ai/examAnalysis.js";
 import { normalizeAnthropicUsage } from "../src/lib/pricing.js";
-import { resolveAuth } from "./_jwt.js";
+import { requireAuth } from "./_jwt.js";
 import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
 
 /**
@@ -30,7 +30,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "POST only" });
   }
   const t0 = Date.now();
-  const auth = await resolveAuth(req);
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
   const input = (req.body ?? {}) as AnalyzeExamInput;
 
   if (!input.pageImages || input.pageImages.length === 0) {

@@ -1,58 +1,156 @@
 import type { VercelRequest, VercelResponse } from "./_types.js";
 import chromium from "@sparticuz/chromium-min";
 import puppeteer from "puppeteer-core";
-import { resolveAuth } from "./_jwt.js";
+import { requireAuth } from "./_jwt.js";
 import { logError, serverFingerprint } from "./_logUsage.js";
 
 /**
  * POST /api/export-pdf
  *
- * Phase 5b — Puppeteer PDF 생성. 클라이언트의 `printable-root` outerHTML +
- * 동일 origin 의 stylesheet link 를 받아 Chromium headless 로 PDF 생성.
- *
- * **input** (JSON):
- *   - `html`: 완성된 HTML 문자열 (printable-root outerHTML)
- *   - `cssUrls`: 외부 stylesheet URL 배열 (Vite 빌드의 /assets/index-*.css)
- *   - `title?`: 파일명 hint (response Content-Disposition)
- *
- * **output**: application/pdf binary.
- *
- * **@sparticuz/chromium-min**: Chromium binary 를 외부 URL 에서 download —
- * Vercel function size 한도 50MB 회피 (chromium-min 자체 ~3MB, 실제 binary 는
- * cold start 시 외부 fetch + 캐시).
- *
- * **cold start**: 첫 호출 ~5-10s (Chromium 다운로드 + launch). 후속 ~2-3s.
- *
- * **timeout**: vercel.json 의 maxDuration 60s 안. Pro tier 필요.
+ * Server-side PDF generation for the printable wizard output.
+ * This endpoint accepts trusted app HTML from an authenticated user, then
+ * renders it in a locked-down Chromium page.
  */
 
 const CHROMIUM_PACK_URL =
-  "https://github.com/Sparticuz/chromium/releases/download/v148.0.0/chromium-v148.0.0-pack.x64.tar";
+  "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
+
+const MAX_HTML_CHARS = 8_000_000;
+const MAX_CSS_URLS = 16;
+const MAX_TITLE_CHARS = 120;
+const DEFAULT_TITLE = "mathgen-export";
 
 interface ExportPdfInput {
   html: string;
-  cssUrls?: string[];
+  cssUrls: string[];
   title?: string;
 }
 
-/**
- * 외부 CSS URL 을 `<link>` 태그로 변환해 HTML head 에 inject.
- * Puppeteer 의 `waitUntil: "networkidle0"` 가 모든 CSS fetch 완료 후 PDF 캡처.
- */
-const wrapHtml = (input: ExportPdfInput): string => {
-  const cssLinks = (input.cssUrls ?? [])
-    .map((url) => `<link rel="stylesheet" href="${url}">`)
+const firstHeaderValue = (value: string | string[] | undefined): string | undefined => {
+  const first = Array.isArray(value) ? value[0] : value;
+  return first?.split(",")[0]?.trim() || undefined;
+};
+
+const requestOrigin = (req: VercelRequest): string => {
+  const host =
+    firstHeaderValue(req.headers["x-forwarded-host"]) ?? firstHeaderValue(req.headers.host);
+  if (!host) return "";
+
+  const forwardedProto = firstHeaderValue(req.headers["x-forwarded-proto"]);
+  const fallbackProto =
+    host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
+  const proto =
+    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : fallbackProto;
+
+  return `${proto}://${host}`;
+};
+
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+
+const safeTitle = (title?: string): string => {
+  const trimmed = (title ?? DEFAULT_TITLE).trim().slice(0, MAX_TITLE_CHARS);
+  return trimmed || DEFAULT_TITLE;
+};
+
+const safeDownloadName = (title?: string): string => {
+  const cleaned = safeTitle(title)
+    .replace(/[\r\n"]/g, "")
+    .replace(/[\\/:*?<>|]/g, "_")
+    .trim();
+  return cleaned || DEFAULT_TITLE;
+};
+
+const normalizeCssUrls = (cssUrls: string[], origin: string): string[] => {
+  if (!origin) return [];
+
+  return cssUrls
+    .map((rawUrl) => {
+      try {
+        const url = new URL(rawUrl, origin);
+        if (url.origin !== origin) return null;
+        if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+        if (!url.pathname.endsWith(".css")) return null;
+        return url.href;
+      } catch {
+        return null;
+      }
+    })
+    .filter((url): url is string => Boolean(url));
+};
+
+const parseInput = (body: unknown): ExportPdfInput | { error: string; status: number } => {
+  const raw = typeof body === "string" ? JSON.parse(body) : body;
+  const input = (raw ?? {}) as Partial<{
+    html: unknown;
+    cssUrls: unknown;
+    title: unknown;
+  }>;
+
+  const html = input.html;
+  if (typeof html !== "string" || html.length === 0) {
+    return { status: 400, error: "html field required" };
+  }
+  if (html.length > MAX_HTML_CHARS) {
+    return { status: 413, error: "html field too large" };
+  }
+
+  let cssUrls: string[] = [];
+  const cssUrlsInput = input.cssUrls;
+  if (cssUrlsInput !== undefined) {
+    if (!Array.isArray(cssUrlsInput)) {
+      return { status: 400, error: "cssUrls must be an array" };
+    }
+    if (cssUrlsInput.length > MAX_CSS_URLS) {
+      return { status: 400, error: "too many stylesheet URLs" };
+    }
+    if (!cssUrlsInput.every((url): url is string => typeof url === "string")) {
+      return { status: 400, error: "cssUrls must contain strings" };
+    }
+    cssUrls = cssUrlsInput;
+  }
+
+  let title: string | undefined;
+  if (input.title !== undefined) {
+    if (typeof input.title !== "string") {
+      return { status: 400, error: "title must be a string" };
+    }
+    title = input.title;
+  }
+
+  return {
+    html,
+    cssUrls,
+    title,
+  };
+};
+
+const wrapHtml = (input: ExportPdfInput, origin: string): string => {
+  const cssLinks = normalizeCssUrls(input.cssUrls, origin)
+    .map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`)
     .join("\n");
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>${input.title ?? "MathGen"}</title>
+<title>${escapeHtml(safeTitle(input.title))}</title>
 ${cssLinks}
 <style>
-  /* 인쇄 시 body 마진 0 — @page 가 마진 담당 */
   body { margin: 0; padding: 0; }
-  /* 화면 전용 요소 숨김 (인쇄 외) */
   .wizard-chrome, .wizard-chrome-preview { display: none !important; }
 </style>
 </head>
@@ -62,70 +160,108 @@ ${input.html}
 </html>`;
 };
 
+const installNetworkGuard = async (
+  page: Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>>,
+  origin: string,
+): Promise<void> => {
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url === "about:blank" || url.startsWith("data:") || url.startsWith("blob:")) {
+      void request.continue();
+      return;
+    }
+
+    try {
+      const parsed = new URL(url);
+      const allowedResourceTypes = new Set(["document", "stylesheet", "font", "image"]);
+      if (
+        origin &&
+        parsed.origin === origin &&
+        allowedResourceTypes.has(request.resourceType())
+      ) {
+        void request.continue();
+        return;
+      }
+    } catch {
+      // Fall through to abort malformed URLs.
+    }
+
+    void request.abort();
+  });
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "POST only" });
   }
-  const input = (req.body ?? {}) as ExportPdfInput;
-  if (!input.html) {
-    return res.status(400).json({ error: "html field required" });
+
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+
+  let input: ExportPdfInput;
+  try {
+    const parsed = parseInput(req.body);
+    if ("error" in parsed) {
+      return res.status(parsed.status).json({ error: parsed.error });
+    }
+    input = parsed;
+  } catch {
+    return res.status(400).json({ error: "invalid JSON body" });
   }
+
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
   try {
+    const origin = requestOrigin(req);
     const executablePath = await chromium.executablePath(CHROMIUM_PACK_URL);
     browser = await puppeteer.launch({
       args: [...chromium.args, "--font-render-hinting=none"],
-      defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 2 }, // A4 @ 96dpi
+      defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 2 },
       executablePath,
       headless: true,
     });
     const page = await browser.newPage();
-    const fullHtml = wrapHtml(input);
-    // puppeteer-core 25.x 의 setContent 는 `networkidle0` 지원 X (load /
-    // domcontentloaded 만). load 후 명시적 waitForNetworkIdle 로 stylesheet +
-    // 외부 fonts fetch 완료 보장.
+    await installNetworkGuard(page, origin);
+
+    const fullHtml = wrapHtml(input, origin);
     await page.setContent(fullHtml, {
       waitUntil: "load",
       timeout: 30_000,
     });
     await page.waitForNetworkIdle({ idleTime: 500, timeout: 30_000 });
-    // 폰트 로드 추가 대기 (KaTeX woff2 등)
     await page.evaluateHandle("document.fonts.ready");
+
     const pdfBytes = await page.pdf({
       format: "A4",
       printBackground: true,
       preferCSSPageSize: false,
       margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" },
     });
-    // puppeteer-core 25.x 는 Uint8Array 반환. Vercel res.send 는 Buffer
-    // (= Uint8Array 서브클래스) 를 binary 로 처리하므로 명시적 변환.
+
     const pdfBuffer = Buffer.from(pdfBytes);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Length", String(pdfBuffer.length));
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${input.title ?? "mathgen-export"}.pdf"`,
+      `attachment; filename="${safeDownloadName(input.title)}.pdf"`,
     );
     return res.send(pdfBuffer);
   } catch (err) {
     const msg = (err as Error).message || "PDF generation failed";
-    // Phase B — error_logs 기록 (fire-and-forget). 비동기지만 응답 latency 영향 X.
-    void resolveAuth(req).then((auth) => {
-      logError({
-        userId: auth.userId,
-        tenantId: auth.tenantId,
-        kind: "export_pdf",
-        severity: "error",
-        message: msg,
-        stack: (err as Error).stack ?? null,
-        context: {
-          endpoint: "export-pdf",
-          title: input.title ?? null,
-          htmlLength: input.html?.length ?? 0,
-        },
-        userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
-        fingerprint: serverFingerprint(msg, "export-pdf"),
-      });
+    void logError({
+      userId: auth.userId,
+      tenantId: auth.tenantId,
+      kind: "export_pdf",
+      severity: "error",
+      message: msg,
+      stack: (err as Error).stack ?? null,
+      context: {
+        endpoint: "export-pdf",
+        title: input.title ?? null,
+        htmlLength: input.html.length,
+      },
+      userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+      fingerprint: serverFingerprint(msg, "export-pdf"),
     });
     // eslint-disable-next-line no-console
     console.error("[api/export-pdf] error:", msg);

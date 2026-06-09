@@ -14,6 +14,10 @@ import { CropTestScreen } from "@app/screens/CropTestScreen";
 import { AdminScreen } from "@app/screens/AdminScreen";
 import { useAppStore } from "@app/stores/appStore";
 
+type Route = "ui" | "legacy" | "bench" | "katex" | "croptest" | "admin" | "app";
+
+const DEV_TOOL_ROUTES: Route[] = ["ui", "legacy", "bench", "katex", "croptest"];
+
 /**
  * Top-level shell.
  *
@@ -37,7 +41,7 @@ const App = () => {
     installGlobalErrorHandlers();
   }, []);
 
-  const route = useMemo<"ui" | "legacy" | "bench" | "katex" | "croptest" | "admin" | "app">(() => {
+  const route = useMemo<Route>(() => {
     if (typeof window === "undefined") return "app";
     const search = window.location.search;
     if (search.includes("admin")) return "admin";
@@ -50,23 +54,34 @@ const App = () => {
   }, []);
 
   const screen = useAppStore((s) => s.screen);
-
-  if (route === "admin") return <AdminScreen />;
-  if (route === "katex") return <KatexTestScreen />;
-  if (route === "croptest") return <CropTestScreen />;
-  if (route === "ui") return <UIPlayground />;
-  if (route === "legacy") return <LegacyScreen />;
-  if (route === "bench") return <ModelBenchScreen />;
+  const devToolsEnabled =
+    import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_TOOLS === "true";
+  const effectiveRoute =
+    DEV_TOOL_ROUTES.includes(route) && !devToolsEnabled ? "app" : route;
 
   return (
     <AuthGate>
-      <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
-        {screen === "library" && <LibraryScreen />}
-        {screen === "detail" && <DetailScreen />}
-        {screen === "wizard" && <WizardScreen />}
-        <ModalLayer />
-        <ToastContainer />
-      </div>
+      {effectiveRoute === "admin" ? (
+        <AdminScreen />
+      ) : effectiveRoute === "katex" ? (
+        <KatexTestScreen />
+      ) : effectiveRoute === "croptest" ? (
+        <CropTestScreen />
+      ) : effectiveRoute === "ui" ? (
+        <UIPlayground />
+      ) : effectiveRoute === "legacy" ? (
+        <LegacyScreen />
+      ) : effectiveRoute === "bench" ? (
+        <ModelBenchScreen />
+      ) : (
+        <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
+          {screen === "library" && <LibraryScreen />}
+          {screen === "detail" && <DetailScreen />}
+          {screen === "wizard" && <WizardScreen />}
+          <ModalLayer />
+          <ToastContainer />
+        </div>
+      )}
     </AuthGate>
   );
 };

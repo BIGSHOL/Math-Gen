@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "./_types.js";
 import { extractPageProblems, type OCRPageInput, OCR_MODELS, type OCRModel } from "../src/services/ai/ocr.js";
-import { resolveAuth } from "./_jwt.js";
+import { requireAuth } from "./_jwt.js";
 import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
 
 /**
@@ -20,7 +20,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "POST only" });
   }
   const t0 = Date.now();
-  const auth = await resolveAuth(req);
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
   const input = (req.body ?? {}) as OCRPageInput;
   if (!input.pageBase64) {
     return res.status(400).json({ error: "pageBase64 field required" });

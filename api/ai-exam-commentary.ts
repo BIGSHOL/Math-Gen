@@ -4,7 +4,7 @@ import {
   type AnalyzeCommentaryInput,
 } from "../src/services/ai/examCommentary.js";
 import { normalizeAnthropicUsage } from "../src/lib/pricing.js";
-import { resolveAuth } from "./_jwt.js";
+import { requireAuth } from "./_jwt.js";
 import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
 
 /**
@@ -22,7 +22,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "POST only" });
   }
   const t0 = Date.now();
-  const auth = await resolveAuth(req);
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
   const input = (req.body ?? {}) as AnalyzeCommentaryInput;
 
   if (!input.basic || !input.basic.questions?.length) {

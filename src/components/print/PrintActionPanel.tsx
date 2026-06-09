@@ -138,14 +138,19 @@ export const PrintActionPanel = ({
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
       const { sanitizeFilename } = await import("@app/lib/pdfExporter");
+      const { currentAccessToken } = await import("@app/services/api/supabase");
       const html = printableRootRef.current.outerHTML;
       const cssUrls = collectStylesheetUrls();
       const safeName = sanitizeFilename(filename || "변형시험지");
+      const token = await currentAccessToken();
+      if (!token) {
+        throw new Error("로그인 후 PDF를 생성할 수 있습니다.");
+      }
 
       setProgress({ current: 0, total: totalPages, phase: "saving" });
       const res = await fetch("/api/export-pdf", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ html, cssUrls, title: safeName }),
       });
       if (!res.ok) {

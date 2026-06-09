@@ -1,7 +1,7 @@
 import fs from "fs";
 import net from "net";
 import path from "path";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -111,6 +111,33 @@ const readEnvLocal = (): Record<string, string> => {
   return { ...exampleValues, ...envValues, ...localValues };
 };
 
+const SHELL_ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENAI_API_KEY",
+  "VITE_SUPABASE_URL",
+  "VITE_SUPABASE_ANON_KEY",
+  "VITE_SUPABASE_ENABLED",
+] as const;
+
+type ShellEnvKey = (typeof SHELL_ENV_KEYS)[number];
+
+/**
+ * Read only the keys this Vite config is allowed to consume.
+ *
+ * Avoid `loadEnv(mode, cwd, "")`: with an empty prefix Vite reads every env
+ * var, and `vite --debug` prints the resolved object, including server-only
+ * secrets such as service-role keys.
+ */
+const readAllowedShellEnv = (): Partial<Record<ShellEnvKey, string>> => {
+  const picked: Partial<Record<ShellEnvKey, string>> = {};
+  for (const key of SHELL_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) picked[key] = value;
+  }
+  return picked;
+};
+
 /**
  * Rewrites resolved paths for Anthropic SDK files that depend on Node
  * built-ins (`node:fs`, `node:child_process`, etc.). The SDK bundles
@@ -153,9 +180,9 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
   },
 });
 
-export default defineConfig(async ({ mode, command }) => {
+export default defineConfig(async ({ command }) => {
   const fileEnv = readEnvLocal();
-  const env = loadEnv(mode, process.cwd(), "");
+  const env = readAllowedShellEnv();
   // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
   // 3001, 3002... 로. dev 명령 출력의 "Local:" URL 이 실제 listen port 와 일치.
   const devPort = await findFreePort(3000);

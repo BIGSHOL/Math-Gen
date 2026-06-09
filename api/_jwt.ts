@@ -1,4 +1,4 @@
-import type { VercelRequest } from "./_types.js";
+import type { VercelRequest, VercelResponse } from "./_types.js";
 import { getServiceClient } from "./_supabase.js";
 
 /**
@@ -19,6 +19,10 @@ import { getServiceClient } from "./_supabase.js";
 export interface AuthContext {
   userId: string | null;
   tenantId: string | null;
+}
+
+export interface RequiredAuthContext extends AuthContext {
+  userId: string;
 }
 
 const EMPTY_CONTEXT: AuthContext = { userId: null, tenantId: null };
@@ -59,4 +63,20 @@ export const resolveAuth = async (
     // JWT 만료 / 위조 등 — 인증 실패는 silent (anon 으로 진행).
     return EMPTY_CONTEXT;
   }
+};
+
+/**
+ * Authorization header 를 필수로 요구한다. 비용이 발생하는 AI/PDF API 앞단에서
+ * 호출해 인증 실패 시 모델 호출이나 Chromium launch 전에 차단한다.
+ */
+export const requireAuth = async (
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<RequiredAuthContext | null> => {
+  const auth = await resolveAuth(req);
+  if (!auth.userId) {
+    res.status(401).json({ error: "로그인이 필요합니다." });
+    return null;
+  }
+  return auth as RequiredAuthContext;
 };
