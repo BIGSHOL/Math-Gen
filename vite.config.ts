@@ -260,6 +260,20 @@ export default defineConfig(async ({ command }) => {
         "@": path.resolve(__dirname, "."),
         "@app": path.resolve(__dirname, "./src"),
       },
+      // `dedupe` 가 없으면 vite optimizeDeps 가 recharts 처럼 *peerDependency*
+      // 로 react 를 받는 라이브러리를 prebundle 할 때 자기 안의 react import 를
+      // node_modules/recharts/node_modules/react 같은 nested path 로 resolve
+      // 할 위험. 결과: 우리 앱 react 와 *별 인스턴스* → useContext 가 다른 store
+      // 를 보며 "Invalid hook call" / "useContext is null" 폭주. `dedupe` 로
+      // *우리 앱 root* 의 react 만 사용 강제.
+      dedupe: ["react", "react-dom"],
+    },
+    // recharts 는 dynamic import 안 되는 다중 stats 컴포넌트들이 한꺼번에
+    // mount 되므로 *처음부터 prebundle* 안 하면 detail screen 진입 시 vite 가
+    // on-demand discovery 트리거 → full page reload + 짧은 invalid hook call 창
+    // (CJS interop 미완성 순간). `include` 로 dev 첫 시작에 함께 prebundle.
+    optimizeDeps: {
+      include: ["recharts", "react", "react-dom", "react/jsx-runtime"],
     },
   };
 });
