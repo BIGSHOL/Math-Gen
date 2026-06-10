@@ -13,7 +13,7 @@ import type { PackedPage } from "@app/lib/printPack";
 import { usePreviewScale, A4_HEIGHT_PX, A4_WIDTH_PX } from "@app/hooks/usePreviewScale";
 import { A4Page } from "@app/components/print/A4Page";
 import { PrintAnswerKeyPage } from "@app/components/print/PrintAnswerKeyPage";
-import { PrintOptionsPanel } from "@app/components/print/PrintOptionsPanel";
+import { PrintOptionsPanel, ENABLED_EXPORT_SOURCES } from "@app/components/print/PrintOptionsPanel";
 import { PrintActionPanel } from "@app/components/print/PrintActionPanel";
 import { ZoomToolbar } from "@app/components/print/ZoomToolbar";
 import {
@@ -68,9 +68,16 @@ export const Step5Export = () => {
   // buildDigitizeReviews 는 original===variant 로 만들어 print 경로가 어느 필드를
   // 읽든 현재 OCR 이 나오므로 안전. exportSource 가 variant/both 로 부활(§33-3)하면
   // 그땐 실제 변형 snapshot(rawProblems)이 필요하므로 분기는 유지한다.
+  //
+  // ENABLED_EXPORT_SOURCES 가드 — 옛 세션의 exportSource=variant/both (현재 비활성)
+  // 는 PrintOptionsPanel 의 coerce effect 가 original 로 되돌리기 *전 1프레임* 동안
+  // 변형 snapshot 이 노출되는 flash 가 있었음 (전수검사 2026-06-04). 비활성 값이면
+  // 즉시 digitize 경로 — 부활 시(disabled 제거) 자동으로 rawProblems 경로 복귀.
   const problems = useMemo(
     () =>
-      exportSource === "original" ? buildDigitizeReviews(pages) : rawProblems,
+      exportSource !== "original" && ENABLED_EXPORT_SOURCES.includes(exportSource)
+        ? rawProblems
+        : buildDigitizeReviews(pages),
     [exportSource, pages, rawProblems],
   );
 

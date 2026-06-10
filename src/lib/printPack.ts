@@ -105,8 +105,14 @@ function chunkByColumnCount(
         splitIndex = 1;
         i++;
       } else {
+        // 행 수 상한 = min(perColumn, ceil(잔여/2)) — 잔여가 2R 미만일 때 R 을
+        // 잔여보다 크게 잡으면 left 가 잔여를 다 삼켜 right 가 비는 *좌편향*
+        // 마지막 페이지가 됨 (전수검사 2026-06-04). ceil(잔여/2) 캡이면 꼬리
+        // 페이지도 좌우 균형 (예: 3개 남음 → 2행 = 좌2 + 우1).
+        const remaining = problems.length - i;
+        const maxR = Math.min(per, Math.ceil(remaining / 2));
         let bestR = 1;
-        for (let R = 1; R <= per && i + R <= problems.length; R++) {
+        for (let R = 1; R <= maxR; R++) {
           if (fits(R, 2 * R)) bestR = R;
           else break;
         }

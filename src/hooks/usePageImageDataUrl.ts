@@ -86,10 +86,16 @@ export const usePageImageDataUrl = (
           return;
         }
 
-        // 3. 회전 적용 (옵션)
-        const final = rotate && rotation !== 0
-          ? await applyRotation(dataUrl, rotation)
-          : dataUrl;
+        // 3. 회전 적용 (옵션) — 실패 시 *미회전 원본* fallback (빈 화면보다
+        //    낫다). Step2 로컬판이 갖고 있던 동작을 공용으로 흡수 (§32-1 통합).
+        let final = dataUrl;
+        if (rotate && rotation !== 0) {
+          try {
+            final = await applyRotation(dataUrl, rotation);
+          } catch {
+            /* 회전 실패 → 원본 그대로 표시 */
+          }
+        }
         if (!cancelled) {
           setUrl(final);
           setLoading(false);

@@ -62,8 +62,12 @@ const EXPORT_SOURCE_OPTIONS: Array<{
   { value: "both", label: "원본+변형", icon: "rows", disabled: true, title: "변형 출력 준비 중" },
 ];
 
-/** 비활성 아닌(선택 가능한) 출력 대상 — 비활성 값 coerce 시 fallback. */
-const ENABLED_EXPORT_SOURCES = EXPORT_SOURCE_OPTIONS.filter((o) => !o.disabled).map(
+/**
+ * 비활성 아닌(선택 가능한) 출력 대상 — 비활성 값 coerce 시 fallback.
+ * Step5Export 도 import — 옛 세션의 exportSource=variant 가 coerce 전 1프레임
+ * 동안 변형 snapshot 을 노출하는 flash 방지 (단일 소스 공유).
+ */
+export const ENABLED_EXPORT_SOURCES = EXPORT_SOURCE_OPTIONS.filter((o) => !o.disabled).map(
   (o) => o.value,
 );
 
