@@ -25,20 +25,55 @@ const tryListen = (port: number, host: string): Promise<boolean> =>
     const tester = net.createServer();
     tester.once("error", () => resolve(false));
     tester.once("listening", () => tester.close(() => resolve(true)));
-    tester.listen(port, host);
+    tester.listen({ port, host, exclusive: true });
   });
+
+const canConnect = (port: number, host: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = net.connect({ port, host });
+    let settled = false;
+    const done = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(500, () => done(false));
+  });
+
+const isPortAvailable = async (port: number): Promise<boolean> => {
+  // Windows can allow a second listener on a port in some host-binding cases.
+  // A connect probe catches the ordinary "already serving localhost" case first.
+  if (await canConnect(port, "127.0.0.1")) return false;
+  if (await canConnect(port, "::1")) return false;
+  if (!(await tryListen(port, "0.0.0.0"))) return false;
+  if (!(await tryListen(port, "::"))) return false;
+  return true;
+};
 
 const findFreePort = async (start: number, max = 30): Promise<number> => {
   for (let p = start; p < start + max; p++) {
-    // IPv4 검사. 다른 process 가 0.0.0.0 / 127.0.0.1 으로 listen 중이면 fail.
-    if (!(await tryListen(p, "0.0.0.0"))) continue;
-    // IPv6 검사. 다른 process 가 :: / ::1 으로 listen 중이면 fail. Next.js
-    // Turbopack 가 :: 로 binding 하는 게 대표 케이스.
-    if (!(await tryListen(p, "::"))) continue;
+    if (!(await isPortAvailable(p))) continue;
     return p;
   }
   // 끝까지 빈 port 못 찾으면 start 반환 — vite 가 자체 fallback 시도하도록.
   return start;
+};
+
+const readCliPort = (argv: string[]): number | undefined => {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--port" || arg === "-p") {
+      const raw = argv[i + 1];
+      const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    const eq = arg.match(/^(?:--port|-p)=(\d+)$/);
+    if (eq) return Number.parseInt(eq[1], 10);
+  }
+  return undefined;
 };
 
 /**
@@ -170,6 +205,16 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
   name: "stub-anthropic-browser-unsafe-modules",
   enforce: "pre" as const,
   resolveId(source: string, importer: string | undefined) {
+    const normalizedSource = source.replace(/\\/g, "/");
+    if (
+      normalizedSource === "@anthropic-ai/sdk/tools/agent-toolset/node" ||
+      normalizedSource.endsWith("/@anthropic-ai/sdk/tools/agent-toolset/node.mjs") ||
+      normalizedSource.endsWith("/@anthropic-ai/sdk/tools/agent-toolset/node.js") ||
+      normalizedSource.endsWith("/tools/agent-toolset/node.mjs") ||
+      normalizedSource.endsWith("/tools/agent-toolset/node.js")
+    ) {
+      return stubs["node.mjs"];
+    }
     if (!importer) return null;
     const normalized = importer.replace(/\\/g, "/");
     if (!normalized.includes("/@anthropic-ai/sdk/tools/agent-toolset/")) return null;
@@ -183,9 +228,10 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
 export default defineConfig(async ({ command }) => {
   const fileEnv = readEnvLocal();
   const env = readAllowedShellEnv();
+  const cliPort = readCliPort(process.argv);
   // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
-  // 3001, 3002... 로. dev 명령 출력의 "Local:" URL 이 실제 listen port 와 일치.
-  const devPort = await findFreePort(3000);
+  // 3001, 3002... 로. CLI --port 가 있으면 Vite 의 명시값을 그대로 존중한다.
+  const devPort = command === "serve" && cliPort === undefined ? await findFreePort(3000) : undefined;
   // **우선순위**: `env` (loadEnv — shell + Vercel env) 가 *최우선*. `fileEnv`
   // (.env.example placeholder fallback) 는 *마지막 fallback*.
   //
@@ -206,6 +252,8 @@ export default defineConfig(async ({ command }) => {
     "fs-util.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/fs-util.mjs"),
     "skills.mjs": path.resolve(__dirname, "./src/services/ai/_browser-stubs/agent-toolset-skills.mjs"),
     "skills.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/agent-toolset-skills.mjs"),
+    "node.mjs": path.resolve(__dirname, "./src/services/ai/_browser-stubs/agent-toolset-node.mjs"),
+    "node.js": path.resolve(__dirname, "./src/services/ai/_browser-stubs/agent-toolset-node.mjs"),
   };
   return {
     server: {
@@ -214,8 +262,7 @@ export default defineConfig(async ({ command }) => {
       // vite 자체 strictPort fallback 은 Windows IPv6 dual-stack 에서 binding
       // 차이 (`::` vs `::1`) 를 못 잡으므로 직접 검사가 필요. 사용자 보고로
       // 확인된 함정.
-      port: devPort,
-      strictPort: true, // 위에서 이미 빈 port 보장했으므로 strict 로 잠금.
+      ...(devPort !== undefined ? { port: devPort, strictPort: true } : {}),
       // LAN 접근 필요 시 (휴대폰 / 다른 PC 에서 같은 wifi 로 확인) 다음 명령:
       //   npm run dev -- --host 0.0.0.0
       host: "localhost",
@@ -274,6 +321,42 @@ export default defineConfig(async ({ command }) => {
     // (CJS interop 미완성 순간). `include` 로 dev 첫 시작에 함께 prebundle.
     optimizeDeps: {
       include: ["recharts", "react", "react-dom", "react/jsx-runtime"],
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalized = id.replace(/\\/g, "/");
+            if (!normalized.includes("/node_modules/")) return undefined;
+            if (
+              normalized.includes("/pdfjs-dist/") ||
+              normalized.includes("/jspdf/") ||
+              normalized.includes("/html2canvas/") ||
+              normalized.includes("/@sparticuz/")
+            ) {
+              return "vendor-pdf";
+            }
+            if (
+              normalized.includes("/@anthropic-ai/") ||
+              normalized.includes("/@google/") ||
+              normalized.includes("/openai/")
+            ) {
+              return "vendor-ai";
+            }
+            if (normalized.includes("/@supabase/")) return "vendor-supabase";
+            if (
+              normalized.includes("/katex/") ||
+              normalized.includes("/react-markdown/") ||
+              normalized.includes("/remark-") ||
+              normalized.includes("/rehype-")
+            ) {
+              return "vendor-math";
+            }
+            if (normalized.includes("/recharts/")) return "vendor-charts";
+            return undefined;
+          },
+        },
+      },
     },
   };
 });

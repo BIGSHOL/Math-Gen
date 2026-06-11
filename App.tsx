@@ -1,22 +1,38 @@
-import { useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import { AuthGate } from "@app/components/auth";
 import { ToastContainer } from "@app/components/ui";
 import { installGlobalErrorHandlers } from "@app/lib/errorReporter";
 import { DetailScreen } from "@app/components/detail";
 import { LibraryScreen } from "@app/components/library";
 import { ModalLayer } from "@app/components/modal";
-import UIPlayground from "@app/components/ui/__playground__";
 import { WizardScreen } from "@app/components/wizard";
-import { LegacyScreen } from "@app/screens/LegacyScreen";
-import { ModelBenchScreen } from "@app/screens/ModelBenchScreen";
-import { KatexTestScreen } from "@app/screens/KatexTestScreen";
-import { CropTestScreen } from "@app/screens/CropTestScreen";
-import { AdminScreen } from "@app/screens/AdminScreen";
 import { useAppStore } from "@app/stores/appStore";
 
 type Route = "ui" | "legacy" | "bench" | "katex" | "croptest" | "admin" | "app";
 
-const DEV_TOOL_ROUTES: Route[] = ["ui", "legacy", "bench", "katex", "croptest"];
+const DEV_TOOL_ROUTES = ["ui", "legacy", "bench", "katex", "croptest"] as const;
+const DEV_TOOL_ROUTE_SET = new Set<Route>(DEV_TOOL_ROUTES);
+
+const UIPlayground = lazy(() => import("@app/components/ui/__playground__"));
+const LegacyScreen = lazy(() =>
+  import("@app/screens/LegacyScreen").then((m) => ({ default: m.LegacyScreen })),
+);
+const ModelBenchScreen = lazy(() =>
+  import("@app/screens/ModelBenchScreen").then((m) => ({ default: m.ModelBenchScreen })),
+);
+const KatexTestScreen = lazy(() =>
+  import("@app/screens/KatexTestScreen").then((m) => ({ default: m.KatexTestScreen })),
+);
+const CropTestScreen = lazy(() =>
+  import("@app/screens/CropTestScreen").then((m) => ({ default: m.CropTestScreen })),
+);
+const AdminScreen = lazy(() =>
+  import("@app/screens/AdminScreen").then((m) => ({ default: m.AdminScreen })),
+);
+
+const RouteFallback = () => (
+  <div className="w-full h-screen bg-bg text-text font-sans" aria-busy="true" />
+);
 
 /**
  * Top-level shell.
@@ -30,6 +46,9 @@ const DEV_TOOL_ROUTES: Route[] = ["ui", "legacy", "bench", "katex", "croptest"];
  *   - `?croptest` → cropped Pass 2 크롭 정확도 테스트
  *   - (default) → new Library / Detail / Wizard screens, switched by the
  *                 appStore's `screen` state
+ *
+ * Dev-tool routes stay outside AuthGate so local diagnostics keep working when
+ * Supabase auth is enabled. App/admin routes remain protected.
  *
  * The screen value is read once at top level; nested screens drive their
  * own substate via Zustand selectors.
@@ -57,31 +76,38 @@ const App = () => {
   const devToolsEnabled =
     import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_TOOLS === "true";
   const effectiveRoute =
-    DEV_TOOL_ROUTES.includes(route) && !devToolsEnabled ? "app" : route;
+    DEV_TOOL_ROUTE_SET.has(route) && !devToolsEnabled ? "app" : route;
+
+  const routeNode =
+    effectiveRoute === "admin" ? (
+      <AdminScreen />
+    ) : effectiveRoute === "katex" ? (
+      <KatexTestScreen />
+    ) : effectiveRoute === "croptest" ? (
+      <CropTestScreen />
+    ) : effectiveRoute === "ui" ? (
+      <UIPlayground />
+    ) : effectiveRoute === "legacy" ? (
+      <LegacyScreen />
+    ) : effectiveRoute === "bench" ? (
+      <ModelBenchScreen />
+    ) : (
+      <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
+        {screen === "library" && <LibraryScreen />}
+        {screen === "detail" && <DetailScreen />}
+        {screen === "wizard" && <WizardScreen />}
+        <ModalLayer />
+        <ToastContainer />
+      </div>
+    );
+
+  if (DEV_TOOL_ROUTE_SET.has(effectiveRoute)) {
+    return <Suspense fallback={<RouteFallback />}>{routeNode}</Suspense>;
+  }
 
   return (
     <AuthGate>
-      {effectiveRoute === "admin" ? (
-        <AdminScreen />
-      ) : effectiveRoute === "katex" ? (
-        <KatexTestScreen />
-      ) : effectiveRoute === "croptest" ? (
-        <CropTestScreen />
-      ) : effectiveRoute === "ui" ? (
-        <UIPlayground />
-      ) : effectiveRoute === "legacy" ? (
-        <LegacyScreen />
-      ) : effectiveRoute === "bench" ? (
-        <ModelBenchScreen />
-      ) : (
-        <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
-          {screen === "library" && <LibraryScreen />}
-          {screen === "detail" && <DetailScreen />}
-          {screen === "wizard" && <WizardScreen />}
-          <ModalLayer />
-          <ToastContainer />
-        </div>
-      )}
+      <Suspense fallback={<RouteFallback />}>{routeNode}</Suspense>
     </AuthGate>
   );
 };
