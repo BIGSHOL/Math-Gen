@@ -1,0 +1,219 @@
+# Math-Gen ↔ 시험지변환기(testchange) HWP/OCR 통합 검토 — 핸드오프
+
+작성일: 2026-06-18
+작성 맥락: Math-Gen 내보내기에 HWP 출력을 붙이는 문제를 조사하다가, "변환기 OCR 이
+Math-Gen OCR 을 대체할 수 있나" 로 논의가 확장됨. 다른 환경에서 이어 작업하기 위한 인계.
+
+> 이 문서는 **결론 + 근거 + 다음 결정사항** 만 담는다. 코드 변경은 아직 0. 두 저장소의
+> 실제 파일 경로/심볼을 명시해 새 세션이 바로 grep 으로 검증할 수 있게 했다.
+
+---
+
+## 0. TL;DR (한 문단)
+
+목표는 **Math-Gen 에서 시험지를 HWP 로 내보내기**다. 별도 프로젝트 `시험지변환기`
+(GitHub `BIGSHOL/testchange`, 로컬 `F:\시험지변환기`)가 PDF→OCR→HWP 를 이미 완성·검증
+(129편 코퍼스)했다. 조사 결과 **변환기 OCR 은 Math-Gen OCR 의 "더 성숙한 Python 쌍둥이"**
+(같은 비전→SVG 도형 파이프라인, 거의 동일한 크롭 프롬프트, 타입 블록 출력 + label_type).
+데이터/품질 면에서 변환기 OCR 이 Math-Gen OCR 을 **대체 가능**하고, 출력 역매핑도 쉽다.
+**유일한 실질 걸림돌은 런타임 — 변환기는 Python, Math-Gen 은 Vercel TS.** 그래서 (a) TS 포팅
+(비추천, 코퍼스 검증 손실) 또는 (b) Python OCR 마이크로서비스(권장) 중 선택. HWP COM 부분만
+Windows 전용이라 별도 커넥터로 격리.
+
+**당장 추천**: "HWP 전용 분리" — Math-Gen OCR 은 웹/PDF 용으로 두고, HWP 내보낼 때만
+변환기 풀 파이프라인을 별도 백엔드로 호출. 통합 리스크 0, 각자 타깃에 최적. 풀 OCR 대체는
+효과 보고 그다음.
+
+---
+
+## 1. 두 프로젝트
+
+| | Math-Gen | 시험지변환기 (testchange) |
+|---|---|---|
+| 위치 | `F:\Mathgen` (이 저장소) | `F:\시험지변환기` |
+| 원격 | `BIGSHOL/Math-Gen` | `BIGSHOL/testchange` |
+| 스택 | React + TS, Vercel 서버리스(`api/*.ts`), Supabase | Python (PySide6 GUI, PyInstaller exe), HWP COM |
+| 역할 | PDF 업로드·OCR·KaTeX 검수·변형·PDF 출력 (웹) | PDF→OCR→**.hwp/.hwpx** 정밀 출력 (Windows 데스크톱/커넥터) |
+| 비고 | — | corpus 129편 검증(reviewed 72/ocr_done 56). 최근까지 활발 개발 |
+
+전략 문서: [`docs/hwp-connector-strategy.md`](hwp-connector-strategy.md) (이미 저장소에 있음).
+요지 = Math-Gen 은 웹 프론트, 변환기는 "한컴 설치 사용자 전용 고급 출력" 커넥터.
+
+---
+
+## 2. Math-Gen 현재 내보내기 상태
+
+[`src/components/print/PrintActionPanel.tsx`](../src/components/print/PrintActionPanel.tsx)
+- PDF 다운로드(서버 Puppeteer `api/export-pdf.ts` / 클라 html2canvas), 인쇄, DOCX 버튼이
+  **전부 "구현중" 으로 비활성** (MVP 락다운, 2026-06-02 결정). 로직은 유지, `onClick` 만 제거됨.
+- HWP 버튼은 **아예 없음**.
+- 현재 이 단계의 주 동작 = "저장 완료 (보관함으로)".
+
+Math-Gen 문제 데이터 모델:
+- [`src/types/index.ts`](../src/types/index.ts) `GeneratedProblem`: `question`(마크다운+`$LaTeX$`),
+  `choices?[]`, `answer`, `solution`, `points?`, `diagramParams?`(벡터), `images?`(dataUrl),
+  `choicesLayout?`.
+- [`src/stores/wizardStore.ts`](../src/stores/wizardStore.ts) `OCRProblem` / `OCRImage`.
+
+---
+
+## 3. 변환기 입력 계약 (Math-Gen 데이터를 어떻게 받나)
+
+변환기는 PDF→자체OCR 을 안 거치고 **구조화 JSON 을 직접 받는 진입점**이 있다:
+- `core/content_parser.py` → `parse_ocr_response(ocr_result: dict, page_number)` → `ExamPage`
+- 같은 파일 `build_document(pages)` → `ExamDocument`
+- `testkit.py` 가 캐시된 OCR json 을 읽어 `build_document` 로 렌더 — 즉 라이브 OCR 우회 검증 경로
+
+기대 JSON 형태 (`core/content_parser.py` `_parse_question` 확인):
+```json
+{ "header": "과목/학년", "questions": [
+  { "number": 1, "score": 3, "label_type": "서술형",
+    "contents": [ { "type": "text", "value": "다음 $x^2-1$ 의 값은?" } ],
+    "choices": [ { "number": 1, "contents": [ { "type": "equation", "value": "\\frac{5}{6}" } ] } ] } ] }
+```
+- `contents[].type`: `text` / `equation` / `equation_block` / `image`(파일경로) / `table`(`rows[][]`)
+- 모델: `models/exam_document.py` → `ExamDocument`(title/subject/grade/pages) · `ExamPage`(header_text/questions)
+  · `Question`(number/score/contents/choices/sub_questions/label_type) · `Choice`(number/contents)
+  · `ContentBlock`(type/value/hwp_equation/underline/rows/box_member)
+- **핵심**: `contents[].value` 안의 인라인 `$...$` 를 변환기 `content_parser` 가 알아서 분리한다
+  (`_INLINE_LATEX_RE`, `_parse_raw_blocks`). → Math-Gen 의 마크다운 문자열을 text 블록 하나로
+  넘겨도 변환기가 구조화함.
+
+---
+
+## 4. LaTeX 방언 호환성 — 거의 OK (좋은 소식)
+
+`core/latex_to_hwpeq.py` (≈67개 명령어 매핑) 가 Math-Gen 의 KaTeX 명령어를 대부분 지원:
+
+| Math-Gen 명령어 | 변환기 | 비고 |
+|---|---|---|
+| `\dfrac` `\tfrac` `\frac` | ✅ | |
+| `\mathrm` | ✅ | 확통 P/E/V 는 똑똑하게 벗김 |
+| `\overrightarrow` | ✅ → `VEC` | |
+| `\boxed` | ✅ → `BOX` | |
+| `\approx` | ✅ → `APPROX` | |
+| `\displaystyle` | ❌ | 의미 없는 크기 지시어 → **strip** (사소) |
+| `\htmlClass{geom-arc-wrap}` | ❌ | Math-Gen 호(arc) 렌더 해킹 → unwrap 필요 (드묾) |
+
+→ **LaTeX 다리 = 명령어 2개 정리(strip + unwrap)면 끝.**
+
+---
+
+## 5. OCR 비교 — 같은 DNA, 변환기가 더 성숙
+
+| 항목 | Math-Gen OCR | 변환기 OCR |
+|---|---|---|
+| 모델 | Gemini Flash(Pass1) + GPT-5.5(Pass2 도형) | Claude vision 단일 (`CLAUDE_MODEL`) |
+| 본문 | `question` = 마크다운 문자열 (텍스트+`$수식$`) | `contents[]` = 타입 분리 블록 |
+| 배점 | `points` 필드 | `score` 필드 + 본문 `[N점]` 추출 |
+| 라벨 | 없음 | `label_type`(서술형/단답형 — 폼·정답 동기화) |
+| 보기박스 | 마크다운 인라인 | `<상자>/<조건>/<보기>` + box_member + 중복제거 |
+| 도형 | 벡터(`diagramParams`)+base64(`images`) | **비전→SVG→resvg_py→PNG** (주석에 "math-gen 스타일 SVG 규칙") |
+| 표 | 마크다운 표 | `rows[][]` |
+| 검증 | — | **129편 코퍼스 reviewed** |
+
+핵심 발견:
+- 변환기 `core/figure_generator.py` = **비전→깨끗한 SVG→PNG**. Math-Gen 도형 파이프라인과 철학 동일.
+  → 변환기 OCR 채택해도 **도형 회귀 없음**(웹엔 SVG, HWP 엔 PNG 둘 다 가능).
+- 변환기 `core/crop_detector.py` `_CROP_PROMPT` ≈ Math-Gen `src/services/ai/cropDetect.ts`
+  `CROP_DETECT_PROMPT` (손글씨 배제 규칙까지 유사). 두 프로젝트가 교차 수정해온 흔적.
+- 정답: 변환기 OCR 은 문제구조만, 정답은 별도(정답페이지/코퍼스). Math-Gen 도 Sonnet 별도
+  생성 → **영향 없음(중립)**.
+
+---
+
+## 6. "변환기 OCR 이 Math-Gen OCR 을 대체 가능한가" — 결론
+
+**데이터/품질: 예.** 출력 역매핑(타입 블록 → Math-Gen 마크다운+KaTeX)은 정방향보다 쉽고,
+변환기는 더 plain 한 LaTeX 라 Math-Gen KaTeX 후처리(`\dfrac`/`\displaystyle` 주입)를 그대로
+통과. 도형도 SVG 라 회귀 없음.
+
+**유일한 실질 걸림돌: 런타임/언어.**
+- Math-Gen OCR = Vercel TS 서버리스(`api/ai-ocr.ts`), React 웹 호출
+- 변환기 OCR = Python (anthropic/google-genai/PIL/resvg_py + 수천 줄 코퍼스 튜닝 parser)
+
+대체 방법 2가지:
+- **(a) Python→TS 포팅** ❌ 비추천 — 129편 검증 손실, 두 코드베이스 drift, 막대한 작업.
+- **(b) Python OCR 마이크로서비스** ✅ 권장 — 변환기 OCR/크롭/도형은 HWP COM 안 쓰니
+  **Linux 호환**(순수 API + PIL + resvg). 서비스로 띄우고 Math-Gen `/api/ai-ocr` 가 얇은
+  프록시로 호출. 웹 검수/변형/해설/PDF 는 Math-Gen 유지. HWP COM 만 Windows 커넥터로 격리.
+
+```
+Math-Gen Web (React)
+  → /api/ai-ocr (얇은 프록시)
+      → Python OCR 서비스 (변환기 엔진, Linux 컨테이너)  ← 타입 블록 + SVG 도형
+  → 역매핑 → Math-Gen OCRProblem (웹/PDF/변형/해설)
+  → HWP: 타입 블록 → HWP Connector (Windows COM) → .hwp
+```
+→ **OCR 하나(더 좋은 것)로 웹+HWP 둘 다 서빙. 도형 SVG 공유.**
+
+---
+
+## 7. 두 가지 전략 (사용자 결정 대기)
+
+### 전략 A — HWP 전용 분리 (당장 추천)
+- Math-Gen OCR = 웹/PDF 유지. HWP 내보낼 때만 **변환기 풀 파이프라인(자체 OCR→HWP)** 을
+  별도 백엔드로 호출 ("업로드한 PDF 를 변환기에 넘김").
+- 장점: 통합 리스크 0, 각자 타깃 최적, 변환기 검증 그대로 활용. 시작이 가장 빠름.
+- 단점: OCR 2벌(웹용 1 + HWP용 1) — 비용 중복, Math-Gen 검수 결과는 HWP 에 반영 안 됨.
+
+### 전략 B — 풀 OCR 대체 (마이크로서비스)
+- 변환기 OCR 을 마이크로서비스로 → Math-Gen OCR 전면 대체. 웹 검수 품질까지 상승.
+- 장점: 단일 OCR, 검수 1회로 웹+HWP, 더 나은 OCR 전사용.
+- 단점/비용:
+  1. **Python 서비스 호스팅** — Vercel 서버리스 불가, 지속형 호스트(Render/Railway/Fly/컨테이너)
+     필요. 새 인프라 + 운영.
+  2. **역매퍼**(타입 블록 → Math-Gen `OCRProblem`/`GeneratedProblem`) — 기계적이지만 작업.
+  3. **마이그레이션 검증** — Math-Gen 의 KaTeX 안전망(CLAUDE.md §2/§18/§26)이 Gemini Flash
+     raw LaTeX 누출 대응용. 변환기의 깨끗한 LaTeX 면 대부분 무해 통과 예상(검증 필요).
+
+---
+
+## 8. 다음 단계 (택1로 시작)
+
+1. **(검증 먼저)** Math-Gen 시험지 1장을 변환기로 돌려 **실제 HWP 결과물 품질 확인** → A/B 결정.
+2. **전략 A 착수**: Math-Gen "HWP 로 내보내기" 버튼 추가 + 업로드 PDF 를 변환기 백엔드로 전달
+   (변환기를 로컬 커넥터 `/convert` 또는 중앙 Windows worker 로 래핑 — 전략문서 2~3단계).
+3. **전략 B 착수**: 변환기 OCR Python 마이크로서비스화 + Math-Gen `api/ai-ocr.ts` 프록시 전환
+   + 타입블록→OCRProblem 역매퍼.
+4. **(공통 준비) 매퍼 PoC**: `GeneratedProblem[]` ↔ 변환기 OCR-JSON 양방향 매퍼를 Math-Gen
+   안에서 작성 → 변환기 `testkit.py`/`build_document` 에 수동으로 먹여 검증 (커넥터 없이 저위험).
+
+---
+
+## 9. 참조 파일 인덱스 (grep 시작점)
+
+**Math-Gen (`F:\Mathgen`)**
+- `src/services/ai/cropDetect.ts` — 크롭(Gemini Flash + GPT-5.5), `CROP_DETECT_PROMPT`
+- `src/types/index.ts` — `GeneratedProblem`
+- `src/stores/wizardStore.ts` — `OCRProblem`, `OCRImage`
+- `src/components/print/PrintActionPanel.tsx` — 내보내기 패널(현재 전부 비활성)
+- `api/export-pdf.ts` — 서버 PDF(Puppeteer)
+- `docs/hwp-connector-strategy.md` — HWP 커넥터 전략
+
+**시험지변환기 (`F:\시험지변환기`, repo `BIGSHOL/testchange`)**
+- `core/content_parser.py` — `parse_ocr_response`, `build_document`, `_parse_question` (입력 계약)
+- `core/ocr_engine.py` — `EXAM_OCR_PROMPT`, `CLAUDE_MODEL`, OCR 출력 구조
+- `core/latex_to_hwpeq.py` — LaTeX→HWP 수식 (≈67 매핑)
+- `core/figure_generator.py` — 비전→SVG→PNG ("math-gen 스타일")
+- `core/crop_detector.py` — 크롭(`_CROP_PROMPT`)
+- `core/hwp_com_writer.py` — 한글 COM 작성 (Windows 전용)
+- `core/hwpx_writer.py` — HWPX XML
+- `models/exam_document.py` — `ExamDocument`/`ExamPage`/`Question`/`Choice`/`ContentBlock`
+- `testkit.py` — 캐시 OCR json → `build_document` (라이브 OCR 우회 검증)
+- `docs/HANDOFF_CONSUMER.md`, `docs/HANDOFF.md` — 변환기 운영/코퍼스 워크플로
+
+**런타임 제약 메모**
+- HWP COM = Windows + 한컴오피스 필수. Vercel(Linux) 불가 → 로컬 커넥터/Windows worker.
+- 변환기 OCR/크롭/도형(figure_generator, resvg_py)은 Linux 호환 → 마이크로서비스화 가능.
+- Math-Gen dev 는 API 키 미노출(CLAUDE.md §24-7) → AI 경로 검증은 Vercel preview 또는 키 명시.
+
+---
+
+## 10. 미해결 결정 (사용자 확인 필요)
+
+- [ ] 전략 A(HWP 전용 분리) vs B(풀 OCR 대체) — *당장은 A 추천, 검증 후 B 검토*
+- [ ] 변환기 실제 HWP 결과물 품질 사전 확인 여부
+- [ ] (B 선택 시) Python 서비스 호스팅 위치
+- [ ] 변환기 로컬 동기화 — 로컬 `F:\시험지변환기` 가 원격보다 **83 커밋 behind** (작업트리 clean,
+      FF 가능). 이어 작업 전 `git pull` 권장.
