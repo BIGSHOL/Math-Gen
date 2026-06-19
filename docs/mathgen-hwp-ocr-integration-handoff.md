@@ -216,4 +216,60 @@ Math-Gen Web (React)
 - [ ] 변환기 실제 HWP 결과물 품질 사전 확인 여부
 - [ ] (B 선택 시) Python 서비스 호스팅 위치
 - [ ] 변환기 로컬 동기화 — 로컬 `F:\시험지변환기` 가 원격보다 **83 커밋 behind** (작업트리 clean,
-      FF 가능). 이어 작업 전 `git pull` 권장.
+      FF 가능). 이어 작업 전 `git pull` 권장. (2026-06-20: pull 완료 — `master` `d2e99b0`)
+
+---
+
+## 11. 확정 아키텍처 + 빌드 플랜 (2026-06-20 — 결정 잠금)
+
+워크플로 2회(루트 추적 + OCR이식/COM전송 정밀 추적)와 사용자 결정으로 모든 갈림길이 잠겼다.
+
+### 11-1. 확정 결정
+
+| 항목 | 결정 | 사용자 근거 |
+|---|---|---|
+| 출력 포맷 | **COM `.hwp` (testchange 현재 그대로)** | "지금 현재 testchange를 그대로" |
+| 배포 대상 | **HWP 설치 Windows PC 에서만 동작** | "hwp 설치된 컴퓨터에만 작동할거임" |
+| → 전송 | **로컬 커넥터(127.0.0.1)만**. 중앙 worker/relay/SaaS **없음** | 위 결정의 귀결 |
+| → 라이선스 | **문제 없음** — 각 사용자 자기 PC 의 설치 한컴 사용 (서버 무인 자동화 아님) | |
+| OCR | **변환기 프롬프트를 Math-Gen 으로 이식** (Claude + markdown 유지) | "testchange OCR 을 mathgen 으로 이식" — 조건부 GO |
+| 데이터 경로 | Math-Gen markdown JSON → 커넥터 **소형 어댑터(markdown→ExamDocument)** → `HwpComWriter` → `.hwp` | |
+
+### 11-2. OCR 이식 — 범위 (조건부 GO)
+
+- **이식(웹으로)**: `EXAM_OCR_PROMPT`(213줄), Claude 호출(temp=0+캐싱), **`_extract_json` 5단계 JSON 수선**, `_merge_missing_passages`(서술형 지문 복구), `_recover_table`.
+- **남김(커넥터)**: `content_parser`, `hwp_com_writer`, `hwp_com`, `figure_generator`.
+- **웹 렌더링 변경 0**: Claude 호출 시 기존 `OCR_PAGE_SCHEMA`(markdown) 그대로 강제 → 출력이 처음부터 markdown → `MarkdownRenderer` 무변경. (native typed-block 스키마 채택 안 함 — 회귀 회피)
+- **변경 파일 3개**: `src/services/ai/ocr.ts`, `src/services/ai/prompts.ts`, `src/lib/pricing.ts`. 노력 **M**(~1주, 벤치 포함). 스키마·DB·렌더러·해설·변형 변경 0.
+- **비용**: Gemini Pass1+GPT Pass2 ~$0.015/p → Claude Sonnet 단일 ~$0.009/p (동등~소폭 절감, 캐싱 -82%).
+- **조건 4개**: (a) markdown 유지 (b) JSON 5단계 수선 포팅 (c) 캐시용 system/user 분리 (d) 도형 샘플 5개 벤치 통과.
+- **리스크 3**: 프롬프트 캐싱 키 불일치(학년 mathDefense 를 user 블록으로 분리), 도형 회귀(Sonnet 고정·Opus 금지), JSON 수선 미포팅 시 파싱 실패율↑.
+
+### 11-3. 커넥터 (testchange repo, 로컬)
+
+- stdlib `http.server` (FastAPI/Flask 미설치 — 새 의존성 0, `build.spec` 무영향).
+- PySide6 트레이앱으로 상주(Windows 서비스 불가 — COM 은 interactive 세션 필수, Session 0 격리).
+- COM 신뢰성: **요청마다 subprocess + 전역 Lock 직렬화 + 120s timeout + `taskkill /F /IM Hwp.exe` 좀비 정리**. 보안팝업은 기존 `SetMessageBoxMode(0xFFFFFF)`+보안DLL 로 해결됨. `Visible=False` 유지.
+- 신규 어댑터 **markdown OCRProblem JSON → `ExamDocument`**(권장안 A). `parse_ocr_response`(typed-block) 재사용은 markdown 결론과 충돌 → 비채택.
+
+### 11-4. 빌드 시퀀스 (한컴은 4단계에서만 — hang 격리)
+
+| 단계 | 작업 | repo | 검증 (한컴 무관) |
+|---|---|---|---|
+| 1 | **OCR 이식** — `callAnthropic` 분기 + JSON 수선 포팅 + 캐시 system/user 분리 | Math-Gen | Claude markdown OCR, 도형 5샘플 벤치 |
+| 2 | **어댑터** — markdown JSON → `ExamDocument` 단위테스트 | testchange | `_sample_document()` 구조 대조 픽스처 |
+| 3 | **커넥터 서버** — `/health` + `/render`(어댑터까지, COM 미호출) + CORS/토큰/Origin | testchange | `curl` 로 ExamDocument JSON 확인 |
+| 4 | **COM 격리 통합** — subprocess+Lock+timeout → `HwpComWriter` | testchange | `.hwp` 출력 + 5연속 후 Hwp.exe 좀비 0 |
+| 5 | **웹 연동** — `PrintActionPanel` 헬스체크+POST+Blob 다운로드+폴백안내 | Math-Gen | end-to-end |
+
+각 단계 독립 검증 가능. 1·2 는 병렬 가능(서로 무관).
+
+### 11-5. 남은 소규모 미정 (빌드 중 결정)
+
+- **figures(인라인 `<svg>`/crop 이미지) → HWP 매핑**: 1차는 텍스트/수식/표만 렌더, figure 는 원본 crop 이미지 폴백 권장. 어댑터의 figure 블록 규칙 추후.
+- **mathDefense system/user 분리**: 1단계 착수 전 `prompts.ts` 현재 구조에서 가능한지 점검.
+
+### 11-6. 핵심 파일
+
+- Math-Gen: `src/services/ai/ocr.ts`, `src/services/ai/ocrSchema.ts`(=prompts/스키마), `src/components/print/PrintActionPanel.tsx`(`handleServerPDF:133-173` 미러)
+- testchange: `core/hwp_com_writer.py`(`write_exam_to_hwp:1353`), `core/hwp_com.py`(`HwpSession:166/169/262`), `core/content_parser.py`(`build_document:1962` — ExamDocument 구조 참조), 신규 `server/connector.py`·`server/convert_cli.py`·어댑터
