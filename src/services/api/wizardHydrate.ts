@@ -50,15 +50,17 @@ export const decideResumeStep = (
   if (problemPages.length === 0) return 2; // OCR — 추출된 문제 페이지 없음
   const ocrDone = problemPages.every((p) => p.ocrComplete || Boolean(p.ocrError));
   if (!ocrDone) return 2; // OCR 미완료
+  // 해설은 *스킵 가능* 단계 — digitize 등 해설 미생성 시 아래 solDone 체크가 해설(3)로
+  // 끌어내려, 내보내기까지 갔다가 저장·재개하면 해설로 튕겼다 (사용자 보고 2026-06-20).
+  // 변형/검토 데이터(problems)가 있거나 검토(5) 이상 도달(furthestStep)했으면 그 단계로 이어감.
+  if (problems.length > 0 || furthestStep >= 5) return furthestStep >= 6 ? 6 : 5;
   const allItems = problemPages.flatMap((p) => p.ocrResult);
   const solEligible = allItems.filter((it) => it.text && !it.bodyMissing);
   const solDone =
     solEligible.length > 0 &&
     solEligible.every((it) => it.solution || it.solutionError);
-  if (!solDone) return 3; // 해설 미완료
-  if (problems.length === 0) return 4; // 옵션 — 변형 전
-  // 데이터 완료 — 기본 검토(5). 단, 이전에 내보내기(6)까지 도달했으면 거기서 이어감.
-  return furthestStep >= 6 ? 6 : 5;
+  if (!solDone) return 3; // 해설 미완료 (변형 데이터 없고 furthest<5 인 fresh 진행)
+  return 4; // 해설 완료, 변형 전 → 옵션 (problems>0 / furthest>=5 는 위에서 처리)
 };
 
 /**

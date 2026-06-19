@@ -150,14 +150,17 @@ export const DetailScreen = () => {
   const resumeStepLabel = (() => {
     const probs = detail.problems;
     if (probs.length === 0) return "OCR (3/7단계)";
+    const furthest = test.furthestStep ?? 0;
+    // 해설은 스킵 가능 — 변형/검토 데이터(reviews) 있거나 검토(5) 이상 도달했으면 해설로
+    // 되돌리지 않음 (decideResumeStep 과 동일, 사용자 보고 2026-06-20).
+    if (detail.reviews.length > 0 || furthest >= 5) {
+      return furthest >= 6 ? "내보내기 (7/7단계)" : "검토 (6/7단계)";
+    }
     const eligible = probs.filter((p) => p.text && !p.bodyMissing);
     const solDone =
       eligible.length > 0 && eligible.every((p) => p.solution || p.solutionError);
     if (!solDone) return "해설 (4/7단계)";
-    if (detail.reviews.length === 0) return "옵션 (5/7단계)";
-    // 이전에 내보내기(7/7)까지 도달했던 시험지는 거기서 이어감 — decideResumeStep
-    // 의 furthest_step 분기와 동일 (사용자 보고 2026-06-04). 라벨도 일치시킴.
-    return (test.furthestStep ?? 0) >= 6 ? "내보내기 (7/7단계)" : "검토 (6/7단계)";
+    return "옵션 (5/7단계)";
   })();
 
   // Phase D — 활성 페이지의 hi-res URL → base64 dataURL (OCRItem 의 도형 crop 용)
