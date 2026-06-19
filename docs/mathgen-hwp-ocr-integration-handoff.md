@@ -273,3 +273,101 @@ Math-Gen Web (React)
 
 - Math-Gen: `src/services/ai/ocr.ts`, `src/services/ai/ocrSchema.ts`(=prompts/스키마), `src/components/print/PrintActionPanel.tsx`(`handleServerPDF:133-173` 미러)
 - testchange: `core/hwp_com_writer.py`(`write_exam_to_hwp:1353`), `core/hwp_com.py`(`HwpSession:166/169/262`), `core/content_parser.py`(`build_document:1962` — ExamDocument 구조 참조), 신규 `server/connector.py`·`server/convert_cli.py`·어댑터
+
+---
+
+## 12. 커넥터 구현 스펙 (testchange 세션용 — 2026-06-20)
+
+Task 2~4 는 **testchange repo 에서 빌드**한다 (커넥터가 거기 살고, COM 코드 재사용 +
+다른 세션 충돌 회피). testchange 세션에서 이 파일을 cross-repo Read 가능:
+`F:\Mathgen\docs\mathgen-hwp-ocr-integration-handoff.md`. §11(아키텍처) + 이 §12(구현) 를 본다.
+
+> Math-Gen 쪽 상태: Task 1(OCR 프롬프트 이식) 완료·push(`70faf33`). 아래 **12-1 wire 계약**은
+> Math-Gen 이 실제 보유한 데이터 기준으로 확정 — 어댑터(Task 2)는 이 계약을 입력으로 받는다.
+
+### 12-1. Wire 계약 (Math-Gen → 커넥터)
+
+```
+POST http://127.0.0.1:8765/convert-json
+Headers: Content-Type: application/json
+         X-Pairing-Token: <token>
+         Origin: <mathgen origin>
+Body:
+{
+  "schema": "v2",
+  "meta":   { "title": string, "subject": string, "grade": string },
+  "problems": [
+    { "number": int,
+      "text": "<markdown + $LaTeX$ — 객관식이면 보기 ①…⑤ 가 text 끝에 한 줄로 포함>",
+      "topic"?: string,
+      "figures"?: [ { "box":[yMin,xMin,yMax,xMax], "kind":"svg"|"diagram"|"crop", "label":string } ] }
+  ]
+}
+Response: 200 application/octet-stream (.hwp bytes) + Content-Disposition: attachment; filename="<title>.hwp"
+          | 4xx/5xx application/json {"error": "..."}
+```
+
+근거: Math-Gen `OCRProblem`(src/stores/wizardStore.ts) = `{ number, text(markdown, 보기 본문
+끝 포함), topic?, images?, figures?, choicesLayout? }`. **text 는 단일 markdown 문자열**(converter
+ContentBlock 아님). figures box 는 0–1000 정규화 `[yMin,xMin,yMax,xMax]`.
+
+⚠️ **미보유 필드 — score(배점)**: Math-Gen OCR 은 `(N점)` 을 strip 한다(OCR_PAGE_PROMPT 4e) →
+`OCRProblem` 에 score 없음. **v1 HWP 는 배점 생략**. 배점 필요 시 Math-Gen OCR 에 score 캡처
+추가(OCR_PAGE_SCHEMA 소변경) — 후속. (변환기 자체 OCR 은 score 캡처하지만 markdown 경로는 손실.)
+
+### 12-2. 어댑터 (markdown → ExamDocument) — 2 후보, **B 먼저 평가**
+
+- **(B) 재사용 (권장 평가)**: Math-Gen 문제를 converter 의 `ocr_result` dict 형태로 reshape —
+  `{header, questions:[{number, contents:[{type:"text", value:<markdown 전체>}], choices:[...]}]}` —
+  후 `parse_ocr_response`(content_parser.py:20) 호출. `_parse_raw_blocks` 의 `_INLINE_LATEX_RE` 가
+  인라인 `$…$` 를 이미 분리하므로, markdown 의 `$수식$` 가 자동 equation 블록화될 가능성.
+  **testchange 세션이 `_parse_raw_blocks` 를 읽고 "full-markdown 한 덩어리 text value" 를 받아
+  inline `$` 를 쪼개주는지 확인** → 되면 B(코드 최소, 검증된 분리 로직 재사용), 안 되면 A.
+- **(A) 직접**: markdown 문자열을 직접 파싱해 `ContentBlock[]`(text/equation 분리) 생성 → ExamDocument.
+- 보기: text 끝의 `① … ② …` 한 줄 → `choices` 로 분리(정규식 `[①②③④⑤]`).
+- figure: v1 은 `[그림N]` placeholder / 원본 crop 폴백 (텍스트·수식·표 먼저, figure 후속).
+
+### 12-3. 커넥터 서버 (신규 `server/connector.py`)
+
+- stdlib `http.server.ThreadingHTTPServer(("127.0.0.1", 8765), ...)` (새 의존성 0).
+- `GET /health` → `{status, version, hwp_com: bool, capabilities:["convert-json"]}`.
+- `POST /convert-json` → 토큰/Origin 검증 → subprocess 위임 → `.hwp` 반환.
+- `OPTIONS` → CORS+PNA preflight: `Access-Control-Allow-Origin`, `Allow-Headers: Content-Type,
+  X-Pairing-Token`, `Allow-Methods: POST,GET,OPTIONS`, 요청에 `Access-Control-Request-Private-Network`
+  있으면 `Access-Control-Allow-Private-Network: true`, `Max-Age: 86400` → 204.
+- 보안 3중: 127.0.0.1 bind + `X-Pairing-Token`(`%LOCALAPPDATA%\mathgen-connector\token.txt`) + Origin allowlist.
+- 상주: PySide6 트레이앱 또는 Windows 시작프로그램(서비스 불가 — COM interactive 세션 필수).
+
+### 12-4. COM 자식 (신규 `server/convert_cli.py`)
+
+- **부모(connector)는 COM 절대 안 씀.** 요청마다
+  `subprocess.run([sys.executable, "-m", "server.convert_cli", "--in", req.json, "--out", tmp.hwp], timeout=120)`.
+- 자식: 어댑터(12-2) → ExamDocument → `with HwpSession(): write_exam_to_hwp(doc, out)`
+  (hwp_com_writer.py:1353). HWP COM 실패/미설치 → `write_exam_to_hwpx`(hwpx_writer.py) 폴백.
+- 전역 Lock 으로 변환 직렬화(동시 COM Dispatch 예외 방지). timeout 시 `taskkill /F /IM Hwp.exe`.
+- 기존 `SetMessageBoxMode(0xFFFFFF)` + 보안 DLL + `Visible=False` 활용(이미 구현됨).
+
+### 12-5. 커넥터 트랙 빌드 순서 (한컴 hang 격리)
+
+1. `convert_cli.py` — 12-6 샘플 → 어댑터 → ExamDocument → `write_exam_to_hwpx`(**COM 없이**) → `.hwpx` 확인.
+2. `write_exam_to_hwp`(COM) subprocess 단발 + 5연속 후 `Hwp.exe` 좀비 0 확인.
+3. `connector.py` `/health` → `/convert-json`(subprocess+Lock).
+4. CORS/PNA/토큰 + `curl --data @sample.json -o out.hwp` E2E.
+
+### 12-6. 샘플 페이로드 (테스트 픽스처)
+
+```json
+{ "schema": "v2",
+  "meta": { "title": "중2 수학 중간", "subject": "수학", "grade": "중2" },
+  "problems": [
+    { "number": 1, "text": "$(-3)+(-6)$의 값은?\n① $-9$ ② $-3$ ③ $3$ ④ $6$ ⑤ $9$" },
+    { "number": 2, "text": "[서술형 1] $x=\\sqrt{5}+1$일 때 $x^2-2x$의 값을 구하시오." }
+  ] }
+```
+
+### 12-7. Math-Gen 쪽 (Task 5 — 커넥터 완성 후)
+
+`src/services/api/hwpConnector.ts` 신규(`detectConnector` GET /health, `convertToHwp` POST
+/convert-json) + `PrintActionPanel.tsx` `handleHWP`(`handleServerPDF:133-173` 미러) + 버튼 활성화 +
+커넥터 미감지 시 폴백 안내. **12-1 계약 확정 후 구현** — 어댑터(Task 2)가 계약을 검증·조정할 수
+있으니 그 다음. payload 의 `problems` 는 wizardStore 의 OCR 결과(현재 시험지 페이지들)에서 수집.
