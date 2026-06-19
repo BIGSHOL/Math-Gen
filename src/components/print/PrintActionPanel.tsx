@@ -4,6 +4,8 @@ import { useWizardStore } from "@app/stores/wizardStore";
 import { useAppStore } from "@app/stores/appStore";
 import { showToast } from "@app/stores/toastStore";
 import type { ExportProgress } from "@app/lib/pdfExporter";
+import type { ProblemReview } from "@app/stores/wizardStore";
+import type { PrintMeta } from "@app/components/print/types";
 
 /**
  * Step 5 우측 액션 패널. filename input + 페이지 요약 + 인쇄/PDF 버튼 +
@@ -56,6 +58,12 @@ export interface PrintActionPanelProps {
   answerPages: number;
   /** 문항 총 개수. */
   problemCount: number;
+  /** 내보내기 대상 문항 — HWP payload 빌드용. */
+  problems: ProblemReview[];
+  /** 시험지 메타 (제목·학년·과목) — HWP meta. */
+  meta: PrintMeta;
+  /** 출력 대상 (original|variant|both). */
+  exportSource: string;
   className?: string;
 }
 
@@ -65,6 +73,9 @@ export const PrintActionPanel = ({
   problemPages,
   answerPages,
   problemCount,
+  problems,
+  meta,
+  exportSource,
   className,
 }: PrintActionPanelProps) => {
   const filename = useWizardStore((s) => s.filename);
@@ -172,6 +183,67 @@ export const PrintActionPanel = ({
     }
   }, [filename, printableRootRef, totalPages]);
 
+  /**
+   * HWP 내보내기 — 로컬 커넥터(127.0.0.1) 경유. 브라우저가 직접 loopback 호출
+   * → 커넥터가 markdown payload 를 ExamDocument 로 변환 → .hwp/.hwpx 반환.
+   * 커넥터 미실행이면 안내. 401(페어링 토큰)이면 1회 prompt 후 localStorage 저장.
+   */
+  const handleHWP = useCallback(async () => {
+    setProgress({ current: 0, total: totalPages, phase: "preparing" });
+    try {
+      const {
+        detectConnector,
+        buildHwpPayload,
+        convertToHwp,
+        getStoredToken,
+        setStoredToken,
+        HwpConnectorError,
+      } = await import("@app/services/api/hwpConnector");
+
+      const health = await detectConnector();
+      if (!health) {
+        throw new Error(
+          "HWP 커넥터가 실행 중이 아닙니다. 시험지변환기에서 'python -m server.connector' 실행 후 다시 시도하세요.",
+        );
+      }
+      if (problems.length === 0) throw new Error("내보낼 문항이 없습니다.");
+
+      const payload = buildHwpPayload(problems, meta, exportSource);
+      const ext = health.engine === "hwp" ? "hwp" : "hwpx";
+      const { sanitizeFilename } = await import("@app/lib/pdfExporter");
+      const safeName = sanitizeFilename(filename || "시험지");
+
+      setProgress({ current: 0, total: totalPages, phase: "saving" });
+      let blob: Blob;
+      try {
+        blob = await convertToHwp(payload, getStoredToken());
+      } catch (e) {
+        if (e instanceof HwpConnectorError && e.status === 401) {
+          const entered = window.prompt(
+            "HWP 커넥터 페어링 토큰을 입력하세요\n(%LOCALAPPDATA%\\mathgen-connector\\token.txt 의 값):",
+            "",
+          );
+          if (!entered || !entered.trim()) throw new Error("페어링 토큰이 필요합니다.");
+          setStoredToken(entered.trim());
+          blob = await convertToHwp(payload, entered.trim());
+        } else {
+          throw e;
+        }
+      }
+      downloadBlob(blob, `${safeName}.${ext}`);
+      setProgress({ current: totalPages, total: totalPages, phase: "done" });
+    } catch (err) {
+      setProgress({
+        current: 0,
+        total: totalPages,
+        phase: "error",
+        error: (err as Error).message ?? "HWP 변환 실패",
+      });
+    } finally {
+      setTimeout(() => setProgress(null), 3000);
+    }
+  }, [problems, meta, exportSource, filename, totalPages]);
+
   return (
     <aside
       className={`w-[280px] shrink-0 bg-surface border-l border-line flex flex-col ${className ?? ""}`}
@@ -255,8 +327,20 @@ export const PrintActionPanel = ({
           </Card>
         )}
 
-        {/* 저장 완료 — 이 단계의 주 동작 (다운로드 구현중이므로). 누르면 보관함으로. */}
-        <Btn kind="accent" icon="check-circle" full onClick={handleSaveDone}>
+        {/* HWP 내보내기 — 로컬 커넥터(127.0.0.1) 경유 (Task 5). 이 단계의 주 동작. */}
+        <Btn
+          kind="accent"
+          icon="file-doc"
+          iconRight="download-simple"
+          full
+          onClick={handleHWP}
+          disabled={isExporting || problemCount === 0}
+        >
+          HWP 내보내기
+        </Btn>
+
+        {/* 저장 완료 — 보관함 복귀. */}
+        <Btn kind="secondary" icon="check-circle" full onClick={handleSaveDone}>
           저장 완료 (보관함으로)
         </Btn>
 

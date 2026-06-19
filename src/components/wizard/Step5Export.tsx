@@ -156,12 +156,12 @@ export const Step5Export = () => {
           <span>내보낼 문항이 없습니다</span>
         </Heading>
         <p className="mt-3 text-body text-muted">
-          Step 4 (검토) 에서 변형 문제를 먼저 생성해 주세요. 또는 시험지를 새로
+          검토 단계에서 문항을 먼저 확정해 주세요. 또는 시험지를 새로
           업로드해 처음부터 시작할 수 있습니다.
         </p>
         <div className="mt-5 flex gap-2 justify-center">
           <Btn kind="accent" icon="arrow-left" onClick={goBackToStep4}>
-            Step 4 로 돌아가기
+            검토로 돌아가기
           </Btn>
           <Btn kind="ghost" icon="house" onClick={backToLibrary}>
             라이브러리
@@ -261,6 +261,9 @@ export const Step5Export = () => {
         problemPages={layoutPages.length}
         answerPages={answerLayoutPages.length}
         problemCount={problems.length}
+        problems={problems}
+        meta={meta}
+        exportSource={exportSource}
       />
 
       {/* 인쇄/PDF 캡처 전용 hidden DOM — 미리보기와 동일 컨텐츠, scale=1 */}
