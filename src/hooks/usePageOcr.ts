@@ -17,7 +17,6 @@ import {
   GEMINI_3_FLASH,
   isGeminiAvailable,
 } from "@app/services/ai/gemini";
-import { GPT_5_5, isOpenAIAvailable } from "@app/services/ai/openai";
 import { SONNET_MODEL, OPUS_MODEL } from "@app/services/ai/client";
 import { useWizardStore, type OCRProblem, type WizardPage } from "@app/stores/wizardStore";
 
@@ -31,16 +30,11 @@ const PASS2_CROP_MARGIN = 0.02;
  * Routing policy for the two-pass OCR pipeline — primary + fallback chain
  * per pass. 사용자 확정 정책:
  *
- *   - Pass 1 (every page, 일반 텍스트):
- *       1차 시도: **Gemini 3 Flash (Preview)** — 빠르고 저렴, multi-problem
- *                 페이지 본문 추출 안정.
- *       폴백:    **Gemini 3.5 Flash** (정식, 한 단계 위) — 1차가 throw 한
- *                 경우 (rate limit / 응답 깨짐 / TPM 초과 등) 자동 재시도.
+ *   - Pass 1 (every page, 일반 텍스트): **Gemini 3.5 Flash** 단일
+ *       (사용자 확정 2026-06-20). Gemini 키 없으면 Sonnet 4.6 폴백.
  *
- *   - Pass 2 (figure pages, 도형):
- *       1차 시도: **GPT-5.5** — 도형 페이지에서 가장 풍부한 detail.
- *       폴백:    **Gemini 3.1 Pro (Preview)** — 1차가 throw 했을 때
- *                 (TPM 한도 / 일시 장애 등) 도형 품질이 높은 대안.
+ *   - Pass 2 (figure pages, 도형): **Gemini 3.1 Pro (Preview)** 단일
+ *       (사용자 확정 2026-06-20). Gemini 키 없으면 Opus 4.7 폴백.
  *
  * 폴백 동작: 1차 호출이 *non-abort* error throw 하면 즉시 폴백 모델로 같은
  * 페이지를 다시 호출. AbortError 는 폴백 안 함 (사용자가 취소한 거니까).
@@ -51,7 +45,7 @@ const PASS2_CROP_MARGIN = 0.02;
 const pickPass1Chain = (): OCRModel[] => {
   const chain: OCRModel[] = [];
   if (isGeminiAvailable()) {
-    chain.push(GEMINI_3_FLASH);
+    // 사용자 확정 (2026-06-20): Pass1 전부 Gemini 3.5 Flash 단일.
     chain.push(GEMINI_3_5_FLASH);
   } else {
     chain.push(SONNET_MODEL);
@@ -60,7 +54,7 @@ const pickPass1Chain = (): OCRModel[] => {
 };
 const pickPass2Chain = (): OCRModel[] => {
   const chain: OCRModel[] = [];
-  if (isOpenAIAvailable()) chain.push(GPT_5_5);
+  // 사용자 확정 (2026-06-20): Pass2 전부 Gemini 3.1 Pro 단일.
   if (isGeminiAvailable()) chain.push(GEMINI_3_1_PRO);
   if (chain.length === 0) chain.push(OPUS_MODEL);
   return chain;

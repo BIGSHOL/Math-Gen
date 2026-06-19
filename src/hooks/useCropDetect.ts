@@ -139,15 +139,16 @@ export const useCropDetect = (): UseCropDetect => {
           const rotated = await applyRotation(dataUrl, page.rotation);
           if (isCancelled(page.id)) return;
 
-          // 4. Gemini 3 Flash 호출 (1차 — 빠른 분석)
+          // 4. Gemini 3.5 Flash 호출 (크롭 검출 — 사용자 확정 2026-06-20: 전부 3.5 Flash)
           const detected = await detectCropBoxes(rotated);
           if (isCancelled(page.id)) return;
 
-          // 5. complex 문항 있으면 GPT-5.5 정밀 재검출 (best-effort enhancement)
-          //    - complexity = "complex" → 다중 시각 요소 또는 긴 서술형 (200자+)
-          //    - GPT-5.5 실패 / 빈 응답 → Gemini 결과 유지 (silent fallback)
-          //    - 사용자 결정 (2026-05-27): 자동 트리거 + 개별 교체
-          const hasComplex = detected.some((d) => d.complexity === "complex");
+          // 5. complex 문항 정밀 재검출 — 사용자 확정 (2026-06-20): 크롭 전부 Gemini
+          //    3.5 Flash 단일 패스 → GPT-5.5 정밀 재검출 비활성. 재활성하려면 true 로.
+          //    (refineCropBoxesWithGpt55 함수는 cropDetect.ts 에 보존 — 재활성 시 재사용.)
+          const USE_GPT55_REFINE = false;
+          const hasComplex =
+            USE_GPT55_REFINE && detected.some((d) => d.complexity === "complex");
           let finalDetected: DetectedCrop[] = detected;
           if (hasComplex) {
             if (import.meta.env?.DEV) {

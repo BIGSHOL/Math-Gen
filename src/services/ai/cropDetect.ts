@@ -14,7 +14,7 @@
  * 강점이고 `OCR_PAGE_SCHEMA` 의 `images[].box` 와 동일 포맷이다.
  */
 
-import { getGeminiClient, GEMINI_3_FLASH } from "./gemini.js";
+import { getGeminiClient, GEMINI_3_5_FLASH } from "./gemini.js";
 import { getOpenAIClient, GPT_5_5_PRO } from "./openai.js";
 import { parseDataUrl } from "./sanitize.js";
 import { toGeminiSchema, parseJsonOrThrow, friendlyGeminiError } from "./ocr.js";
@@ -531,7 +531,7 @@ const detectCropBoxesDirect = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: GEMINI_3_FLASH,
+      model: GEMINI_3_5_FLASH,
       contents: [
         {
           role: "user",
@@ -589,7 +589,7 @@ const detectCropBoxesDirect = async (
     // 이미 한국어 → friendlyGeminiError 가 그대로 통과시킴.
     const friendly = raw.startsWith("[cropDetect]")
       ? raw
-      : friendlyGeminiError(raw, GEMINI_3_FLASH);
+      : friendlyGeminiError(raw, GEMINI_3_5_FLASH);
     const wrapped = new Error(friendly);
     (wrapped as Error & { cause?: unknown }).cause = raw;
     throw wrapped;
