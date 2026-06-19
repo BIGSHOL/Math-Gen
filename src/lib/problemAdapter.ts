@@ -123,8 +123,16 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
  * 조건: 문항 페이지(또는 forceOcr) 의 ocrResult 중 본문 있음 + !bodyMissing +
  * !choicesMissing + solution 있음 + !solutionError. 결손 문항은 제외.
  */
-export const eligibleOcrProblems = (pages: WizardPage[]): OCRProblem[] =>
-  pages
+export const eligibleOcrProblems = (
+  pages: WizardPage[],
+  opts: { requireSolution?: boolean } = {},
+): OCRProblem[] => {
+  // requireSolution 기본 true (변형 생성·Step3 카운트는 해설 필요). digitize 내보내기는
+  // false — 문제지(HWP/인쇄)는 *문항만* 있으면 되고 해설은 정답지(선택)용이라, 해설 미생성
+  // 문항도 내보낼 수 있어야 한다 (사용자 보고 2026-06-20: 디지털화만 했는데 검토·내보내기
+  // 가 빈 상태 — 해설 필수 필터가 모든 문항을 걸러냄).
+  const requireSolution = opts.requireSolution ?? true;
+  return pages
     .filter((p) => p.isProblemPage || p.forceOcr)
     .flatMap((p) => p.ocrResult)
     .filter(
@@ -132,9 +140,9 @@ export const eligibleOcrProblems = (pages: WizardPage[]): OCRProblem[] =>
         !!it.text &&
         !it.bodyMissing &&
         !it.choicesMissing &&
-        !!it.solution &&
-        !it.solutionError,
+        (!requireSolution || (!!it.solution && !it.solutionError)),
     );
+};
 
 /**
  * digitize 전용 — 현재 `ocrResult` 를 `ProblemReview[]` (status `confirmed`) 로 변환.
@@ -149,7 +157,7 @@ export const eligibleOcrProblems = (pages: WizardPage[]): OCRProblem[] =>
  * `useVariantGen` (staleness 재시드) 와 `Step5Export` (내보내기 시 live 도출) 가 공유.
  */
 export const buildDigitizeReviews = (pages: WizardPage[]): ProblemReview[] =>
-  eligibleOcrProblems(pages).map((it) => {
+  eligibleOcrProblems(pages, { requireSolution: false }).map((it) => {
     const original = ocrToGenerated(it);
     return {
       id: it.id,
