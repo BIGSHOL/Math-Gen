@@ -66,7 +66,7 @@ import {
   extractToolUseInput,
   stripCodeFences,
 } from "./generate.js";
-import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT } from "./prompts.js";
+import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT, OCR_CROP_PREFIX } from "./prompts.js";
 import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
 import { parseDataUrl, sanitizeText } from "./sanitize.js";
 import { blocksToMarkdown } from "../../lib/blocksToMarkdown.js";
@@ -349,6 +349,11 @@ export interface OCRPageInput {
    * Defaults to Sonnet 4.6.
    */
   model?: OCRModel;
+  /**
+   * true 면 *단일 문제 크롭* 모드 — buildUserText 가 OCR_CROP_PREFIX 를 prepend.
+   * per-crop OCR (usePageOcr) 가 박스별 호출 시 set. 기본 false(전체 페이지).
+   */
+  crop?: boolean;
 }
 
 export interface OCRPageResult {
@@ -455,11 +460,12 @@ const newId = (): string =>
     : `ocr-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
 /** Build the user-facing prompt + OCR-layer hint (used by every provider). */
-const buildUserText = (textLayer: string): string => {
+const buildUserText = (textLayer: string, crop = false): string => {
+  const base = crop ? `${OCR_CROP_PREFIX}${OCR_PAGE_PROMPT}` : OCR_PAGE_PROMPT;
   const hint = textLayer.trim().slice(0, 2000);
   return hint
-    ? `${OCR_PAGE_PROMPT}\n\n[PDF text-layer OCR hint — may contain noise; use only to disambiguate]\n${hint}`
-    : OCR_PAGE_PROMPT;
+    ? `${base}\n\n[PDF text-layer OCR hint — may contain noise; use only to disambiguate]\n${hint}`
+    : base;
 };
 
 /**
@@ -667,7 +673,7 @@ const callAnthropic = async (
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data } },
-            { type: "text", text: buildUserText(input.textLayer) },
+            { type: "text", text: buildUserText(input.textLayer, input.crop) },
           ],
         },
       ],
@@ -787,7 +793,7 @@ const callGemini = async (
   // Gemini doesn't have prompt-caching first-class; we still inline the
   // common math instructions so the model has the same formatting context.
   const system = COMMON_INSTRUCTIONS;
-  const userText = buildUserText(input.textLayer);
+  const userText = buildUserText(input.textLayer, input.crop);
 
   try {
     const response = await ai.models.generateContent({
@@ -931,7 +937,7 @@ const callOpenAIResponsesAPI = async (
   const client = getOpenAIClient();
   const { mediaType, data } = parseDataUrl(input.pageBase64);
   const dataUrl = `data:${mediaType};base64,${data}`;
-  const userText = buildUserText(input.textLayer);
+  const userText = buildUserText(input.textLayer, input.crop);
 
   // The Responses API uses a different shape: `input[]` instead of
   // `messages[]`, `input_image` / `input_text` instead of typed content
@@ -1039,7 +1045,7 @@ const callOpenAI = async (
     const client = getOpenAIClient();
     const { mediaType, data } = parseDataUrl(input.pageBase64);
     const dataUrl = `data:${mediaType};base64,${data}`;
-    const userText = buildUserText(input.textLayer);
+    const userText = buildUserText(input.textLayer, input.crop);
 
     // OpenAI's `response_format: json_schema` requires the schema to be wrapped
     // in `{ name, schema, strict }`. Our existing OCR_PAGE_SCHEMA already meets

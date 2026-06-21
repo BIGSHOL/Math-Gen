@@ -108,6 +108,9 @@ export const Step2OCRReview = () => {
       ocrComplete: false,
       ocrError: undefined,
       ocrResult: [],
+      // 재인식 시 stale in-flight 표시 정리 — 새 워커가 다시 set.
+      ocrInflightModel: undefined,
+      ocrStartedAt: undefined,
     });
   };
 
@@ -119,6 +122,8 @@ export const Step2OCRReview = () => {
       ocrComplete: false,
       ocrError: undefined,
       ocrResult: [],
+      ocrInflightModel: undefined,
+      ocrStartedAt: undefined,
     });
   };
 

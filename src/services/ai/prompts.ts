@@ -909,6 +909,18 @@ const formatOriginalProblemForVariant = (problem: {
  * mechanics + the confidence rubric. A `[OCR 힌트]` text-layer block is
  * appended at call time by `extractPageProblems` to disambiguate faint glyphs.
  */
+/**
+ * per-crop OCR prefix — `extractPageProblems({ crop: true })` 일 때 OCR_PAGE_PROMPT
+ * 앞에 prepend. 이미지가 *단일 문제 크롭* 임을 모델에 알려 옆 문제 오염·요약을 막는다.
+ * (시험지변환기 recognize_crop 의 크롭 컨텍스트 미러 — ocr_engine.py.)
+ */
+export const OCR_CROP_PREFIX = `이 이미지는 시험지에서 잘라낸 *단일 문제 영역* 입니다. 보통 문제 1개(번호·본문·선택지·딸린 그림/표 포함)만 들어 있습니다. 잘린 옆 문제의 일부가 가장자리에 보여도 무시하고 *중심 문제 하나만* 추출하세요 (items 배열에 보통 1개).
+이 문제 안의 인쇄 텍스트를 위에서 아래로 한 줄도 빠짐없이 그대로 옮기세요 — 요약·생략 절대 금지. 특히 테두리(네모) 박스 안 지문·조건·이야기 본문을 건너뛰지 말고 문장 전부 옮기세요 (이야기를 안다고 줄여 쓰지 말 것).
+아래 프롬프트의 "ONE page / Extract EVERY problem" 지시와 페이지 단위 휴리스틱(2단 배치 귀속·#1 문제는 페이지 상단 재확인 등)은 *이 크롭에는 적용하지 마세요*. 오직 이 크롭의 중심 문제 1개만 items 에 emit 하고, 가장자리에 걸친 옆 문제 조각을 별도 item 으로 만들지 마세요.
+images/figures 의 box 좌표는 *이 크롭 이미지 자체* 를 0–1000 그리드로 봅니다 (전체 페이지 아님). 보이는 크롭 안에서의 위치만 추정해 emit 하세요.
+
+`;
+
 export const OCR_PAGE_PROMPT = `Task: This image is ONE page of a Korean math workbook or exam. Extract EVERY problem visible on this page into a structured JSON array (see schema). Do NOT solve them — transcribe only.
 
 The output is rendered through react-markdown + remark-math + rehype-raw + rehype-katex, so Markdown, KaTeX delimiters (\$…\$, \$\$…\$\$), and raw HTML (<table>, <svg>, <tr>, <td>) are ALL passed through. Use that freely — you almost never need to fall back to image cropping.

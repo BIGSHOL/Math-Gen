@@ -66,6 +66,8 @@ const detectedToCropBox = (d: DetectedCrop): CropBox => {
     verified: false,
     source: "ai",
     number: d.number,
+    // per-crop OCR 모델 라우팅용 — complex 크롭은 Pro 체인 (도형 품질 보전).
+    complexity: d.complexity,
   };
 };
 
