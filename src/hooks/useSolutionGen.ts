@@ -34,6 +34,9 @@ export const useSolutionGen = () => {
   // 학년 fragment key — buildSolutionPrompt 에 prop drill 해서 학년별 단원
   // 함정 표가 prompt 에 inject 되게 함. null 이면 공통 검증 절차만.
   const selectedGrade = useWizardStore((s) => s.selectedGrade);
+  // 해설 스킵 — true 면 자동발사 차단. 사용자가 "해설 생성하기" 로 해제하면
+  // skipSolutions 가 false 가 되고 effect 가 재실행돼 자연스럽게 dispatch 시작.
+  const skipSolutions = useWizardStore((s) => s.skipSolutions);
   // pLimitWithGap(1, 1500) — Sonnet 4.6 의 분당 RPM/TPM 한계 (Tier 1 기준
   // RPM 50, OTPM 8k) 가 한 시험지 (30 문항) 에 대해 빠르게 차서 429 폭발.
   // 사용자 보고: 10+ 429
@@ -48,6 +51,7 @@ export const useSolutionGen = () => {
   const dispatched = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    if (skipSolutions) return; // 해설 건너뛰기 — 자동 해설 생성 차단 (재진입·Stepper 클릭 포함).
     for (const page of pages) {
       // Pages skipped by the OCR pipeline (e.g. cover / answer key) won't
       // have meaningful items either.
@@ -140,7 +144,7 @@ export const useSolutionGen = () => {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pages]);
+  }, [pages, skipSolutions]);
 
   /**
    * Clear the dispatched marker for a given item so the next effect cycle

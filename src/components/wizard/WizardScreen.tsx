@@ -60,6 +60,8 @@ export const WizardScreen = () => {
   const setOcrConfirmed = useWizardStore((s) => s.setOcrConfirmed);
   const solutionConfirmed = useWizardStore((s) => s.solutionConfirmed);
   const setSolutionConfirmed = useWizardStore((s) => s.setSolutionConfirmed);
+  const skipSolutions = useWizardStore((s) => s.skipSolutions);
+  const setSkipSolutions = useWizardStore((s) => s.setSkipSolutions);
   const markAllCropInspected = useWizardStore((s) => s.markAllCropInspected);
   const testId = useWizardStore((s) => s.testId);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
@@ -278,6 +280,15 @@ export const WizardScreen = () => {
   // 게이팅 (사용자 요청 2026-06-02): 조건 미충족 상태로 "다음" 시도 시 *체크리스트
   // 경고 토스트*. 버튼은 비활성 대신 클릭 가능하게 두고 (WizardFooter), 여기서 차단.
   // Ctrl+→ 단축키도 handleNext 경유라 동일 적용. 검수는 "검토 완료" 명시 필요.
+  // "해설 건너뛰기" — 해설 자동 생성을 막고(skipSolutions=true) 옵션(4)으로 직행.
+  // Step 2(OCR)에서 누르면 OCR 확인도 겸한다(2→4 직행이라 OCR 게이트를 명시 통과).
+  // useSolutionGen 이 skipSolutions 를 보고 자동발사를 차단 → 비용 0.
+  const handleSkipSolutions = () => {
+    if (step === 2) setOcrConfirmed(true);
+    setSkipSolutions(true);
+    setStep(4);
+  };
+
   const handleNext = () => {
     // 검수: 검출 완료 + 미검토 상태에서 footer 주 버튼("모든 페이지 검토 완료")을
     // 누르면 모든 페이지 검토 완료 처리 후 바로 다음 단계로.
@@ -312,6 +323,20 @@ export const WizardScreen = () => {
   };
   // keydown 핸들러가 최신 handleNext 를 호출하도록 매 렌더 ref 갱신.
   handleNextRef.current = handleNext;
+
+  // 해설 건너뛰기 버튼 (footer 좌측) — OCR(2, 완료 후)·해설(3) 단계에서, 아직 스킵
+  // 안 했을 때만. 스킵 후엔 Step3 배너가 "해설 생성하기" opt-in 을 제공.
+  const skipSolutionsSlot =
+    !skipSolutions && ((step === 2 && allProblemOcrDone) || step === 3) ? (
+      <Btn kind="ghost" size="sm" icon="fast-forward" onClick={handleSkipSolutions}>
+        해설 건너뛰고 옵션으로
+      </Btn>
+    ) : undefined;
+
+  // 해설 스킵 시 Stepper 의 해설(3) 단계 라벨을 "건너뜀" 으로 — 진행 상태 명시.
+  const stepperSteps = skipSolutions
+    ? STEPS.map((s) => (s.index === 3 ? { ...s, subLabel: "건너뜀" } : s))
+    : STEPS;
 
   return (
     <div className="w-full h-full flex flex-col bg-bg min-w-[1024px]">
@@ -354,7 +379,7 @@ export const WizardScreen = () => {
         {/* max-w 2200 — QHD (2560) 까지 활용, 좌우 여백 ~180px (사용자 결정 2026-05-26) */}
         <div className="max-w-[2200px] mx-auto">
           <Stepper
-            steps={STEPS}
+            steps={stepperSteps}
             current={step}
             furthest={furthestStep}
             completed={step === STEPS.length - 1}
@@ -390,6 +415,7 @@ export const WizardScreen = () => {
             canAdvance={canAdvance}
             blockedReason={blockedReason}
             nextLabel={nextLabel}
+            leftSlot={skipSolutionsSlot}
           />
         </div>
       )}

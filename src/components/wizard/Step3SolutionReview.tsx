@@ -1,4 +1,4 @@
-import { Card, Chip, Icon } from "@app/components/ui";
+import { Btn, Card, Chip, Heading, Icon } from "@app/components/ui";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
 import { useSolutionGen } from "@app/hooks/useSolutionGen";
 import { useWizardStore } from "@app/stores/wizardStore";
@@ -24,7 +24,12 @@ import SolutionItem from "./SolutionItem";
 export const Step3SolutionReview = () => {
   const pages = useWizardStore((s) => s.pages);
   const activeIdx = useWizardStore((s) => s.activePageIndex);
+  const skipSolutions = useWizardStore((s) => s.skipSolutions);
+  const setSkipSolutions = useWizardStore((s) => s.setSkipSolutions);
+  const setStep = useWizardStore((s) => s.setStep);
 
+  // skipSolutions 여도 hook 은 *항상* 호출 (rules-of-hooks) — 내부 effect 가
+  // skipSolutions 를 보고 자동발사를 차단하므로 비용 0.
   const { resetDispatch } = useSolutionGen();
 
   const activePage = pages[activeIdx];
@@ -42,6 +47,30 @@ export const Step3SolutionReview = () => {
         <p className="mt-3 text-body text-muted">
           업로드된 페이지가 없습니다. 1단계로 돌아가 PDF를 업로드해 주세요.
         </p>
+      </div>
+    );
+  }
+
+  // 해설 건너뛰기 상태 — 자동 생성 차단됨. opt-in("해설 생성하기")으로 해제 가능.
+  if (skipSolutions) {
+    return (
+      <div className="max-w-[560px] mx-auto px-6 py-16 text-center">
+        <Icon name="fast-forward" size={36} weight="duotone" color="#0EA5E9" />
+        <Heading level="h2" className="mt-3">
+          해설 생성을 건너뛰는 중
+        </Heading>
+        <p className="mt-2 text-body text-muted">
+          이 시험지는 해설·정답 없이 진행합니다. 문제지(HWP·인쇄)는 해설 없이도
+          내보낼 수 있어요. 필요하면 지금 해설을 생성할 수 있습니다.
+        </p>
+        <div className="mt-6 flex gap-2 justify-center">
+          <Btn kind="accent" icon="sparkle" onClick={() => setSkipSolutions(false)}>
+            해설 생성하기
+          </Btn>
+          <Btn kind="ghost" iconRight="arrow-right" onClick={() => setStep(4)}>
+            옵션으로
+          </Btn>
+        </div>
       </div>
     );
   }
