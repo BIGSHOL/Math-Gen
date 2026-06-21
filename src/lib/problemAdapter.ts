@@ -110,6 +110,12 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     images: images.length > 0 ? images : undefined,
     // Phase #7: OCR 원본 보기 배치 상속 — 변형 카드에서도 원본과 동일 grid.
     choicesLayout: it.choicesLayout ?? "auto",
+    // 옵션 B: 네이티브 typed-block carry — HWP 내보내기가 블록을 그대로 커넥터로
+    // 보내 testchange 변환과 일치 (없으면 markdown fallback).
+    blocks: it.blocks,
+    choiceGroups: it.choiceGroups,
+    score: it.score,
+    labelType: it.labelType,
   };
 };
 

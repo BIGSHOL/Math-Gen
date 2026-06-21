@@ -69,6 +69,18 @@ export interface GeneratedProblem {
    * 동기 carry — ai-crop(box-only)은 벡터 중복 위험 + 비동기라 제외.
    */
   images?: Array<{ dataUrl: string; label: string }>;
+  /**
+   * 옵션 B (HWP 일치): OCR 네이티브 typed-block. 있으면 HWP 내보내기(buildHwpPayload)가
+   * markdown 대신 *블록을 그대로* 커넥터에 보내 testchange 변환 결과와 일치시킨다.
+   * 없으면(변형 문제·legacy) markdown text fallback. ocrToGenerated 가 OCRProblem 에서 carry.
+   */
+  blocks?: import("@app/types/ocrBlocks").ContentBlock[];
+  /** 옵션 B: 보기 (ChoiceGroup 배열). 서술형이면 비어있음. */
+  choiceGroups?: import("@app/types/ocrBlocks").ChoiceGroup[];
+  /** 배점 (HWP 정답지·배점 표기). */
+  score?: number;
+  /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
+  labelType?: string;
 }
 
 export type GenerationMode = "curriculum" | "image" | "exact" | "diagram";

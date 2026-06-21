@@ -10,6 +10,7 @@
 
 import type { ProblemReview } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
+import type { ContentBlock, ChoiceGroup } from "@app/types/ocrBlocks";
 
 /** 커넥터 base URL. dev override 가능 (VITE_HWP_CONNECTOR_URL). */
 const BASE =
@@ -32,8 +33,20 @@ export interface HwpHealth {
 
 export interface HwpPayloadProblem {
   number: number;
+  /** markdown 본문 (fallback) — 블록 없거나 사용자 편집 시 커넥터가 이걸로 변환. */
   text: string;
   topic?: string;
+  /**
+   * 옵션 B: 네이티브 typed-block. 있으면 커넥터(adapter._adapt_native_problem)가
+   * markdown 재분해 없이 *그대로* parse_ocr_response 에 넘겨 testchange 변환과 일치.
+   */
+  contents?: ContentBlock[];
+  /** 보기 (ChoiceGroup) — contents 와 함께 emit. 서술형이면 생략. */
+  choices?: ChoiceGroup[];
+  /** 배점. */
+  score?: number;
+  /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
+  labelType?: string;
 }
 
 export interface HwpPayload {
@@ -83,11 +96,22 @@ export const buildHwpPayload = (
         .join(" ");
       text = text ? `${text}\n${line}` : line;
     }
-    return {
+    const wire: HwpPayloadProblem = {
       number: i + 1,
-      text,
+      text, // fallback — 커넥터가 contents 없을 때만 사용
       ...(p.topic ? { topic: p.topic } : {}),
     };
+    // 옵션 B: 네이티브 블록 있으면 그대로 전달 → 커넥터가 markdown 재분해 없이
+    // testchange 파이프라인(parse_ocr_response→build_document→writer)으로 변환.
+    if (Array.isArray(p.blocks) && p.blocks.length > 0) {
+      wire.contents = p.blocks;
+      if (Array.isArray(p.choiceGroups) && p.choiceGroups.length > 0) {
+        wire.choices = p.choiceGroups;
+      }
+      if (typeof p.score === "number") wire.score = p.score;
+      if (p.labelType) wire.labelType = p.labelType;
+    }
+    return wire;
   }),
 });
 
