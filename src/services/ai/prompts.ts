@@ -921,7 +921,7 @@ images/figures 의 box 좌표는 *이 크롭 이미지 자체* 를 0–1000 그�
 
 `;
 
-export const OCR_PAGE_PROMPT = `Task: This image is ONE page of a Korean math workbook or exam. Extract EVERY problem visible on this page into a structured JSON array (see schema). Do NOT solve them — transcribe only.
+export const OCR_PAGE_PROMPT = `Task: This image is ONE page of a Korean math workbook or exam. Extract EVERY problem visible on this page into a single JSON object \`{"items": [ … ]}\` (the schema below). Do NOT solve them — transcribe only.
 
 The output is rendered through react-markdown + remark-math + rehype-raw + rehype-katex, so Markdown, KaTeX delimiters (\$…\$, \$\$…\$\$), and raw HTML (<table>, <svg>, <tr>, <td>) are ALL passed through. Use that freely — you almost never need to fall back to image cropping.
 
@@ -942,6 +942,10 @@ The output is rendered through react-markdown + remark-math + rehype-raw + rehyp
     ],
     "topic":"유리수의 계산", "subQuestions":[], "images":[], "figures":[], "confidence":"high", "choicesLayout":"1x5"
   }
+
+🚨 **전체 출력 봉투 (필수)**: 위 문항 객체들을 \`items\` 배열에 담은 **단일 JSON 객체** 로 emit 한다:
+  {"items": [ {문항1}, {문항2}, … ]}
+최상위 키는 반드시 \`items\` (배열). \`questions\`/\`problems\`/\`data\` 같은 다른 키나, 배열만 단독으로 출력하지 말 것. 페이지에 문항이 없으면 {"items": []}.
 
 블록 타입 4 가지 (모든 블록은 \`rows\` 필드 필수 — 비-table 은 \`[]\`):
   - **text** — 한국어 산문. 박스 라벨 \`<보기>\`/\`<조건>\`/\`<상자>\` 머리, \`[그림N]\` 마커, inline \`<svg>…</svg>\`, \`__강조__\` 를 value 안에 둘 수 있음.
