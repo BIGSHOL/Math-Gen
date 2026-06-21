@@ -95,6 +95,14 @@ export interface OcrProblemRow {
   figures: FigureBox[] | null;
   /** Phase G (dedup): validator warning 자동 재생성 1회 가드 — 재호출 차단. */
   solution_auto_retried: boolean | null;
+  /** 옵션 B: OCR 네이티브 typed-block — HWP blocks-native + 재OCR 후 블록 보존. */
+  blocks: import("@app/types/ocrBlocks").ContentBlock[] | null;
+  /** 옵션 B: 보기 (ChoiceGroup). */
+  choice_groups: import("@app/types/ocrBlocks").ChoiceGroup[] | null;
+  /** 옵션 B: 배점. */
+  score: number | null;
+  /** 옵션 B: 문항 유형 라벨. */
+  label_type: string | null;
   created_at: string;
 }
 
@@ -274,6 +282,11 @@ export const ocrProblemToInsert = (
   figures: item.figures ?? null,
   // Phase G (dedup): 자동 재생성 가드 — hydrate 후 무한 재시도 방지.
   solution_auto_retried: item.solutionAutoRetried ?? false,
+  // 옵션 B: 네이티브 블록 영속화 — 재OCR/이어서작업 후에도 HWP blocks-native 유지.
+  blocks: item.blocks ?? null,
+  choice_groups: item.choiceGroups ?? null,
+  score: item.score ?? null,
+  label_type: item.labelType ?? null,
 });
 
 export const reviewToInsert = (
@@ -334,6 +347,14 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
     Array.isArray(row.figures) && row.figures.length > 0 ? row.figures : undefined,
   // Phase G (dedup): hydrate 후 useSolutionGen 의 자동 재시도 차단.
   solutionAutoRetried: row.solution_auto_retried ?? undefined,
+  // 옵션 B: 네이티브 블록 hydrate — 빈 배열/null → undefined (HWP markdown fallback).
+  blocks: Array.isArray(row.blocks) && row.blocks.length > 0 ? row.blocks : undefined,
+  choiceGroups:
+    Array.isArray(row.choice_groups) && row.choice_groups.length > 0
+      ? row.choice_groups
+      : undefined,
+  score: typeof row.score === "number" ? row.score : undefined,
+  labelType: row.label_type ?? undefined,
 });
 
 /**

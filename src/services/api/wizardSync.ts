@@ -208,6 +208,12 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
   // Phase #7: 보기 배치 변경 — 사용자 편집 후 또는 OCR 결과 update.
   if (prev.choicesLayout !== next.choicesLayout)
     patch.choices_layout = next.choicesLayout ?? "auto";
+  // 옵션 B: 네이티브 블록 변경 sync — 재OCR/per-crop 결과 영구 저장 (HWP 일치 유지).
+  if (prev.blocks !== next.blocks) patch.blocks = next.blocks ?? null;
+  if (prev.choiceGroups !== next.choiceGroups)
+    patch.choice_groups = next.choiceGroups ?? null;
+  if (prev.score !== next.score) patch.score = next.score ?? null;
+  if (prev.labelType !== next.labelType) patch.label_type = next.labelType ?? null;
   if (Object.keys(patch).length > 0) {
     void updateOcrProblem(next.id, patch, { debounceMs: 500 });
   }

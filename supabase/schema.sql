@@ -94,13 +94,21 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   diagram_params      JSONB,                                 -- Phase F: vector 도형 spec [{type, ...}] | null
   solution_auto_retried BOOL DEFAULT false,                  -- Phase G: validator warning 자동 재생성 1회 가드
   figures             JSONB,                                 -- Phase B: [그림N] 레이아웃 box [{box[4], kind, label}] | null
+  blocks              JSONB,                                 -- 옵션 B: OCR 네이티브 typed-block ContentBlock[] | null (HWP blocks-native)
+  choice_groups       JSONB,                                 -- 옵션 B: 보기 ChoiceGroup[] | null
+  score               INT,                                   -- 옵션 B: 배점 | null
+  label_type          TEXT,                                  -- 옵션 B: 문항 유형 라벨 | null
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Phase #7 + dedup 마이그레이션 (멱등) — column 없으면 추가
+-- Phase #7 + dedup + 옵션 B 마이그레이션 (멱등) — column 없으면 추가
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choices_layout TEXT DEFAULT 'auto';
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS diagram_params JSONB;
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS solution_auto_retried BOOL DEFAULT false;
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS figures JSONB;            -- Phase B: 위치 기반 배치
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS blocks JSONB;             -- 옵션 B: typed-block
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choice_groups JSONB;      -- 옵션 B: 보기 ChoiceGroup
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS score INT;                -- 옵션 B: 배점
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS label_type TEXT;          -- 옵션 B: 유형 라벨
 CREATE INDEX IF NOT EXISTS idx_problems_page
   ON ocr_problems(page_id, problem_number);
 
