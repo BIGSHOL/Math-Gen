@@ -53,6 +53,60 @@ const BLOCK_SCHEMA = {
   required: ["type", "value", "rows"],
 } as const;
 
+/** 객관식 보기 하나 — items.choices 와 sub-question.choices 가 공유 (drift 방지). */
+const CHOICE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    number: {
+      type: "integer",
+      description: "Option number 1..5 (① → 1, ② → 2, …).",
+    },
+    contents: {
+      type: "array",
+      description: "This option's content as typed blocks.",
+      items: BLOCK_SCHEMA,
+    },
+  },
+  required: ["number", "contents"],
+} as const;
+
+/**
+ * 소문항 (1)(2) — 배점이 따로 매겨진 실제 하위 문항. 박스 (가)(나) 조건은 sub_questions
+ * 아님(박스 text 블록 유지). 1단계 깊이 — 소문항 안에 또 subQuestions 없음(재귀 회피).
+ */
+const SUBQUESTION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    number: {
+      type: "integer",
+      description: "Sub-question number ((1) → 1, (2) → 2).",
+    },
+    contents: {
+      type: "array",
+      description:
+        "Sub-question body as typed blocks — same shape as the problem body (split math/Korean, every number its own equation block).",
+      items: BLOCK_SCHEMA,
+    },
+    choices: {
+      type: "array",
+      description:
+        "Sub-question options ①…⑤ as {number, contents}. EMPTY ARRAY [] for 서술형 sub-parts (most sub-questions).",
+      items: CHOICE_SCHEMA,
+    },
+    score: {
+      type: "integer",
+      description: "This sub-question's printed point value (배점). Use 0 if none.",
+    },
+    labelType: {
+      type: "string",
+      description: "Sub-question type label if printed, else empty string \"\".",
+    },
+  },
+  required: ["number", "contents", "choices", "score", "labelType"],
+} as const;
+
 export const OCR_PAGE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -80,22 +134,15 @@ export const OCR_PAGE_SCHEMA = {
             type: "array",
             description:
               "Multiple-choice options ①…⑤ as {number, contents}. number = 1..5 (① → 1). Each option's contents is a typed-block array (usually one equation block). EMPTY ARRAY [] for 서술형/단답형 (no ①②③④⑤ options).",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                number: {
-                  type: "integer",
-                  description: "Option number 1..5 (① → 1, ② → 2, …).",
-                },
-                contents: {
-                  type: "array",
-                  description: "This option's content as typed blocks.",
-                  items: BLOCK_SCHEMA,
-                },
-              },
-              required: ["number", "contents"],
-            },
+            items: CHOICE_SCHEMA,
+          },
+          subQuestions: {
+            type: "array",
+            description:
+              "Real sub-questions (1)(2) that EACH carry their OWN printed 배점 (score). EMPTY ARRAY [] for normal problems. " +
+              "Do NOT use for (가)(나)/보기 box conditions — those stay inside a box text block in `contents`. " +
+              "When present, the parent problem's `score` should be the TOTAL (sum of the sub scores).",
+            items: SUBQUESTION_SCHEMA,
           },
           score: {
             type: "integer",
@@ -186,6 +233,7 @@ export const OCR_PAGE_SCHEMA = {
           "number",
           "contents",
           "choices",
+          "subQuestions",
           "score",
           "labelType",
           "topic",

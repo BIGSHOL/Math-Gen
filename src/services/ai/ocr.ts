@@ -70,7 +70,7 @@ import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT, OCR_CROP_PREFIX } from "./prompts
 import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
 import { parseDataUrl, sanitizeText } from "./sanitize.js";
 import { blocksToMarkdown } from "../../lib/blocksToMarkdown.js";
-import type { ContentBlock, ChoiceGroup, BlockType } from "../../types/ocrBlocks.js";
+import type { ContentBlock, ChoiceGroup, BlockType, SubQuestion } from "../../types/ocrBlocks.js";
 import {
   normalizeAnthropicUsage,
   normalizeGeminiUsage,
@@ -306,6 +306,15 @@ interface RawOcrChoice {
   contents?: unknown;
 }
 
+/** raw 소문항 (number/contents/choices/score/labelType 느슨). */
+interface RawOcrSubQuestion {
+  number?: unknown;
+  contents?: unknown;
+  choices?: unknown;
+  score?: unknown;
+  labelType?: unknown;
+}
+
 interface RawOcrItem {
   number: number;
   /**
@@ -315,6 +324,8 @@ interface RawOcrItem {
   contents: RawOcrBlock[];
   /** 옵션 B: 보기 (ChoiceGroup raw). 서술형은 빈 배열. */
   choices: RawOcrChoice[];
+  /** D3: 소문항 (1)(2) — 개별 배점 있는 하위 문항. 없으면 빈 배열. */
+  subQuestions?: RawOcrSubQuestion[];
   /** 배점 (0 = 없음 → undefined). */
   score?: number;
   /** 문항 유형 라벨 ("서답형"/"서술형"/… , "" = 없음). */
@@ -542,13 +553,45 @@ const normalizeChoiceGroups = (raw: unknown): ChoiceGroup[] => {
   return out;
 };
 
+/**
+ * D3: raw subQuestions → SubQuestion[]. 본문/보기는 기존 normalize 재사용 + score 0→undefined,
+ * labelType ""→undefined (문항과 동일 sentinel). contents 가 비면 그 소문항은 drop(노이즈).
+ */
+const normalizeSubQuestions = (raw: unknown): SubQuestion[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: SubQuestion[] = [];
+  raw.forEach((s, i) => {
+    if (!s || typeof s !== "object") return;
+    const r = s as RawOcrSubQuestion;
+    const contents = normalizeBlocks(r.contents);
+    if (contents.length === 0) return;
+    const number = typeof r.number === "number" && r.number > 0 ? r.number : i + 1;
+    const choices = normalizeChoiceGroups(r.choices);
+    const score =
+      typeof r.score === "number" && r.score > 0 ? r.score : undefined;
+    const labelType =
+      typeof r.labelType === "string" && r.labelType.trim()
+        ? r.labelType.trim()
+        : undefined;
+    out.push({
+      number,
+      contents,
+      choices: choices.length > 0 ? choices : undefined,
+      score,
+      labelType,
+    });
+  });
+  return out;
+};
+
 /** Map a raw JSON response (provider-agnostic) to OCRProblem[]. */
 const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
   (parsed.items ?? []).map((raw) => {
     // 옵션 B: 블록이 정전, markdown text 는 파생 (기존 휴리스틱·렌더·해설·변형 무변경).
     const blocks = normalizeBlocks(raw.contents);
     const choiceGroups = normalizeChoiceGroups(raw.choices);
-    const text = sanitizeText(blocksToMarkdown(blocks, choiceGroups));
+    const subQuestions = normalizeSubQuestions(raw.subQuestions);
+    const text = sanitizeText(blocksToMarkdown(blocks, choiceGroups, subQuestions));
     const bodyMissing = isBodyTooShort(text);
     const choicesMissing = isChoicesMissing(text);
     const score =
@@ -562,6 +605,7 @@ const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
       number: raw.number,
       blocks: blocks.length > 0 ? blocks : undefined,
       choiceGroups: choiceGroups.length > 0 ? choiceGroups : undefined,
+      subQuestions: subQuestions.length > 0 ? subQuestions : undefined,
       score,
       labelType,
       text,

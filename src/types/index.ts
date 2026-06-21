@@ -40,6 +40,12 @@ export interface CurriculumUnit {
 }
 
 export interface GeneratedProblem {
+  /**
+   * 인쇄된 문항 번호 (OCRProblem.number carry). HWP 내보내기(buildHwpPayload)가
+   * wire `number` 로 보내 testchange 변환과 번호 일치 (없으면 배열 인덱스 fallback).
+   * 변형 문제·legacy 는 undefined.
+   */
+  number?: number;
   question: string;
   choices?: string[];
   answer: string;
@@ -77,6 +83,8 @@ export interface GeneratedProblem {
   blocks?: import("@app/types/ocrBlocks").ContentBlock[];
   /** 옵션 B: 보기 (ChoiceGroup 배열). 서술형이면 비어있음. */
   choiceGroups?: import("@app/types/ocrBlocks").ChoiceGroup[];
+  /** D3: 소문항 (1)(2) — 개별 배점 있는 하위 문항. HWP wire 로 전달돼 소문항별 렌더. */
+  subQuestions?: import("@app/types/ocrBlocks").SubQuestion[];
   /** 배점 (HWP 정답지·배점 표기). */
   score?: number;
   /** 문항 유형 라벨 ("서답형"/"서술형"/…). */

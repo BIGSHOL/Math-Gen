@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { GeneratedProblem } from "@app/types";
-import type { ContentBlock, ChoiceGroup } from "@app/types/ocrBlocks";
+import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
 import type { GradeKey } from "@app/services/ai/mathDefense";
 import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
 import type { FontPackId } from "@app/lib/printFontPacks";
@@ -283,6 +283,11 @@ export interface OCRProblem {
   blocks?: ContentBlock[];
   /** 옵션 B: 보기 (ChoiceGroup 배열). 서술형이면 비어있음/undefined. */
   choiceGroups?: ChoiceGroup[];
+  /**
+   * D3: 소문항 (1)(2) — 개별 배점 있는 하위 문항 (testchange sub_questions 미러).
+   * HWP 커넥터가 소문항별 번호·배점·답란으로 렌더. 없으면 undefined. 파생 `text` 에도 포함.
+   */
+  subQuestions?: SubQuestion[];
   /** 배점 (없으면 undefined). HWP wire payload 로 전달돼 정답지/배점 표기에 사용. */
   score?: number;
   /** 문항 유형 라벨 ("서답형"/"서술형"/"단답형"/…). 없으면 undefined. */

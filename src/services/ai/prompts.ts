@@ -940,7 +940,7 @@ The output is rendered through react-markdown + remark-math + rehype-raw + rehyp
       {"number":1,"contents":[{"type":"equation","value":"\\\\frac{5}{6}","rows":[]}]},
       {"number":2,"contents":[{"type":"equation","value":"\\\\frac{7}{6}","rows":[]}]}
     ],
-    "topic":"유리수의 계산", "images":[], "figures":[], "confidence":"high", "choicesLayout":"1x5"
+    "topic":"유리수의 계산", "subQuestions":[], "images":[], "figures":[], "confidence":"high", "choicesLayout":"1x5"
   }
 
 블록 타입 4 가지 (모든 블록은 \`rows\` 필드 필수 — 비-table 은 \`[]\`):
@@ -956,6 +956,7 @@ The output is rendered through react-markdown + remark-math + rehype-raw + rehyp
   4. 도형(직접 그린 inline \`<svg>…</svg>\` 또는 \`[그림N]\` 마커)은 그 위치의 *text 블록 value* 안에 둔다 (아래 VISUAL ELEMENTS 규칙대로 그림). 표는 text 가 아니라 \`table\` 블록.
   5. 보기 ①②③④⑤ 는 \`choices\` 배열 ({"number":1..5,"contents":[블록]}). **서술형/단답형은 \`choices: []\` (빈 배열)**. ①②③④⑤ 마커 자체를 contents text 에 넣지 말 것.
   6. 배점(4점) → \`score\` 정수(4), 없으면 0. 문항 유형 라벨([서답형 N]) → \`labelType\` ("서답형"), 없으면 "".
+  7. **소문항 \`subQuestions\`** — (1)(2) 처럼 *각각 자기 배점이 따로 매겨진* 실제 하위 문항만 \`subQuestions\` 배열로. 각 소문항 = {"number":1, "contents":[블록], "choices":[], "score":2, "labelType":""}. 이때 부모 \`score\` 는 소문항 배점의 *합계(총점)*. 그 외 — 배점 없는 (1)(2)(3) 나열·박스 (가)(나)/보기 조건 — 은 \`subQuestions\` 가 아니라 본문 \`contents\` 또는 박스 text 블록에 그대로 둔다. **소문항 없으면 \`subQuestions: []\` (빈 배열)**.
 
 (\`contents\`·\`choices\` 의 text 블록 value 는 우리 렌더러에서 react-markdown + remark-math + rehype-raw + rehype-katex 로 그려진다 — inline \`<svg>\`·\`[그림N]\`·\`<table>\` 가 그대로 통한다. 아래 "RULES FOR EACH items ENTRY" 의 본문·보기·도형 규칙은 이 블록 구조 위에서 그대로 적용한다.)
 
@@ -1049,9 +1050,13 @@ RULES FOR EACH "items" ENTRY
          잘못된 emit: 본문 잘 읽었는데 choices 가 비어있어야 함에도 모델이 객관식 "보기 누락" 으로 처리.
          올바른 emit: choices=[] (절대 ①②③④⑤ 추가 X), confidence="high".
 
-       사례 B — "[서술형 3]" + (1)(2) 서브문항:
+       사례 B — "[서술형 3]" + (1)(2) *개별 배점 없는* 방법 나열:
          원본: "[서술형 3] $x = \\sqrt{5}+1$일 때, $x^2-2x-3$의 값을 구하려고 한다. 다음 제시된 두 가지 방법을 각각 이용하여 값을 구하고, 그 과정을 서술하시오. (8점) (1) 인수분해 공식을 이용하여 구하시오. (2) 완전제곱식을 이용하여 구하시오."
-         올바른 emit: 본문에 (1)(2) 서브문항 그대로 포함, choices=[].
+         올바른 emit: (8점)은 문제 전체 배점이고 (1)(2)에 *개별 배점이 없으므로* → 본문 contents 에 (1)(2) 그대로 포함, choices=[], **subQuestions=[]** (소문항 배열 X). 부모 score=8.
+
+       사례 C — (1)(2) 가 *각각 자기 배점* 을 가질 때 → subQuestions:
+         원본: "17. 다음 물음에 답하시오. [총 8점] (1) … 를 구하시오. [4점] (2) … 를 구하시오. [4점]"
+         올바른 emit: parent {number:17, score:8(=합계), contents:[발문 블록], choices:[], subQuestions:[{number:1, contents:[(1) 본문 블록], choices:[], score:4, labelType:""}, {number:2, contents:[(2) 본문 블록], choices:[], score:4, labelType:""}]}. 본문 [4점] 마커는 score 필드로 옮기고 contents 에는 남기지 않는다.
 
      **선판단 알고리즘 (every problem)**:
        Step 1. 페이지에서 "[단답형/서술형/주관식/논술형 N]" 헤더 검색 → 있으면 단답/서술형 확정.

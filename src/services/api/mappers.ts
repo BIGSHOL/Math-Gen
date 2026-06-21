@@ -99,6 +99,8 @@ export interface OcrProblemRow {
   blocks: import("@app/types/ocrBlocks").ContentBlock[] | null;
   /** 옵션 B: 보기 (ChoiceGroup). */
   choice_groups: import("@app/types/ocrBlocks").ChoiceGroup[] | null;
+  /** D3: 소문항 (1)(2) — 개별 배점 있는 하위 문항. */
+  sub_questions: import("@app/types/ocrBlocks").SubQuestion[] | null;
   /** 옵션 B: 배점. */
   score: number | null;
   /** 옵션 B: 문항 유형 라벨. */
@@ -285,6 +287,7 @@ export const ocrProblemToInsert = (
   // 옵션 B: 네이티브 블록 영속화 — 재OCR/이어서작업 후에도 HWP blocks-native 유지.
   blocks: item.blocks ?? null,
   choice_groups: item.choiceGroups ?? null,
+  sub_questions: item.subQuestions ?? null,
   score: item.score ?? null,
   label_type: item.labelType ?? null,
 });
@@ -352,6 +355,10 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
   choiceGroups:
     Array.isArray(row.choice_groups) && row.choice_groups.length > 0
       ? row.choice_groups
+      : undefined,
+  subQuestions:
+    Array.isArray(row.sub_questions) && row.sub_questions.length > 0
+      ? row.sub_questions
       : undefined,
   score: typeof row.score === "number" ? row.score : undefined,
   labelType: row.label_type ?? undefined,

@@ -17,7 +17,7 @@
  * (PR3 에서 커넥터가 그대로 박스 렌더). 웹은 여기서 blockquote(`> `)로 변환해 동일 렌더.
  */
 
-import type { ContentBlock, ChoiceGroup } from "@app/types/ocrBlocks";
+import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
 
 /** 보기 마커 ①..⑩. */
 const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩";
@@ -117,6 +117,7 @@ const serializeChoiceContents = (contents: ContentBlock[]): string =>
 export const blocksToMarkdown = (
   contents: ContentBlock[],
   choices: ChoiceGroup[] = [],
+  subQuestions: SubQuestion[] = [],
 ): string => {
   const out: string[] = []; // 블록 레벨 청크 (빈 줄로 join)
   let inline = ""; // 현재 인라인 런
@@ -165,6 +166,18 @@ export const blocksToMarkdown = (
       })
       .join(" ");
     out.push(line);
+  }
+
+  // D3: 소문항 (1)(2) — 각 소문항을 자기 본문(+보기)으로 직렬화. 줄머리 `(번호) ` 는
+  // 인쇄 경로 splitSubQuestions(/^\s*\(\d+\)\s/)가 소문항으로 인식해 풀이 공간을 분리.
+  // 개별 배점 있으면 끝에 `[N점]` 표기(웹/인쇄 표시 — HWP 는 wire 구조로 별도 렌더).
+  for (const sub of subQuestions ?? []) {
+    if (!sub || !Array.isArray(sub.contents)) continue;
+    const body = blocksToMarkdown(sub.contents, sub.choices ?? []);
+    const scoreTag =
+      typeof sub.score === "number" && sub.score > 0 ? ` [${sub.score}점]` : "";
+    const line = `(${sub.number}) ${body}${scoreTag}`.trim();
+    if (line) out.push(line);
   }
 
   return out.join("\n\n");

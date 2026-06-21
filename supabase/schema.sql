@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   figures             JSONB,                                 -- Phase B: [그림N] 레이아웃 box [{box[4], kind, label}] | null
   blocks              JSONB,                                 -- 옵션 B: OCR 네이티브 typed-block ContentBlock[] | null (HWP blocks-native)
   choice_groups       JSONB,                                 -- 옵션 B: 보기 ChoiceGroup[] | null
+  sub_questions       JSONB,                                 -- D3: 소문항 (1)(2) SubQuestion[] | null
   score               INT,                                   -- 옵션 B: 배점 | null
   label_type          TEXT,                                  -- 옵션 B: 문항 유형 라벨 | null
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -109,6 +110,7 @@ ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS blocks JSONB;             -- �
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choice_groups JSONB;      -- 옵션 B: 보기 ChoiceGroup
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS score INT;                -- 옵션 B: 배점
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS label_type TEXT;          -- 옵션 B: 유형 라벨
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS sub_questions JSONB;      -- D3: 소문항 (1)(2)
 CREATE INDEX IF NOT EXISTS idx_problems_page
   ON ocr_problems(page_id, problem_number);
 

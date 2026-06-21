@@ -49,3 +49,24 @@ export interface ChoiceGroup {
   /** 보기 내용 블록들. */
   contents: ContentBlock[];
 }
+
+/**
+ * 소문항 (1)(2) — *배점이 따로 매겨진 실제 하위 문항* (testchange Question.sub_questions 미러).
+ *
+ * testchange OCR 규약(ocr_engine.py:494)과 동일: 박스 (가)(나) 조건·보기는 sub_questions 가
+ * 아니라 박스 text 블록 안에 유지한다. 부모 문항의 `score` 는 소문항 배점의 *합계(총점)* 로,
+ * HWP 커넥터가 `[총 N점]` + 소문항별 `[N점]` 으로 렌더한다(hwp_com_writer.py:849-954).
+ * 1단계 깊이 — 소문항 안에 또 소문항은 두지 않는다(실 시험지 충분, 재귀 스키마 회피).
+ */
+export interface SubQuestion {
+  /** 소문항 번호 ((1) → 1, (2) → 2). */
+  number: number;
+  /** 소문항 본문 블록 (문항 본문과 동일 구조). */
+  contents: ContentBlock[];
+  /** 소문항 보기 — 대개 비어있음/undefined (서술형 소문항). */
+  choices?: ChoiceGroup[];
+  /** 소문항 배점 (없으면 undefined). */
+  score?: number;
+  /** 소문항 유형 라벨 — 대개 없음/undefined. */
+  labelType?: string;
+}

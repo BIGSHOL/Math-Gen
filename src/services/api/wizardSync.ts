@@ -212,6 +212,9 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
   if (prev.blocks !== next.blocks) patch.blocks = next.blocks ?? null;
   if (prev.choiceGroups !== next.choiceGroups)
     patch.choice_groups = next.choiceGroups ?? null;
+  // D3: 소문항 변경 sync — 재OCR 결과의 소문항 보존.
+  if (prev.subQuestions !== next.subQuestions)
+    patch.sub_questions = next.subQuestions ?? null;
   if (prev.score !== next.score) patch.score = next.score ?? null;
   if (prev.labelType !== next.labelType) patch.label_type = next.labelType ?? null;
   if (Object.keys(patch).length > 0) {

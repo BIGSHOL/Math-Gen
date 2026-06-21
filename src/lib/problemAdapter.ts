@@ -94,6 +94,8 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     })
     .filter((x): x is { dataUrl: string; label: string } => x !== null);
   return {
+    // 인쇄 문항 번호 carry — HWP wire 가 testchange 처럼 인쇄 번호를 쓰도록 (D10).
+    number: it.number,
     question: choices ? stripChoicesLine(it.text) : it.text,
     choices,
     answer: it.answer ?? "",
@@ -114,6 +116,8 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     // 보내 testchange 변환과 일치 (없으면 markdown fallback).
     blocks: it.blocks,
     choiceGroups: it.choiceGroups,
+    // D3: 소문항 carry — HWP wire 가 testchange sub_questions 로 렌더.
+    subQuestions: it.subQuestions,
     score: it.score,
     labelType: it.labelType,
   };
