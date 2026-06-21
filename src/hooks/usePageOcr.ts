@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
+import { checkImageQuality, QC_CLEAN_SCORE } from "@app/lib/imageQuality";
 import { remapBoxToFullPage } from "@app/lib/figureBoxRemap";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
@@ -184,6 +185,7 @@ export const usePageOcr = () => {
       page: WizardPage,
       rotated: string,
       problemBoxes: ReadonlyArray<ProblemBox>,
+      pageChain: OCRModel[],
     ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
       const results = await Promise.all(
         problemBoxes.map((box) =>
@@ -200,11 +202,10 @@ export const usePageOcr = () => {
               return null;
             }
             if (isCancelled(page.id)) return null;
-            // complexity 라우팅 — 복합/도형 크롭은 Pro, 단순은 Flash.
-            const chain = box.complexity === "complex" ? pass2Chain : pass1Chain;
+            // D17 — 페이지별 라우팅(testchange clean/messy): 그 페이지 모든 크롭이 pageChain.
             let r: { items: OCRProblem[]; modelUsed: OCRModel } | null;
             try {
-              r = await ocrChainOnImage(page, crop, chain, {
+              r = await ocrChainOnImage(page, crop, pageChain, {
                 crop: true,
                 textLayer: "", // 박스 한정 — PDF text hint 없음
                 label: `크롭(${box.number})`,
@@ -319,6 +320,27 @@ export const usePageOcr = () => {
           const rotated = await loadRotatedImage(page);
           if (!rotated) return;
 
+          // D17 — testchange 페이지별 OCR 백엔드 라우팅(_page_backend): clean(born OR
+          // QC score≥70) = Flash, messy(저품질/바랜 스캔) = Pro. born = PDF text layer 존재
+          // (born-digital). 페이지당 1회 산출 → 그 페이지 모든 크롭이 같은 체인(testchange 동일).
+          const born = (page.textLayer ?? "").trim().length > 0;
+          let pageChain = pass1Chain;
+          if (!born) {
+            try {
+              const qc = await checkImageQuality(rotated);
+              if (qc < QC_CLEAN_SCORE) pageChain = pass2Chain;
+              if (import.meta.env.DEV) {
+                // eslint-disable-next-line no-console
+                console.debug(
+                  `[usePageOcr] ${page.id} QC=${qc} → ${qc < QC_CLEAN_SCORE ? "Pro(messy)" : "Flash(clean)"}`,
+                );
+              }
+            } catch {
+              /* QC 실패 → clean 가정(Flash) */
+            }
+          }
+          if (isCancelled(page.id)) return;
+
           const problemBoxes = (page.cropBoxes ?? []).filter(
             (b): b is ProblemBox => b.class === "problem" && typeof b.number === "number",
           );
@@ -328,14 +350,14 @@ export const usePageOcr = () => {
             // ── fallback: 크롭 없음 → whole-page OCR (legacy / 검출 실패 안전망) ──
             // testchange 동일 — 픽셀 전처리 없이 원본(회전 보정만) 전송 (D01).
             if (isCancelled(page.id)) return;
-            result = await ocrChainOnImage(page, rotated, pass1Chain, {
+            result = await ocrChainOnImage(page, rotated, pageChain, {
               crop: false,
               textLayer: page.textLayer,
               label: "전체",
             });
           } else {
             // ── per-crop OCR (testchange 방향) ──
-            result = await runPerCropOcr(page, rotated, problemBoxes);
+            result = await runPerCropOcr(page, rotated, problemBoxes, pageChain);
           }
           if (!result) return;
 

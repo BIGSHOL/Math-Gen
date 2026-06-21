@@ -147,11 +147,6 @@ export interface CropBox {
   verified: boolean;
   source: "ai" | "user" | "edited";
   number?: number;
-  /**
-   * cropDetect 가 추정한 문항 복잡도 — per-crop OCR 모델 라우팅용 (§per-crop).
-   * "complex" (다중 시각요소·긴 서술형) → Pro 체인, "simple"/undefined → Flash 체인.
-   */
-  complexity?: "simple" | "complex";
 }
 
 export interface WizardPage {
