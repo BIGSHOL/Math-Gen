@@ -18,6 +18,12 @@
  */
 
 import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
+import {
+  hasGeometryContext,
+  type NBlock,
+  normalizeChoiceGroups,
+  normalizeContents,
+} from "@app/services/ai/contentParser";
 
 /** 보기 마커 ①..⑩. */
 const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩";
@@ -119,17 +125,38 @@ export const blocksToMarkdown = (
   choices: ChoiceGroup[] = [],
   subQuestions: SubQuestion[] = [],
 ): string => {
+  // content_parser 정규화 (병합·쉼표분리·확통로만·박스경계) — 웹 미리보기를 HWP 출력에
+  // 맞춘다. 저장 블록·wire 는 네이티브 그대로(커넥터가 단독 재정규화 — 이중정규화 0).
+  const norm: NBlock[] = normalizeContents(contents ?? []);
+  // 선택지 force_geo = 본문(정규화 후) 기하 문맥 (대륜중 #1 — 점 좌표 선택지 로만+이탤릭).
+  const geo = hasGeometryContext(norm);
+
   const out: string[] = []; // 블록 레벨 청크 (빈 줄로 join)
   let inline = ""; // 현재 인라인 런
+  let boxRun: NBlock[] = []; // 연속 box_member 블록 (멀티블록 박스 그룹핑)
 
   const flushInline = (): void => {
     const s = inline.trim();
     if (s) out.push(s);
     inline = "";
   };
+  const flushBoxRun = (): void => {
+    if (boxRun.length === 0) return;
+    // 박스 멤버 블록들을 인라인 직렬화 후 한 blockquote 로 — 멀티블록 보기 박스가
+    // 마커 블록만 박스화되고 항목이 유출되던 "박스 미완"(사용자 보고) 차단.
+    const concat = boxRun.map(inlinePiece).join("").trim();
+    if (concat) out.push(boxToBlockquote(concat));
+    boxRun = [];
+  };
 
-  for (const b of contents ?? []) {
+  for (const b of norm) {
     if (!b || typeof b.type !== "string") continue;
+    if (b.boxMember) {
+      flushInline();
+      boxRun.push(b);
+      continue;
+    }
+    flushBoxRun();
     if (b.type === "equation_block") {
       flushInline();
       const v = b.value.trim();
@@ -142,6 +169,7 @@ export const blocksToMarkdown = (
       flushInline();
       out.push(b.value.trim());
     } else if (isBoxText(b)) {
+      // 태깅 안 된 단일 블록 박스 fallback (box_member 일관 태깅 후엔 드묾).
       flushInline();
       out.push(boxToBlockquote(b.value));
     } else {
@@ -150,11 +178,10 @@ export const blocksToMarkdown = (
     }
   }
   flushInline();
+  flushBoxRun();
 
   // 보기 → ①..⑤ 한 줄 (rule 4b). 본문과 빈 줄로 분리. extractChoices 가 끝에서 파싱.
-  const valid = (choices ?? []).filter(
-    (c) => c && Array.isArray(c.contents) && typeof c.number === "number",
-  );
+  const valid = normalizeChoiceGroups(choices ?? [], geo);
   if (valid.length > 0) {
     const line = valid
       .map((c) => {
