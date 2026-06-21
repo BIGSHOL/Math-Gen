@@ -60,12 +60,7 @@ import {
   O4_MINI,
   type OpenAIModel,
 } from "./openai.js";
-import {
-  SYSTEM_BLOCKS,
-  extractJsonText,
-  extractToolUseInput,
-  stripCodeFences,
-} from "./generate.js";
+import { stripCodeFences } from "./generate.js";
 import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT, OCR_CROP_PREFIX } from "./prompts.js";
 import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
 import { parseDataUrl, sanitizeText } from "./sanitize.js";
@@ -706,57 +701,52 @@ const callAnthropic = async (
 ): Promise<RawOcrResponse> => {
   const { mediaType, data } = parseDataUrl(input.pageBase64);
 
-  // ⚠ STREAMING 필수 — Anthropic SDK는 `max_tokens > ~21333` (모델별 threshold)
-  //   에서 non-streaming 호출을 차단한다 (10분 이상 걸릴 수 있는 요청은
-  //   streaming만 허용). 우리는 multi-problem + inline SVG를 한 번에 받기
-  //   위해 64k까지 요청하므로 streaming 경로를 쓴다.
+  // ⚠ STREAMING 필수 — Anthropic SDK는 `max_tokens > ~21333` 에서 non-streaming 차단.
+  // `messages.stream()` → `await stream.finalMessage()` 로 받으면 shape 은 create 와 동일.
   //
-  //   `messages.stream()` → `await stream.finalMessage()` 로 최종 메시지를
-  //   받으면 응답 shape 은 non-streaming `messages.create` 결과와 동일하므로
-  //   기존 `extractJsonText` 후처리가 그대로 통한다.
-  // tool_use 패턴 — Anthropic 권장. output_config.format.schema 의 strict
-  // validator 가 array schema 거부 (`maxItems is not supported`) 문제 회피.
-  // streaming + tool_use 호환됨 (final 메시지 content 에 tool_use block 포함).
-  const TOOL_NAME = "emit_ocr_result";
-  const stream = anthropic.messages.stream(
-    {
-      model,
-      max_tokens: 64000,
-      // OCR is transcription — pin sampling so reruns of the same image
-      // give the same JSON. testchange ocr_engine 와 동일하게 0 (결정적·정확도↑;
-      // _stream_claude temperature=0). 옵션 B 엔진 이식.
-      temperature: 0,
-      system: SYSTEM_BLOCKS,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data } },
-            { type: "text", text: buildUserText(input.textLayer, input.crop) },
-          ],
-        },
-      ],
-      tools: [
-        {
-          name: TOOL_NAME,
-          description:
-            "Emit the OCR result for this page as JSON — items array of problems with body/choices/images/etc.",
-          input_schema: OCR_PAGE_SCHEMA as unknown as {
-            type: "object";
-            properties?: Record<string, unknown>;
-            required?: string[];
+  // D04 엔진 이식 — testchange `_stream_claude` 미러: tool_use 가 아니라 **평문 JSON**,
+  // **텍스트 먼저 + 이미지 나중**, max_tokens=16384(OCR_MAX_TOKENS), 잘림 시 32768 재시도,
+  // `_extract_json`(=parseJsonOrThrow 다단 복구) 파싱. 프롬프트는 이미지 앞 단일 text 블록
+  // (cache_control) — testchange active_prompt() 구조. (SYSTEM_BLOCKS 는 해설/변형 전용 유지,
+  // OCR Anthropic 은 자체 단일 블록 구성.)
+  const OCR_MAX_TOKENS = 16384;
+  const promptText = `${COMMON_INSTRUCTIONS}\n\n${buildUserText(input.textLayer, input.crop)}`;
+  const call = async (maxTokens: number) => {
+    const stream = anthropic.messages.stream(
+      {
+        model,
+        max_tokens: maxTokens,
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: promptText, cache_control: { type: "ephemeral" } },
+              { type: "image", source: { type: "base64", media_type: mediaType, data } },
+            ],
           },
-        },
-      ],
-      tool_choice: { type: "tool", name: TOOL_NAME },
-    },
-    input.signal ? { signal: input.signal } : undefined,
-  );
+        ],
+      },
+      input.signal ? { signal: input.signal } : undefined,
+    );
+    return stream.finalMessage();
+  };
 
-  const response = await stream.finalMessage();
-  // tool_use 패턴: 응답 content 에서 emit_ocr_result tool block 의 input
-  // (이미 parsed JSON object) 추출.
-  const raw = extractToolUseInput(response, TOOL_NAME) as RawOcrResponse;
+  let response = await call(OCR_MAX_TOKENS);
+  // 잘림(stop_reason==="max_tokens") → 더 큰 예산으로 1회 재시도 (recognize_crop:819-825).
+  if ((response as { stop_reason?: string }).stop_reason === "max_tokens") {
+    response = await call(Math.min(OCR_MAX_TOKENS * 2, 32768));
+  }
+  // 평문 텍스트 추출 → JSON 복구 파싱 (extractToolUseInput 대신 parseJsonOrThrow).
+  let text = "";
+  for (const b of response.content ?? []) {
+    if ((b as { type?: string }).type === "text") {
+      text = (b as { text?: string }).text ?? "";
+      break;
+    }
+  }
+  if (!text) throw new Error("[ocr/anthropic] 빈 응답 (text 블록 없음)");
+  const raw = parseJsonOrThrow<RawOcrResponse>(stripCodeFences(text));
   raw._usage = normalizeAnthropicUsage(
     (response as { usage?: Parameters<typeof normalizeAnthropicUsage>[0] }).usage,
   );
