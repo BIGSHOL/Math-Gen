@@ -81,6 +81,7 @@ import {
   tableRecoveryNeeded,
   type RawItemLike,
 } from "./ocrRecovery.js";
+import { recoverJson } from "./ocrJsonRecovery.js";
 import {
   normalizeAnthropicUsage,
   normalizeGeminiUsage,
@@ -674,6 +675,10 @@ export const parseJsonOrThrow = <T = unknown>(rawJson: string): T => {
   try {
     return JSON.parse(rawJson) as T;
   } catch (err) {
+    // testchange _extract_json 다단 복구 — 깨진 LaTeX-JSON·후행데이터(Extra data) 되살림 (D08).
+    // clean JSON 은 위 직접 parse 로 끝나 무변경; 실패 시에만 복구 진입.
+    const recovered = recoverJson(rawJson);
+    if (recovered !== undefined) return recovered as T;
     const errMsg = (err as Error).message;
     const isTruncation = /Unexpected end of JSON input|Unterminated string/i.test(errMsg);
     const preview = rawJson.slice(0, 200).replace(/\s+/g, " ");
