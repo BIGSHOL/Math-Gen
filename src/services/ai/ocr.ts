@@ -794,6 +794,10 @@ const callGemini = async (
   // common math instructions so the model has the same formatting context.
   const system = COMMON_INSTRUCTIONS;
   const userText = buildUserText(input.textLayer, input.crop);
+  // 토큰 한도 — 크롭(단일 문제)은 보통 출력 1~3k 토큰이라 16384 면 충분(testchange
+  // OCR_MAX_TOKENS 와 동일). 큰 값은 reservation/디코딩 오버헤드만 키움(§per-crop 진단).
+  // whole-page(legacy fallback)는 multi-problem + inline SVG 로 50k+ 가능 → 65536 유지.
+  const maxTokens = input.crop ? 16384 : 65536;
 
   try {
     const response = await ai.models.generateContent({
@@ -817,12 +821,10 @@ const callGemini = async (
         // without quite hitting greedy-decoding stuck-loop pathologies
         // that pure 0.0 occasionally has on long structured outputs.
         temperature: 0.1,
-        // 토큰 한도 — 시험지 OCR은 multi-problem + inline SVG 때문에 한
-        // 페이지 응답이 50k 토큰 넘어가는 케이스가 정상. Gemini 3.x 는 모델
-        // 별로 65536 토큰 출력까지 허용 (3.1 Pro는 모델에 따라 더 큼).
-        // 사용자 요청에 따라 모델 max 까지 풀어둠 — truncation 으로 인한
-        // 재실행이 사용량보다 비싸므로 한 번에 다 받는 게 경제적.
-        maxOutputTokens: 65536,
+        // 토큰 한도 — whole-page 는 multi-problem + inline SVG 로 50k+ 가능해
+        // 65536, crop 은 단일 문제라 16384 (위 maxTokens 분기). truncation 재실행
+        // 보다 한 번에 받는 게 경제적이라 whole-page 는 모델 max 까지 풀어둠.
+        maxOutputTokens: maxTokens,
         // SDK signal hand-through. Field name matches @google/genai v1.44+.
         abortSignal: input.signal,
       },
@@ -845,7 +847,7 @@ const callGemini = async (
       .candidates?.[0]?.finishReason;
     if (finishReason === "MAX_TOKENS") {
       throw new Error(
-        `${model} 응답이 출력 토큰 한도(${65536})에 막혀 잘렸습니다 — 한 페이지에 들어가는 ` +
+        `${model} 응답이 출력 토큰 한도(${maxTokens})에 막혀 잘렸습니다 — 한 페이지에 들어가는 ` +
           `문제 수와 inline SVG 양이 모델 단일 응답 capacity를 초과합니다. ` +
           `해결: (1) 더 큰 모델(3.1 Pro / Gemini 3.5 Flash 등) 사용, ` +
           `(2) 페이지를 더 잘게 나눠서 별도 호출.`,

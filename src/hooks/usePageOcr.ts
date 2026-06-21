@@ -75,8 +75,9 @@ export const usePageOcr = () => {
 
   // 페이지 워커 디스패치 한도 — 각 워커는 자기 페이지의 크롭들을 cropLimit 통해 OCR.
   const pageLimit = useMemo(() => pLimit(2), []);
-  // 크롭 OCR 콜 *전역* 한도 — 페이지 수 무관 동시 OCR ≤ 4 (Gemini RPM 보호).
-  const cropLimit = useMemo(() => pLimit(4), []);
+  // 크롭 OCR 콜 *전역* 한도 — 페이지 수 무관 동시 OCR ≤ 6 (Gemini RPM 보호).
+  // testchange _OCR_WORKERS=6 과 동일. throttle 미관측 환경에서 6 까지 안전(§per-crop 진단).
+  const cropLimit = useMemo(() => pLimit(6), []);
 
   // 현재 in-flight 페이지 id. re-render 가 같은 페이지를 이중 dispatch 하지 않게.
   // 워커 finally 에서 비움 → ocrComplete:false(재인식) / 새 업로드 시 자연 재dispatch.
@@ -188,11 +189,13 @@ export const usePageOcr = () => {
         problemBoxes.map((box) =>
           cropLimit(async (): Promise<{ item: OCRProblem; model: OCRModel } | null> => {
             if (isCancelled(page.id)) return null;
-            // 박스 영역만 crop + 전처리 (작은 크롭이라 upscale 효과 큼).
+            // 박스 영역만 crop + 전처리. 단일 문제 크롭은 *upscale skip* —
+            // 작은 크롭이라 정확도 이득 없고 payload 만 ~4× 부풀려 vision 토큰·지연↑
+            // (§per-crop 진단). removeColorInk·contrast 는 손글씨 제거 위해 유지.
             let crop: string;
             try {
               crop = await cropPageImageData(rotated, box.bbox, { margin: CROP_MARGIN });
-              crop = await preprocessForOcr(crop);
+              crop = await preprocessForOcr(crop, { skipUpscale: true });
             } catch (err) {
               // eslint-disable-next-line no-console
               console.warn(`[usePageOcr] ${page.id} box ${box.number} crop 실패 — skip`, err);
