@@ -708,9 +708,9 @@ const callAnthropic = async (
       model,
       max_tokens: 64000,
       // OCR is transcription — pin sampling so reruns of the same image
-      // give the same JSON. Default 1.0 caused noticeable run-to-run
-      // drift in problem-body extraction. See callGemini comment.
-      temperature: 0.1,
+      // give the same JSON. testchange ocr_engine 와 동일하게 0 (결정적·정확도↑;
+      // _stream_claude temperature=0). 옵션 B 엔진 이식.
+      temperature: 0,
       system: SYSTEM_BLOCKS,
       messages: [
         {
@@ -858,13 +858,9 @@ const callGemini = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: toGeminiSchema(OCR_PAGE_SCHEMA) as any,
-        // OCR is a transcription task — we want the same image to produce
-        // the same text every time. Gemini's default temperature (~1.0)
-        // gave the user noticeably different `(-3) + (-6) = ?` extractions
-        // across reruns. Pinning to 0.1 makes runs near-deterministic
-        // without quite hitting greedy-decoding stuck-loop pathologies
-        // that pure 0.0 occasionally has on long structured outputs.
-        temperature: 0.1,
+        // OCR is a transcription task — testchange ocr_engine 와 동일하게 0
+        // (_gemini_generate temperature=0). 결정적·정확도 우선, 옵션 B 엔진 이식.
+        temperature: 0,
         // 토큰 한도 — whole-page 는 multi-problem + inline SVG 로 50k+ 가능해
         // 65536, crop 은 단일 문제라 16384 (위 maxTokens 분기). truncation 재실행
         // 보다 한 번에 받는 게 경제적이라 whole-page 는 모델 max 까지 풀어둠.
