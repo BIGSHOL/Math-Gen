@@ -25,11 +25,7 @@ import { friendlyError } from "@app/lib/friendlyError";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { getPageImage } from "@app/lib/imageStore";
 import { applyRotation } from "@app/lib/pdfProcessor";
-import {
-  detectCropBoxes,
-  refineCropBoxesWithGpt55,
-  type DetectedCrop,
-} from "@app/services/ai/cropDetect";
+import { detectCropBoxes, type DetectedCrop } from "@app/services/ai/cropDetect";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { useWizardStore } from "@app/stores/wizardStore";
 import type { CropBox } from "@app/stores/wizardStore";
@@ -66,8 +62,6 @@ const detectedToCropBox = (d: DetectedCrop): CropBox => {
     verified: false,
     source: "ai",
     number: d.number,
-    // per-crop OCR 모델 라우팅용 — complex 크롭은 Pro 체인 (도형 품질 보전).
-    complexity: d.complexity,
   };
 };
 
@@ -145,44 +139,9 @@ export const useCropDetect = (): UseCropDetect => {
           const detected = await detectCropBoxes(rotated);
           if (isCancelled(page.id)) return;
 
-          // 5. complex 문항 정밀 재검출 — 사용자 확정 (2026-06-20): 크롭 전부 Gemini
-          //    3.5 Flash 단일 패스 → GPT-5.5 정밀 재검출 비활성. 재활성하려면 true 로.
-          //    (refineCropBoxesWithGpt55 함수는 cropDetect.ts 에 보존 — 재활성 시 재사용.)
-          const USE_GPT55_REFINE = false;
-          const hasComplex =
-            USE_GPT55_REFINE && detected.some((d) => d.complexity === "complex");
-          let finalDetected: DetectedCrop[] = detected;
-          if (hasComplex) {
-            if (import.meta.env?.DEV) {
-              const complexNums = detected
-                .filter((d) => d.complexity === "complex")
-                .map((d) => d.number);
-              console.debug(
-                `[useCropDetect] page ${page.id} complex 문항 [${complexNums.join(",")}] — GPT-5.5 정밀 재검출`,
-              );
-            }
-            // refine(GPT-5.5) 은 best-effort enhancement — 실패해도 Gemini 결과
-            // 그대로 사용. 별도 try/catch 로 격리: 옛 구조는 detect+refine 이 한
-            // try 라 prod 에서 refine 이 throw(OpenAI 키 없음 등)하면 *성공한
-            // Gemini 결과까지 버려져* 페이지 전체 검출 실패했음 (사용자 보고
-            // 2026-06-04). AbortError 만 재throw (사용자 취소 존중).
-            try {
-              finalDetected = await refineCropBoxesWithGpt55(rotated, detected);
-              if (isCancelled(page.id)) return;
-            } catch (refineErr) {
-              if ((refineErr as Error).name === "AbortError") throw refineErr;
-              finalDetected = detected;
-              if (import.meta.env?.DEV) {
-                console.debug(
-                  `[useCropDetect] page ${page.id} refine 실패 — Gemini 결과 사용:`,
-                  (refineErr as Error).message,
-                );
-              }
-            }
-          }
-
-          // 6. 매핑 + store update (1 회 호출 — refined 결과로)
-          const boxes: CropBox[] = finalDetected.map(detectedToCropBox);
+          // 5. 매핑 + store update — testchange 동일(Gemini/Claude 단일 검출, GPT-5.5
+          //    refine·complexity 라우팅 제거, D13). 검출 결과를 그대로 박스로.
+          const boxes: CropBox[] = detected.map(detectedToCropBox);
           setPageCropBoxes(page.id, boxes);
         } catch (err) {
           if (isCancelled(page.id)) return;
