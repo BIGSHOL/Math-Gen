@@ -866,8 +866,9 @@ const callGemini = async (
         },
       ],
       config: {
+        // testchange _gemini_generate 와 동일 — MIME-only(responseSchema 강제 X, D03 엔진 이식).
+        // 스키마 constrained decoding 이 출력을 바꿔 testchange 와 어긋나므로 제거.
         responseMimeType: "application/json",
-        responseSchema: toGeminiSchema(OCR_PAGE_SCHEMA) as any,
         // OCR is a transcription task — testchange ocr_engine 와 동일하게 0
         // (_gemini_generate temperature=0). 결정적·정확도 우선, 옵션 B 엔진 이식.
         temperature: 0,

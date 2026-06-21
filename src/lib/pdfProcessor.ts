@@ -402,10 +402,10 @@ const detectRotationFromTextLayer = async (
         items.reduce((acc, it) => acc + (it.transform![1] ?? 0), 0) / items.length;
       return meanB > 0 ? 90 : 270;
     }
-    // 180° 회전: a,d 의 부호가 모두 음수가 우세.
-    if (signA < -items.length * 0.5 && signD < -items.length * 0.5) {
-      return 180;
-    }
+    // testchange 동일 — 180° 는 텍스트 투영만으로 구분 불가라 미처리(landscape 90 만, D25).
+    // textLayer 휴리스틱의 180 오탐(거꾸로 뒤집힘) 회귀를 차단. signA/signD 는 미사용.
+    void signA;
+    void signD;
     return 0;
   } catch {
     return 0;
