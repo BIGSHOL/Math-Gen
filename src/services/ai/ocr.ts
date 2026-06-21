@@ -72,6 +72,16 @@ import { parseDataUrl, sanitizeText } from "./sanitize.js";
 import { blocksToMarkdown } from "../../lib/blocksToMarkdown.js";
 import type { ContentBlock, ChoiceGroup, BlockType, SubQuestion } from "../../types/ocrBlocks.js";
 import {
+  TRANSCRIBE_PROMPT,
+  TRANSCRIBE_TABLE_PROMPT,
+  mergeMissingPassages,
+  parseMarkdownTable,
+  recoverTableInto,
+  isEssayResult,
+  tableRecoveryNeeded,
+  type RawItemLike,
+} from "./ocrRecovery.js";
+import {
   normalizeAnthropicUsage,
   normalizeGeminiUsage,
   normalizeOpenAIUsage,
@@ -1150,6 +1160,100 @@ const callOpenAI = async (
 };
 
 // ─── Public entry point ───────────────────────────────────────────────
+// ─── 2-pass 누락 복구 (testchange ocr_engine recognize_crop 이식) ────────────
+/**
+ * 크롭 이미지를 *평문 전사*(구조화 X)로 한 번 더 읽어 반환. 구조화 OCR 이 "요약"하며
+ * 누락한 지문 박스/표 복구용 (testchange `_transcribe`/`_transcribe_table`, json 강제 X).
+ * gemini/anthropic 만 지원 — openai 크롭 경로는 없음(best-effort, 빈 문자열).
+ */
+const transcribeImage = async (
+  input: OCRPageInput,
+  model: OCRModel,
+  prompt: string,
+  maxTokens: number,
+): Promise<string> => {
+  const info = OCR_MODELS[model];
+  const { mediaType, data } = parseDataUrl(input.pageBase64);
+  if (info?.provider === "gemini") {
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model,
+      contents: [
+        {
+          role: "user",
+          parts: [{ inlineData: { mimeType: mediaType, data } }, { text: prompt }],
+        },
+      ],
+      config: { temperature: 0, maxOutputTokens: maxTokens, abortSignal: input.signal },
+    });
+    return typeof response.text === "string" ? response.text : "";
+  }
+  if (info?.provider === "anthropic") {
+    const stream = anthropic.messages.stream(
+      {
+        model,
+        max_tokens: maxTokens,
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data } },
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      },
+      input.signal ? { signal: input.signal } : undefined,
+    );
+    const msg = await stream.finalMessage();
+    for (const b of msg.content ?? []) {
+      if ((b as { type?: string }).type === "text") {
+        return (b as { text?: string }).text ?? "";
+      }
+    }
+    return "";
+  }
+  return "";
+};
+
+/**
+ * 크롭 OCR 결과(raw parsed)에 testchange 2-pass 복구 적용 (in-place, normalizeResponse 전).
+ *  - 서술형(보기 없음): 평문 전사 → mergeMissingPassages (긴 지문 박스 복구)
+ *  - 표 지시어 있고 table 블록 없음: 표 전사 → parseMarkdownTable → recoverTableInto
+ * 둘 다 best-effort — 실패해도 기존 결과 유지(AbortError 만 전파). recognize_crop 게이트 동일.
+ */
+const applyCropRecovery = async (
+  parsed: RawOcrResponse,
+  input: OCRPageInput,
+  model: OCRModel,
+): Promise<void> => {
+  const items = (Array.isArray(parsed.items) ? parsed.items : []) as RawItemLike[];
+  if (!items.length) return;
+  // 서술형 지문 복구 — 보기 없는 크롭만(비용 게이트). 객관식은 누락 드묾.
+  if (isEssayResult(items)) {
+    try {
+      const transcription = await transcribeImage(input, model, TRANSCRIBE_PROMPT, 8192);
+      mergeMissingPassages(items, transcription);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") throw err;
+      if (import.meta.env?.DEV)
+        console.warn("[ocr] 서술형 지문 전사 보강 실패(무시):", (err as Error).message);
+    }
+  }
+  // 객관식 표 복구 — 표 지시어 있고 table 블록 아직 없을 때만(비용 게이트).
+  if (tableRecoveryNeeded(items)) {
+    try {
+      const md = await transcribeImage(input, model, TRANSCRIBE_TABLE_PROMPT, 4096);
+      recoverTableInto(items, parseMarkdownTable(md));
+    } catch (err) {
+      if ((err as Error).name === "AbortError") throw err;
+      if (import.meta.env?.DEV)
+        console.warn("[ocr] 표 복구 실패(무시):", (err as Error).message);
+    }
+  }
+};
+
 const extractPageProblemsDirect = async (
   input: OCRPageInput,
 ): Promise<OCRPageResult> => {
@@ -1175,6 +1279,12 @@ const extractPageProblemsDirect = async (
     parsed = await callGemini(input, model as GeminiModel);
   } else {
     parsed = await callOpenAI(input, model as OpenAIModel);
+  }
+
+  // testchange recognize_crop 의 2-pass 누락 복구 — 크롭(단일 문제) OCR 에만 적용.
+  // 구조화가 요약·누락한 지문 박스/표를 전사 호출로 복구해 normalizeResponse 전 끼워넣음.
+  if (input.crop) {
+    await applyCropRecovery(parsed, input, model);
   }
 
   return {
