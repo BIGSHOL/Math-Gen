@@ -1,0 +1,452 @@
+[
+  {
+    "name": "operator-split-merge",
+    "contents": [
+      [
+        "equation",
+        "x = -2y+3"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "text-eq-frag",
+    "contents": [
+      [
+        "equation",
+        "-1 \\leq x \\leq 1"
+      ],
+      [
+        "text",
+        "에서"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "degree-temp",
+    "contents": [
+      [
+        "equation",
+        "6°\\mathrm{C}"
+      ],
+      [
+        "text",
+        "이다"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "paren-range",
+    "contents": [
+      [
+        "equation",
+        "a_n+4 ~ (n=1,~2,~3\\cdots)"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "empty-group-subscript",
+    "contents": [
+      [
+        "text",
+        "앞 "
+      ],
+      [
+        "equation",
+        "{}_2\\mathrm{C}_0"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-vars",
+    "contents": [
+      [
+        "equation",
+        "a"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "b"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "c"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-coord",
+    "contents": [
+      [
+        "equation",
+        "(3,~2)"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-spurious",
+    "contents": [
+      [
+        "equation",
+        "P(A)=16/9 P(B)"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "trailing-domain",
+    "contents": [
+      [
+        "equation",
+        "P(X=r)=p"
+      ],
+      [
+        "text",
+        " ("
+      ],
+      [
+        "equation",
+        "r=0"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "1"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "\\cdots"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "72"
+      ],
+      [
+        "text",
+        ")"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "stat-italicize",
+    "contents": [
+      [
+        "text",
+        "확률 "
+      ],
+      [
+        "equation",
+        "P(A)"
+      ],
+      [
+        "text",
+        "를 구하면"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "point-romanize-multi",
+    "contents": [
+      [
+        "text",
+        "삼각형 "
+      ],
+      [
+        "equation",
+        "\\mathrm{ABC}"
+      ],
+      [
+        "text",
+        "에서"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "point-single-nogeo",
+    "contents": [
+      [
+        "text",
+        "사건 "
+      ],
+      [
+        "equation",
+        "A"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "angle-letter",
+    "contents": [
+      [
+        "equation",
+        "\\cos \\mathrm{A}"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "context-units",
+    "contents": [
+      [
+        "text",
+        "단위는 "
+      ],
+      [
+        "equation",
+        "\\mathrm{g}"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "space-hangul",
+    "contents": [
+      [
+        "text",
+        "확률을 "
+      ],
+      [
+        "equation",
+        "p_1"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "matrix-mathit",
+    "contents": [
+      [
+        "text",
+        "행렬 "
+      ],
+      [
+        "equation",
+        "\\mathit{AB}"
+      ],
+      [
+        "text",
+        "를 구하면"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-selfcontained-with-stem",
+    "contents": [
+      [
+        "text",
+        "<보기>"
+      ],
+      [
+        "text",
+        " ㄱ. 어쩌고 이다."
+      ],
+      [
+        "text",
+        "이 보기에서 옳은 것의 개수는?"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-circle-normalize",
+    "contents": [
+      [
+        "text",
+        "<조건>"
+      ],
+      [
+        "text",
+        " ○ 자료의 평균"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "choice-stat-geo-parent",
+    "contents": [
+      [
+        "text",
+        "좌표평면 위의 점 "
+      ],
+      [
+        "equation",
+        "\\mathrm{A}"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "\\mathrm{B}"
+      ],
+      [
+        "text",
+        ", "
+      ],
+      [
+        "equation",
+        "\\mathrm{C}"
+      ]
+    ],
+    "choices": [
+      [
+        [
+          "equation",
+          "\\mathrm{A}"
+        ],
+        [
+          "text",
+          "(2,3)"
+        ]
+      ],
+      [
+        [
+          "equation",
+          "\\mathrm{P}"
+        ]
+      ]
+    ]
+  },
+  {
+    "name": "choice-operator-merge",
+    "contents": [],
+    "choices": [
+      [
+        [
+          "equation",
+          "x = 5"
+        ]
+      ]
+    ]
+  },
+  {
+    "name": "cases-demote",
+    "contents": [
+      [
+        "equation",
+        "\\begin{cases} x+y=1 \\\\ x-y=3 \\end{cases}"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "drop-dup-box-fragment",
+    "contents": [
+      [
+        "text",
+        "어떤 자연수의 꼴로 나타낸 후 그 값을 구하시오"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-multiblock-stem-continuation",
+    "contents": [
+      [
+        "text",
+        "<상자>"
+      ],
+      [
+        "text",
+        " 주어진 함수가 연속일 때"
+      ],
+      [
+        "equation",
+        "f(7)"
+      ],
+      [
+        "text",
+        "의 값을 구하시오."
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-multiblock-bullet-question",
+    "contents": [
+      [
+        "text",
+        "<보기>"
+      ],
+      [
+        "text",
+        " ㄱ."
+      ],
+      [
+        "equation",
+        "f(x)=x"
+      ],
+      [
+        "text",
+        "• ㄴ. 이다."
+      ],
+      [
+        "text",
+        "옳은 것을 모두 고르면?"
+      ]
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-with-inline-choices-geo",
+    "contents": [
+      [
+        "text",
+        "삼각형 "
+      ],
+      [
+        "equation",
+        "\\mathrm{ABC}"
+      ],
+      [
+        "text",
+        "의 넓이를 구하시오."
+      ]
+    ],
+    "choices": [
+      [
+        [
+          "equation",
+          "\\mathrm{O}"
+        ]
+      ],
+      [
+        [
+          "equation",
+          "\\angle \\mathrm{A}"
+        ]
+      ]
+    ]
+  }
+]

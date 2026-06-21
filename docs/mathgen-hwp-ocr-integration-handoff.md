@@ -371,3 +371,81 @@ ContentBlock 아님). figures box 는 0–1000 정규화 `[yMin,xMin,yMax,xMax]`
 /convert-json) + `PrintActionPanel.tsx` `handleHWP`(`handleServerPDF:133-173` 미러) + 버튼 활성화 +
 커넥터 미감지 시 폴백 안내. **12-1 계약 확정 후 구현** — 어댑터(Task 2)가 계약을 검증·조정할 수
 있으니 그 다음. payload 의 `problems` 는 wizardStore 의 OCR 결과(현재 시험지 페이지들)에서 수집.
+
+---
+
+## 13. 현재 상태 (2026-06-21) — 옵션 B 네이티브 블록 + content_parser 웹 이식 완료
+
+> ⚠️ **§11~12 의 "markdown 단일 문자열 wire / markdown→ExamDocument 어댑터" 는 대체됨.**
+> 구현이 **옵션 B(네이티브 typed-block)** 으로 진화했다. 이 §13 이 *현재 진실*이며 다른
+> 컴퓨터에서 이어 작업할 때의 진입점이다. (§11~12 는 역사적 맥락으로 보존.)
+
+### 13-1. 무엇이 바뀌었나 — 옵션 B
+
+OCR 이 한 문항을 **markdown 문자열**이 아니라 **네이티브 typed-block 배열**(`contents`/
+`choices`/`subQuestions`)로 emit 한다. 블록이 정전(canonical), markdown `text` 는
+`blocksToMarkdown` 으로 *파생*(기존 렌더·해설·변형·인쇄 무변경). 이유: markdown 사후 분해는
+lossy(본문 속 맨숫자를 equation 으로 못 살림) → testchange HWP 와 어긋남.
+
+- 타입/모델: `src/types/ocrBlocks.ts`(`ContentBlock`/`ChoiceGroup`/`SubQuestion`), `src/stores/
+  wizardStore.ts`(`OCRProblem.blocks`/`choiceGroups`/`subQuestions`).
+- 정규화/파생: `src/services/ai/ocr.ts` `normalizeResponse`(블록 빌드) → `blocksToMarkdown`.
+- DB 영속: `ocr_problems` 의 `blocks`/`choice_groups`/`sub_questions` JSONB (graceful fallback).
+
+### 13-2. wire 계약 (현행) + 커넥터 native passthrough
+
+- **wire**: `hwpConnector.ts` 가 `OCRProblem.blocks`(네이티브) + `figures`(노트 치환, D8) +
+  `subQuestions`(D3) + `number`(인쇄번호, D10) 를 그대로 실어보낸다. POST
+  `http://127.0.0.1:8765/convert-json` (§12-1 헤더 동일).
+- **커넥터**: `F:\시험지변환기\server\adapter.py` `_adapt_native_problem` = **pass-through**.
+  네이티브 블록을 markdown 재분해 없이 `parse_ocr_response → _parse_question` 에 넘김 →
+  content_parser 전체 파이프라인 재실행 → `HwpComWriter`. 소문항도 재귀 passthrough.
+- 엔진 선택: `start-connector.bat`=hwpx(평문박스) / `start-connector-hwp.bat`=hwp COM(테두리
+  박스 + 그림멘트 가운데). testchange 레퍼런스가 COM 이면 **반드시 COM 으로 재내보내** 비교.
+
+### 13-3. content_parser 웹 이식 (이번 작업 — 커밋 `543b827`)
+
+**문제**: 커넥터는 네이티브 블록에 content_parser 를 재실행(정규화)하는데, 웹은
+`blocksToMarkdown` 직렬화만 해 어긋났다(쪼개진 수식 `$x$=$-2y+3$`, 멀티블록 보기 박스 미완).
+
+**해결**: testchange `content_parser.py` 의 display-영향 정규화를 `src/services/ai/
+contentParser.ts`(신규)로 이식 → `blocksToMarkdown` 이 파생 시점에 적용. **저장 블록·wire 는
+네이티브 그대로**(커넥터 단독 재정규화 → 이중정규화 0). 상세 함정 카탈로그 = **CLAUDE.md §35**.
+
+- 이식: `_finalize_contents` 값 체인 15 + 박스경계(`rawBoxEnd`/`trailingQuestionSplit`/
+  `dropDuplicateBoxFragments`) + box_member 그룹핑 + `_parse_choice` 체인 + 경량 per-block.
+- 제외: forward-split(모델이 이미 typed-block 분리). feasibility essential set 밖.
+- **검증**: golden-file 하니스 `scripts/contentParserGolden*` — Python 원본 vs TS 포팅본 블록
+  **byte 동치 25/25**. 재실행: `npx tsx scripts/contentParserGoldenHarness.mts`(testchange
+  불필요, 커밋된 baseline 대조). baseline 재생성: `TESTCHANGE_DIR` 설정 후
+  `python scripts/contentParserGolden.py`.
+
+### 13-4. 다른 컴퓨터에서 이어가기 (셋업 + 컨텍스트)
+
+1. **체크아웃**: `BIGSHOL/Math-Gen`(이 repo) + `BIGSHOL/testchange`(커넥터·content_parser
+   원본, golden baseline 재생성용 — TS 회귀만이면 불필요).
+2. **읽을 순서**: CLAUDE.md §35(content_parser 이식) → §32(공용 hook drift) → §30(함정 전염)
+   → 이 §13 → 메모리(있으면). 옵션 B 전반은 `git log` 의 `feat(hwp)`/`feat(db)`/`feat(ocr)`
+   커밋 + 메모리 `project-option-b`.
+3. **검증 명령**: `npx tsc --noEmit`(exit 0) · `npx tsx scripts/contentParserGoldenHarness.mts`
+   (25/25) · `npm run build`. dev: `npm run dev`(포트 자동, §18-1) — **AI 경로는 dev 에서 키
+   미노출(§24-7)**, 실제 OCR 검증은 Vercel preview 또는 키 명시.
+4. **HWP E2E**: testchange 에서 `start-connector-hwp.bat`(COM) 띄우고 Math-Gen 에서 내보내기.
+   ⚠️ **현재 testchange `server/`·런처가 미커밋이라(§13-5) HWP E2E 는 이 머신 한정** — 다른
+   컴퓨터에서 재현하려면 먼저 testchange 에 커넥터 스택을 커밋·push 해야 한다.
+
+### 13-5. 남은 작업 (사용자 액션 + 후속)
+
+- 🚨 **Supabase ALTER**(미실행 시): `ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS
+  sub_questions JSONB;`(+ 이전 blocks/choice_groups/score/label_type). **미실행이어도
+  `src/services/api/problems.ts` 의 graceful fallback(OPTIONAL_COLUMNS + PGRST204 retry)으로
+  웹앱은 정상 동작** — 블록은 sessionStorage 한정 영속. *DB 영속이 필요할 때만* 실행(blocker 아님).
+- 🚨 **testchange repo `server/` 전체 + 런처 커밋**(사용자) — 이 머신 작업트리에만 존재
+  (`server/adapter.py`·`connector.py`·`convert_cli.py` + `start-connector.bat`/
+  `start-connector-hwp.bat` 모두 **untracked**, 어느 커밋·원격에도 없음). **testchange 에
+  커밋·push 해야** 다른 컴퓨터 fresh clone 에서 §13-2 native passthrough / §13-4 HWP E2E 가
+  재현된다. (adapter.py 의 D3 sub_questions 재귀 passthrough 포함.)
+- **실 시험지 E2E 비교**(사용자): OCR 재인식 후 웹 미리보기 ↔ HWP(COM) spot — 쪼개진 수식 /
+  보기 박스 미완 해소 확인.
+- 후속(선택): forward-split 추가 이식(모델 계약 위반 대비 — golden 하니스로 안전), 변형
+  기능 부활(CLAUDE.md §33), DOCX 내보내기.

@@ -1,0 +1,211 @@
+[
+  {
+    "name": "operator-split-merge",
+    "contents": [
+      {"type":"equation","value":"x","rows":[]},
+      {"type":"text","value":"=","rows":[]},
+      {"type":"equation","value":"-2y+3","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "text-eq-frag",
+    "contents": [
+      {"type":"text","value":"-1 ≤ ","rows":[]},
+      {"type":"equation","value":"x","rows":[]},
+      {"type":"text","value":" ≤ 1에서","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "degree-temp",
+    "contents": [
+      {"type":"equation","value":"6","rows":[]},
+      {"type":"text","value":"°","rows":[]},
+      {"type":"equation","value":"C","rows":[]},
+      {"type":"text","value":"이다","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "paren-range",
+    "contents": [
+      {"type":"equation","value":"a_n+4","rows":[]},
+      {"type":"equation","value":"(n=1,2,3\\cdots)","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "empty-group-subscript",
+    "contents": [
+      {"type":"text","value":"앞 {}","rows":[]},
+      {"type":"equation","value":"_2\\mathrm{C}_0","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-vars",
+    "contents": [
+      {"type":"equation","value":"a, b, c","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-coord",
+    "contents": [
+      {"type":"equation","value":"(3, 2)","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "comma-spurious",
+    "contents": [
+      {"type":"equation","value":"P(A)=16/9, P(B)","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "trailing-domain",
+    "contents": [
+      {"type":"equation","value":"P(X=r)=p \\quad (r=0,1,\\cdots,72)","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "stat-italicize",
+    "contents": [
+      {"type":"text","value":"확률 ","rows":[]},
+      {"type":"equation","value":"\\mathrm{P}(A)","rows":[]},
+      {"type":"text","value":"를 구하면","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "point-romanize-multi",
+    "contents": [
+      {"type":"text","value":"삼각형 ","rows":[]},
+      {"type":"equation","value":"ABC","rows":[]},
+      {"type":"text","value":"에서","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "point-single-nogeo",
+    "contents": [
+      {"type":"text","value":"사건 ","rows":[]},
+      {"type":"equation","value":"\\mathrm{A}","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "angle-letter",
+    "contents": [
+      {"type":"equation","value":"\\cos A","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "context-units",
+    "contents": [
+      {"type":"text","value":"단위는 ","rows":[]},
+      {"type":"equation","value":"g","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "space-hangul",
+    "contents": [
+      {"type":"text","value":"확률을","rows":[]},
+      {"type":"equation","value":"p_1","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "matrix-mathit",
+    "contents": [
+      {"type":"text","value":"행렬 ","rows":[]},
+      {"type":"equation","value":"AB","rows":[]},
+      {"type":"text","value":"를 구하면","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-selfcontained-with-stem",
+    "contents": [
+      {"type":"text","value":"<보기> ㄱ. 어쩌고 이다.","rows":[]},
+      {"type":"text","value":"이 보기에서 옳은 것의 개수는?","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-circle-normalize",
+    "contents": [
+      {"type":"text","value":"<조건> ㅇ 자료의 평균","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "choice-stat-geo-parent",
+    "contents": [
+      {"type":"text","value":"좌표평면 위의 점 ","rows":[]},
+      {"type":"equation","value":"A, B, C","rows":[]}
+    ],
+    "choices": [
+      {"number":1,"contents":[{"type":"equation","value":"A","rows":[]},{"type":"text","value":"(2,3)","rows":[]}]},
+      {"number":2,"contents":[{"type":"equation","value":"\\mathrm{P}","rows":[]}]}
+    ]
+  },
+  {
+    "name": "choice-operator-merge",
+    "contents": [],
+    "choices": [
+      {"number":1,"contents":[{"type":"equation","value":"x","rows":[]},{"type":"text","value":"=","rows":[]},{"type":"equation","value":"5","rows":[]}]}
+    ]
+  },
+  {
+    "name": "cases-demote",
+    "contents": [
+      {"type":"equation_block","value":"\\begin{cases} x+y=1 \\\\ x-y=3 \\end{cases}","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "drop-dup-box-fragment",
+    "contents": [
+      {"type":"text","value":"<상자> 자연수의 꼴로 나타낸 후 그 값을","rows":[]},
+      {"type":"text","value":"어떤 자연수의 꼴로 나타낸 후 그 값을 구하시오","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-multiblock-stem-continuation",
+    "contents": [
+      {"type":"text","value":"<상자> 주어진 함수가 연속일 때","rows":[]},
+      {"type":"equation","value":"f(7)","rows":[]},
+      {"type":"text","value":"의 값을 구하시오.","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-multiblock-bullet-question",
+    "contents": [
+      {"type":"text","value":"<보기> ㄱ.","rows":[]},
+      {"type":"equation","value":"f(x)=x","rows":[]},
+      {"type":"text","value":"• ㄴ. 이다.","rows":[]},
+      {"type":"text","value":"옳은 것을 모두 고르면?","rows":[]}
+    ],
+    "choices": []
+  },
+  {
+    "name": "box-with-inline-choices-geo",
+    "contents": [
+      {"type":"text","value":"삼각형 ","rows":[]},
+      {"type":"equation","value":"ABC","rows":[]},
+      {"type":"text","value":"의 넓이를 구하시오.","rows":[]}
+    ],
+    "choices": [
+      {"number":1,"contents":[{"type":"equation","value":"O","rows":[]}]},
+      {"number":2,"contents":[{"type":"equation","value":"\\angle A","rows":[]}]}
+    ]
+  }
+]

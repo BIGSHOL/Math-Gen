@@ -4342,3 +4342,123 @@ npm.cmd run build
 
 둘 다 현재 실패 조건은 아니지만, 다음 성능/번들 최적화 작업의 우선 후보로 둔다.
 
+---
+
+## 35. content_parser 정규화 웹 이식 — 미리보기 HWP 일치 (2026-06-21, 커밋 `543b827`)
+
+옵션 B(네이티브 typed-block) 에서 **웹 미리보기가 HWP 출력과 달랐던 근본 원인**과 그
+해결(testchange `content_parser.py` 의 display-영향 정규화를 TS 로 이식)을 정리한다. 다음
+*OCR 블록 정규화 / 웹↔HWP 일치* 작업 시 첫 번째로 읽을 섹션.
+
+### 35-1. 근본 원인 — 커넥터는 content_parser 재실행, 웹은 직렬화만 (CRITICAL)
+
+HWP 커넥터(`F:\시험지변환기\server\adapter.py` `_adapt_native_problem`)는 Math-Gen 네이티브
+블록을 **그대로** `parse_ocr_response → _parse_question → _finalize_contents` 에 넘긴다 →
+.hwp 출력은 content_parser **전체 파이프라인을 거쳐 정규화**됨. 반면 웹은
+`blocksToMarkdown` 으로 블록을 **직렬화만** 해 그 정규화를 못 받았다.
+
+→ 같은 네이티브 블록인데 **HWP = 정규화됨 / 웹 = 정규화 안 됨** → 발산. 사용자 보고 증상:
+- `eq("x")+text("=")+eq("-2y+3")` 가 `$x$=$-2y+3$` (KaTeX 3 조각 + 평문 `=`) 로 렌더
+- 멀티블록 보기 박스(`<보기>` text + equation + `ㄴ.` text…)가 **마커 블록만 박스화**되고
+  나머지 항목 유출 = "박스 미완"
+
+**원칙**: 웹↔HWP 일치 문제는 *어느 쪽이 어떤 후처리를 하는가* 를 먼저 확인. 커넥터가
+content_parser 를 재실행한다는 사실이 핵심 — 웹도 *같은 정규화* 를 거쳐야 일치한다.
+
+### 35-2. 이식 범위 — display-영향 + 웹 미보유만 (`contentParser.ts` 신규)
+
+`src/services/ai/contentParser.ts` (≈930줄). testchange content_parser 중 **display 영향 +
+웹이 아직 안 하던** 변환만 이식:
+
+- **`_finalize_contents` 값 변환 체인 15 단계 (순서 보존 CRITICAL)**: splitTrailingDomain →
+  splitCommaEquations → mergeOperatorSplitEquations → mergeTextEqFragments →
+  mergeEmptyGroupSubscript → mergeDegreeTempUnits → mergeParenRange → stripScoreText →
+  italicizeStatOperators → romanizePointNames → italicizeNongeoSingleLetters →
+  romanizeAngleLetters → romanizeContextUnits → spaceHangulBeforeEq → rstripLastText.
+  (Python `_finalize_contents` 는 **16 단계** — spaceHangulBeforeEq↔rstripLastText 사이에
+  `_emphasize_negation`(부정문 "옳지 않은 것" 볼드+밑줄 플래그)이 더 있으나, web 렌더가
+  bold/underline 플래그를 미사용해 **의도적 제외**(15 단계 이식). 유지 15 단계의 *상대 순서*
+  는 Python 과 100% 일치. golden 25/25 로 검증된 결정.)
+- **박스경계**: `rawBoxEnd` / `trailingQuestionSplit` / `dropDuplicateBoxFragments` +
+  `tagBoxRun`(box_member 태깅).
+- **`_parse_choice` 선택지 체인**(다른 순서/부분집합 + `force_geo` 전파) — `normalizeChoice`.
+- **경량 per-block**(`lightParseBlock`): 선두 박스 마커 분리(`_split_box_marker_prefix`) +
+  box circles(ㅇ→○) + cases 강등(equation_block + `\begin{cases}` → equation).
+
+**forward-split 은 의도적 제외**(`_split_inline_latex`/`_split_latex_commands`/
+`_split_mixed_text_equation`/`_split_underline_markup`) — markdown→블록 *역방향* 파싱으로,
+Math-Gen OCR 모델이 이미 typed-block 으로 분리 emit(OCR_PAGE_PROMPT 규칙 1)하므로 불필요.
+feasibility 의 "essential port set" 밖. 모델이 *계약 위반*(text 블록에 수식 혼입) 시에만
+web↔HWP 미세 차이 — 드물고, 그땐 커넥터가 HWP 쪽만 forward-split. 필요 시 golden 하니스로
+안전하게 추가 이식 가능.
+
+### 35-3. 통합 지점 — `blocksToMarkdown` 내부, wire 는 네이티브 (이중정규화 0)
+
+`blocksToMarkdown`(src/lib/blocksToMarkdown.ts) 이 *파생 시점에* `normalizeContents` 적용.
+**저장 `OCRProblem.blocks` 와 wire payload 는 네이티브 그대로** — 커넥터가 단독으로
+content_parser 를 재실행하므로(35-1), 웹에서도 정규화한 블록을 wire 에 실으면 **이중정규화**
+(web 선정규화 → 커넥터 재정규화). 대부분 idempotent 라 정확성은 안 깨지나 비-idempotent
+변환 drift 위험. → **변환은 wire 경계의 *웹 렌더 쪽에만*** 둔다.
+
+선택지 `force_geo` = 본문(정규화 후) 기하 문맥 → `hasGeometryContext(norm)` 산출해 전달
+(`_parse_question` 의 `q_geo = _has_geometry_context(question.contents)` 미러, 대륜중 #1 점
+좌표 선택지 로만+이탤릭).
+
+### 35-4. box_member 그룹핑 — 멀티블록 박스 미완 fix + web-only 편차
+
+`blocksToMarkdown` 이 연속 `boxMember` 블록을 **한 blockquote 로 그룹핑**(인라인 직렬화 후
+`boxToBlockquote`) → 멀티블록 박스 항목 유출("박스 미완") 차단.
+
+testchange `_parse_question` 은 box_member 를 *box_end≠null 일 때만* 태깅(HWP writer 가
+`<보기>` 마커로 박스 식별, box_member 는 발문 연속 제외용). 그러나 웹은 box_member run 으로
+박스를 *그룹핑* 하므로, `normalizeContents` 는 **box_end===null 케이스(박스가 끝까지
+이어지는 멀티블록)도 `tagBoxRun`** 한다 — 안 그러면 항목 유출. **box_member 는 웹 전용**
+(wire 무관, 커넥터가 자체 계산)이라 이 편차는 안전.
+
+### 35-5. golden-file 하니스 — Python 원본 vs TS 포팅본 byte 동치 (회귀 방지)
+
+`scripts/contentParserGolden*` — 이식본이 testchange content_parser 와 *블록 byte 동치* 인지
+검증. **API 비용 0 순수 로직 테스트**.
+
+- `contentParserGolden.fixtures.json` — 25 픽스처(각 변환 + 상호작용 + 박스경계 + choice).
+- `contentParserGolden.baseline.json` — Python content_parser 출력(**커밋됨 = golden truth**).
+- `contentParserGolden.py` — baseline 재생성기(testchange 필요, `TESTCHANGE_DIR` 환경변수
+  기본 `F:\시험지변환기`).
+- `contentParserGoldenHarness.mts` — TS 포팅본 실행 후 baseline 대조(**testchange 불필요**,
+  커밋된 baseline 과 standalone 비교).
+
+```bash
+# 회귀 확인 (어느 컴퓨터든, mathgen repo 만):
+npx tsx scripts/contentParserGoldenHarness.mts          # 25/25 기대, 실패 시 exit 1
+# baseline 재생성 (이식본/원본 변경 시, testchange 체크아웃 필요):
+set TESTCHANGE_DIR=...path\to\시험지변환기 && python scripts/contentParserGolden.py
+```
+
+비교는 **type/value 만**(box_member 제외 — 35-4 의 web-only 편차). 새 변환/픽스처 추가 시
+baseline 재생성 후 두 파일 함께 커밋.
+
+### 35-6. Python `re` → JS RegExp 포팅 함정
+
+- **g-flag stateful (CRITICAL)**: g 정규식의 `.test()`/`.exec()` 는 `lastIndex` 가 누적돼
+  반복 호출 시 버그. `INNER_LABEL_ANY_RE`(test 용, no-g) 와 `INNER_LABEL_ANY_G`(matchAll 용,
+  g) 로 **분리**. `.replace(re, ...)` 만 쓰는 정규식은 g 안전.
+- **named group**: Python `(?P<body>…)` → JS `(?<body>…)`, `m.groups?.body`.
+- **DOTALL**: Python `re.DOTALL` → JS `s` 플래그.
+- **lookbehind**: JS V8 지원(`(?<![A-Za-z\\{])`). 가변길이도 V8 OK.
+- **str 메서드**: Python `.strip()/.rstrip()/.lstrip()` → JS `.trim()` + `rstrip`/`lstrip`
+  헬퍼(`/\s+$/u`, `/^\s+/u`). `re.match`(앵커 start) → 패턴에 `^` 명시 + `.test()`/`.exec()`.
+- **lightParseBlock 은 NBlock[] 반환**(마커 분리로 1~2 블록) → 호출부 `.flatMap`(`.map` 쓰면
+  NBlock[][] 중첩 → `type:null` 버그).
+
+### 35-7. 회귀 방지 체크리스트 (content_parser 정규화 수정 시)
+
+- [ ] `npx tsx scripts/contentParserGoldenHarness.mts` → 25/25 (실패면 발산 — 픽스처가
+  잡아낸 것).
+- [ ] 새 변환 추가 시: 픽스처에 케이스 추가 → `python scripts/contentParserGolden.py` 로
+  baseline 재생성 → fixtures + baseline 함께 커밋.
+- [ ] `_finalize_contents` 순서(35-2) 변경 금지 — 단계 간 의존(예: stripScoreText 가
+  기하 판정 *앞* — "점"(배점) vs "점"(point) 충돌).
+- [ ] wire payload·저장 블록은 네이티브 유지(35-3) — 정규화는 `blocksToMarkdown` 안에서만.
+- [ ] `npx tsc --noEmit` exit 0 + 브라우저 콘솔 에러 0(순환 import 없음 — contentParser 는
+  ocrBlocks 타입만 import).
+
