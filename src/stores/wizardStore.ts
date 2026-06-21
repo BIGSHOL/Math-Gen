@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { GeneratedProblem } from "@app/types";
+import type { ContentBlock, ChoiceGroup } from "@app/types/ocrBlocks";
 import type { GradeKey } from "@app/services/ai/mathDefense";
 import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
 import type { FontPackId } from "@app/lib/printFontPacks";
@@ -266,7 +267,21 @@ export interface FigureBox {
 export interface OCRProblem {
   id: string;
   number: number;
-  text: string; // markdown + LaTeX
+  text: string; // markdown + LaTeX — 옵션 B 에서 blocks 로부터 *파생* (blocksToMarkdown)
+  /**
+   * 옵션 B: 본문 typed-block 배열 (정전). OCR 이 testchange 와 동일 구조로 emit.
+   * markdown `text` 는 이 blocks 에서 파생되며, HWP 내보내기는 이 blocks 를 커넥터에
+   * *그대로* 보내 testchange 변환 결과와 일치시킨다 (PR3). 옛 세션/legacy row 는
+   * blocks 없음(undefined) → text 로 동작 + HWP 는 markdown adapter fallback.
+   * 사용자가 Step2 에서 text 를 직접 편집하면 blocks 를 drop(undefined)해 fallback.
+   */
+  blocks?: ContentBlock[];
+  /** 옵션 B: 보기 (ChoiceGroup 배열). 서술형이면 비어있음/undefined. */
+  choiceGroups?: ChoiceGroup[];
+  /** 배점 (없으면 undefined). HWP wire payload 로 전달돼 정답지/배점 표기에 사용. */
+  score?: number;
+  /** 문항 유형 라벨 ("서답형"/"서술형"/"단답형"/…). 없으면 undefined. */
+  labelType?: string;
   topic?: string;
   /** Diagrams / figures embedded in this problem — cropped from the page on render. */
   images?: OCRImage[];
@@ -453,6 +468,13 @@ export interface WizardState {
    * partialize 제외 (휘발성).
    */
   solutionConfirmed: boolean;
+  /**
+   * 해설 단계 스킵 — true 면 `useSolutionGen` 자동발사 차단(Step3 재진입·Stepper
+   * 클릭 포함). 사용자가 "해설 건너뛰기" 로 set, "해설 생성하기" 로 해제. partialize
+   * *유지* (새로고침 후에도 스킵 의도 보존 — 안 그러면 Step3 재마운트 시 자동 생성 재발).
+   * startWizard/hydrateFromTest/reset 은 initialState 스프레드로 false 초기화.
+   */
+  skipSolutions: boolean;
 
   // Step 3 — Options
   goal: ConversionGoal;
@@ -512,6 +534,7 @@ export interface WizardState {
   /** OCR 단계 "모든 문항 확인 완료" 토글 (게이팅용). */
   setOcrConfirmed: (v: boolean) => void;
   setSolutionConfirmed: (v: boolean) => void;
+  setSkipSolutions: (v: boolean) => void;
   setOptions: (patch: Partial<Pick<WizardState, "goal" | "difficulty" | "extras">>) => void;
   setProblems: (problems: ProblemReview[]) => void;
   updateProblem: (id: string, patch: Partial<ProblemReview>) => void;
@@ -557,6 +580,7 @@ const initialState = {
   activePageIndex: 0,
   ocrConfirmed: false,
   solutionConfirmed: false,
+  skipSolutions: false,
   goal: "similar" as ConversionGoal,
   difficulty: "same" as DifficultyShift,
   extras: { solutions: true, answers: true, oapNote: false, stats: false },
@@ -584,6 +608,7 @@ export const useWizardStore = create<WizardState>()(
       },
       setOcrConfirmed: (v) => set({ ocrConfirmed: v }),
       setSolutionConfirmed: (v) => set({ solutionConfirmed: v }),
+      setSkipSolutions: (v) => set({ skipSolutions: v }),
       next: () => {
         const s = get().step;
         // Step 0~6 — Step 1.5 (검수) 가 1 로 삽입돼 총 7 단계. next() clamp 6.
@@ -797,6 +822,8 @@ export const useWizardStore = create<WizardState>()(
           })),
         })),
         activePageIndex: s.activePageIndex,
+        // 해설 스킵 의도는 persist — 새로고침 후 Step3 재마운트 시 자동 생성 재발 방지.
+        skipSolutions: s.skipSolutions,
         goal: s.goal,
         difficulty: s.difficulty,
         extras: s.extras,

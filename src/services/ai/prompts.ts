@@ -914,6 +914,40 @@ export const OCR_PAGE_PROMPT = `Task: This image is ONE page of a Korean math wo
 The output is rendered through react-markdown + remark-math + rehype-raw + rehype-katex, so Markdown, KaTeX delimiters (\$…\$, \$\$…\$\$), and raw HTML (<table>, <svg>, <tr>, <td>) are ALL passed through. Use that freely — you almost never need to fall back to image cropping.
 
 ──────────────────────────────────────────────────────────────────
+출력 = TYPED BLOCKS (필수 — 시험지변환기 호환, 옵션 B)
+──────────────────────────────────────────────────────────────────
+
+각 문항의 본문은 markdown 한 덩어리가 아니라 *typed-block 배열* \`contents\` 로, 보기는 \`choices\` 배열로 emit 한다. 한 문항 객체 예:
+  {
+    "number": 19, "score": 4, "labelType": "서답형",
+    "contents": [
+      {"type":"text","value":"다음 식의 값을 구하시오.", "rows":[]},
+      {"type":"equation_block","value":"\\\\frac{1}{2} + \\\\frac{1}{3}", "rows":[]}
+    ],
+    "choices": [
+      {"number":1,"contents":[{"type":"equation","value":"\\\\frac{5}{6}","rows":[]}]},
+      {"number":2,"contents":[{"type":"equation","value":"\\\\frac{7}{6}","rows":[]}]}
+    ],
+    "topic":"유리수의 계산", "images":[], "figures":[], "confidence":"high", "choicesLayout":"1x5"
+  }
+
+블록 타입 4 가지 (모든 블록은 \`rows\` 필드 필수 — 비-table 은 \`[]\`):
+  - **text** — 한국어 산문. 박스 라벨 \`<보기>\`/\`<조건>\`/\`<상자>\` 머리, \`[그림N]\` 마커, inline \`<svg>…</svg>\`, \`__강조__\` 를 value 안에 둘 수 있음.
+  - **equation** — 인라인 수식 LaTeX (value 는 \`$\` 없이 순수 LaTeX).
+  - **equation_block** — 독립행/디스플레이 수식 LaTeX.
+  - **table** — 격자 표. 셀은 \`rows\` (2D 문자열 배열, rows[0]=헤더 행), value="".
+
+🔑 **핵심 분리 규칙 (반드시 지킬 것)**:
+  1. 수식·숫자·기호는 *절대 text 블록 안에 섞지 말고* equation/equation_block 으로 분리한다. **모든 숫자(30, 0.5, -3)도 각각 equation 블록**. 예: 화면에 "30개의 공을" → [{"type":"equation","value":"30","rows":[]},{"type":"text","value":"개의 공을","rows":[]}]. ("개의 공을" 같은 조사·단위만 text.)
+  2. 빈칸 □ / 채울 칸 → equation 블록 {"type":"equation","value":"\\\\boxed{\\\\phantom{0}}","rows":[]} (또는 value \`\\\\square\`). 정답을 채우지 말 것.
+  3. LaTeX 명령의 백슬래시는 JSON wire 에서 *두 번* — value 에 \`\\\\frac\` 처럼 적으면 JSON.parse 후 \`\\frac\` 이 된다. 절대 백슬래시를 빠뜨리지 말 것 (sqrt/frac/pm/times 가 가장 자주 누락됨).
+  4. 도형(직접 그린 inline \`<svg>…</svg>\` 또는 \`[그림N]\` 마커)은 그 위치의 *text 블록 value* 안에 둔다 (아래 VISUAL ELEMENTS 규칙대로 그림). 표는 text 가 아니라 \`table\` 블록.
+  5. 보기 ①②③④⑤ 는 \`choices\` 배열 ({"number":1..5,"contents":[블록]}). **서술형/단답형은 \`choices: []\` (빈 배열)**. ①②③④⑤ 마커 자체를 contents text 에 넣지 말 것.
+  6. 배점(4점) → \`score\` 정수(4), 없으면 0. 문항 유형 라벨([서답형 N]) → \`labelType\` ("서답형"), 없으면 "".
+
+(\`contents\`·\`choices\` 의 text 블록 value 는 우리 렌더러에서 react-markdown + remark-math + rehype-raw + rehype-katex 로 그려진다 — inline \`<svg>\`·\`[그림N]\`·\`<table>\` 가 그대로 통한다. 아래 "RULES FOR EACH items ENTRY" 의 본문·보기·도형 규칙은 이 블록 구조 위에서 그대로 적용한다.)
+
+──────────────────────────────────────────────────────────────────
 전사 정확도 — 한국 시험지 (시험지변환기 코퍼스 검증 규칙, 2026-06-20 이식)
 ──────────────────────────────────────────────────────────────────
 
@@ -960,7 +994,7 @@ RULES FOR EACH "items" ENTRY
    - "medium" — some symbols ambiguous, OR you produced a figure (SVG/table) you're not 100% sure mirrors the original.
    - "low"    — page is damaged, partially cut off, transcription partially guessed, OR you fell back to images[] (rule 4d).
 
-4. text: the full problem statement.
+4. contents: the full problem body as typed blocks. The rules below govern WHAT to include (the ENTIRE body — never drop it) and HOW to classify the item (객관식 vs 단답형 vs 서술형). Split the body's math/numbers into equation blocks per the OUTPUT contract above. (Where examples below show \$...\$, that is just to indicate which body math to capture — in blocks that math becomes an equation block, NOT \$-wrapped text. "body" / "the text" below = the contents blocks.)
 
    🚨 **자체 노트·추론 흔적 절대 금지** — 사용자 보고 (10번 다항식): 본문에 다음과 같은 영어 메타 코멘트가 emit 됨:
      - "(Note: The original image has a division sign here, but the handwritten solution uses multiplication. I will follow the printed text.)"
@@ -971,7 +1005,7 @@ RULES FOR EACH "items" ENTRY
    판단 결과는 *내부에서만* 사용하고, output 의 \`text\` 필드에는 *해석된 최종 한국어 본문* 만. 원본 vs 손글씨 풀이 불일치 같은 *전사 모호성* 은 \`confidence: "medium"\` 으로만 표시하고 본문에는 한 가지 *결정한 형태* 만.
 
    **MANDATORY — DO NOT VIOLATE**:
-   - The "text" field MUST contain the FULL question body (the prose statement before any options). Examples of valid body openers:
+   - The \`contents\` blocks MUST contain the FULL question body (every text/equation block of the statement before any options). Examples of valid body openers:
      · "곡선 $y = x^2 + 2x + 2$와 $x$축 및 두 직선 $x = -2$, $x = 2$로 둘러싸인 도형의 넓이는?"
      · "함수 $f(x) = x^2(x - 3)$가 닫힌구간 $[0, 3]$에서 최댓값과 최솟값의 차는?"
      · "$(-3) + (-6)$의 값은?"   ← 매우 짧은 한 줄짜리도 body 임. 절대 생략 X.
@@ -1014,11 +1048,11 @@ RULES FOR EACH "items" ENTRY
        Step 4. 위 셋 모두 미확정 → confidence="low" + 보수적으로 서술형 (choices=[]).
 
    - 🚨 **객관식 보기 누락 금지 — 객관식 *확정* 인 경우에만 적용**.
-     위 분류로 *객관식 확정* 된 케이스에서만 — 본문이 있고 보기가 없으면 실패다. 본문이 끝나는 문장이 "?", "값은?", "옳은 것은?", "옳지 않은 것은?", "구하면?" 등 5지선다 발문 패턴이면 페이지에 반드시 ①②③④⑤ 보기가 있다. 그 5개 모두 rule 4b 에 따라 같은 항목의 text 끝에 한 줄로 붙여야 한다.
+     위 분류로 *객관식 확정* 된 케이스에서만 — 본문이 있고 보기가 없으면 실패다. 본문이 끝나는 문장이 "?", "값은?", "옳은 것은?", "옳지 않은 것은?", "구하면?" 등 5지선다 발문 패턴이면 페이지에 반드시 ①②③④⑤ 보기가 있다. 그 5개 모두 rule 4b 에 따라 \`choices\` 배열로 emit 해야 한다 (text 블록 아님).
      체크리스트 (객관식 확정 문제마다 emit 전 확인):
        1. 단답형/서술형 마커 (위 신호 a~e) 없음 → ✓
        2. body 끝이 "?" 로 끝나고 객관식 발문이다 → ✓
-       3. text 끝에 "① …  ② …  ③ …  ④ …  ⑤ …" 다섯 마커 모두 있다 → ✓
+       3. \`choices\` 배열에 5 보기(number 1..5)가 모두 들어 있다 → ✓
        4. 다섯 옵션의 값이 페이지의 실제 옵션과 일치한다 (특히 분수의 분자/분모, ± 부호) → ✓
      체크 중 하나라도 빠지면 confidence="low" 로 표시.
    - It is NEVER acceptable to emit ONLY the 5 multiple-choice options ("① 40/3 ② 14 …") with no body. If you cannot read the body for some reason, transcribe what's visible and set confidence="low" — but never skip the body.
@@ -1026,18 +1060,14 @@ RULES FOR EACH "items" ENTRY
    - It is NEVER acceptable to fabricate a phantom enumeration line like "①1 ②2 ③3 ④4 ⑤5" alongside the real options. Emit each option exactly once with its actual value.
    - If a page contains "다음 중 옳은 것은?" plus 5 options spread across multiple lines, the body is "다음 중 옳은 것은?" and the 5 options follow per rule 4b.
 
-   4a. **Inline math**: every variable, number, fraction, and formula MUST be wrapped in \$…\$ (inline) or \$\$…\$\$ (block). Do NOT leave raw "x", "y", "k", "2x²" in the markdown body — wrap them. (Exception: ①②③④⑤, ㄱㄴㄷㄹㅁ, and small-roman/arabic problem sub-numbers like (1), (2) stay UNWRAPPED.)
+   4a. **Math → equation blocks (NOT text, NOT \$-wrapped)**: every variable, number, fraction, and formula is its OWN equation block — type=equation (inline) or type=equation_block (display/standalone line). The value is *pure LaTeX with NO \$ delimiters* (renderer adds them). Never leave raw "x", "y", "k", "2x²", or any number inside a text block. (Exception that STAYS in a text block: ①②③④⑤, ㄱㄴㄷㄹㅁ, and sub-numbers like (1), (2).)
 
-       🚨 **GOLDEN RULE — NEVER LEAK RAW LATEX OUTSIDE \$...\$**:
-       - 모든 backslash 명령 (\\frac, \\displaystyle, \\left, \\right, \\times, \\sum, \\int, etc.) 은 반드시 \$...\$ 안에 있어야 한다.
-       - 사용자 보고 (절대 재발 금지): "\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]의 값은?" 가 통째로 raw text 로 노출.
-         원인: 모델이 문제 발문 전체를 \$ 로 안 감쌌음.
-         올바른 형태: "\$\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]\$의 값은?" — \$ 가 한글 직전에서 닫혀야 함.
-       - 한 줄 안에 math + 한국어 텍스트가 섞여 있으면, math 구간만 \$...\$ 안에 넣고 한국어는 밖에. 예:
-         · 올바름: "\$x^2 + 2x + 1 = 0\$의 해를 구하시오."  ← math 부분만 \$...\$, "의 해를 구하시오." 는 plain text.
-         · 잘못됨: "x^2 + 2x + 1 = 0의 해를 구하시오."  ← math 가 wrap 안 됨.
-         · 잘못됨: "\$x^2 + 2x + 1 = 0의 해를 구하시오.\$"  ← 한글이 math 안에 들어감 (KaTeX error).
-       - **\\displaystyle 도 명령어다 — 절대 \$ 밖에 두지 말 것.** "\\displaystyle 5" 로 시작하면 반드시 "\$\\displaystyle 5 ... \$" 형태로 wrap.
+       🚨 **GOLDEN RULE — LaTeX 는 오직 equation/equation_block value 안에만**:
+       - 모든 backslash 명령 (\\frac, \\displaystyle, \\left, \\right, \\times, \\sum, \\int, etc.) 은 반드시 equation/equation_block 블록의 value 다. text 블록 value 에 LaTeX 명령을 절대 넣지 말 것.
+       - 사용자 보고 (절대 재발 금지): 발문 "\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]의 값은?" 를 한 text 블록에 통째로 넣어 raw LaTeX 노출.
+         올바른 형태: [{"type":"equation","value":"\\displaystyle 5 - \\frac{1}{3} \\times \\left[ ... \\right]"}, {"type":"text","value":"의 값은?"}] — 수식은 equation 블록, 한글은 text 블록으로 분리.
+       - math + 한국어가 한 문장에 섞이면 *블록 경계로 쪼갠다*: math 구간 = equation 블록, 한국어 = text 블록. 한국어를 equation value 안에 넣지 말 것 (KaTeX error).
+       - **\\displaystyle 도 명령어다** — text 가 아니라 equation 블록 value 안에.
 
        🚨 **\\left / \\right 절대 중첩 금지**:
        - \\left 다음에는 즉시 *단일* 구분자가 와야 한다 — \\left(, \\left[, \\left\\{, \\left|, \\left. 만 유효.
@@ -1055,9 +1085,7 @@ RULES FOR EACH "items" ENTRY
          · Is there a ± sign? → use \\pm.
          · Example: an option printed as "$p = -\\dfrac{1}{2},\\ q = \\dfrac{\\sqrt{5}}{2}$" MUST become "$p = -\\frac{1}{2},\\ q = \\frac{\\sqrt{5}}{2}$" — do NOT collapse it to "p = -1/2, q = 5/2" or "p = -1/2, q = -5/2".
 
-   4b. **Multiple choice (객관식)**: put all 5 options on a SINGLE line at the end, separated by single spaces, using the original circled markers:
-       ① \$1\$ ② \$2\$ ③ \$3k\$ ④ \$4k\$ ⑤ \$5k\$
-       The renderer auto-formats this into a 2-column adaptive grid. Do NOT split options across multiple markdown lines. Do NOT wrap ①②③④⑤ themselves in \$.
+   4b. **Multiple choice (객관식)** → \`choices\` 배열: 각 보기를 {"number":1..5,"contents":[블록]} 로 emit. 보통 보기 하나 = equation 블록 하나 (value 는 \$ 없는 pure LaTeX). 예: 보기 ③ "3k" → {"number":3,"contents":[{"type":"equation","value":"3k","rows":[]}]}. ①②③④⑤ 마커 자체는 number 필드로만 표현 (contents text 에 넣지 말 것). 서술형/단답형은 choices=[] (빈 배열). 보기가 그림이면 그 choice 의 contents text 블록에 inline \`<svg>\` 또는 \`[그림N]\`. (아래 choicesLayout 은 *원본 시각 배치* 만 기록.)
 
        🚨 **원본 보기 배치 인식 — choicesLayout 필드 (사용자 보고)**:
          사용자 보고: "원본의 문제별 보기번호 배치를 보고 배치가능한지 체크해볼것 예를 들어 3x2나 2x3 또는 1x5 처럼"
@@ -1088,9 +1116,8 @@ RULES FOR EACH "items" ENTRY
 
        원본에 *테두리/배경색* 으로 둘러싸인 박스가 보이면 *내용을 먼저 읽고* 다음 4 종류로 분류:
 
-       **(i) 보기 박스 (객관식 후보 ①②③④⑤ 또는 ㄱㄴㄷ)** — wrap in Markdown blockquote (> ). 각 항목 한 줄씩.
-           > ㄱ. \$x\$의 제곱근은 \$\\pm\\sqrt{x}\$이다.
-           > ㄴ. …
+       **(i) 보기 박스 (객관식 후보 ①②③④⑤ 또는 ㄱㄴㄷ)** — value 가 \`<보기>\` (라벨이 \`<조건>\`이면 \`<조건>\`) 로 *시작하는 text 블록* 하나로. 항목은 \` • \` (가운데점) 으로 구분. literal \`> \` blockquote 로 emit 하지 말 것 (blocksToMarkdown 가 박스 헤더 + 다단 grid 로 렌더). 박스 *안* 에서는 예외적으로 inline \$..\$ 수식을 text value 에 둬도 됨 (박스 전체가 한 text 블록이라 분리 불필요).
+           예: {"type":"text","value":"<보기> ㄱ. \$x\$의 제곱근은 \$\\pm\\sqrt{x}\$이다 • ㄴ. \$y>0\$ • ㄷ. ...","rows":[]}
 
        **(ii) 수학적 제약 박스 ("단, …", "여기서 …", "다만 …")** — 본문 *끝에 한 줄로* 통합. blockquote X. 예:
            원본:  본문 "직사각형의 넓이는?" + 박스 "단, \$3x > 6\$, \$5y > 8\$"
@@ -1149,28 +1176,24 @@ RULES FOR EACH "items" ENTRY
        박스* → 칸당 \\boxed{}. 외곽선만 하나로 둘러싸고 안에 텍스트/수식 1 개면
        \\boxed{전체}.
 
-   4e. **Score / point annotations** "(4점)" "[5점]" "[10.0점]" — strip them entirely. They are scoring metadata, not problem text.
+   4e. **Score / point annotations** "(4점)" "[5점]" "[10.0점]" — put the integer into the \`score\` field (e.g. 4, 5, 10) and do NOT include "[N점]" in any contents block. Use score 0 if no points are printed. (Exception: a sub-total like "[총 9점]" that labels a multi-part body stays in a contents text block.)
 
    4f. **Section labels** [정답] [풀이] [해설] [예시] [참고] — keep as plain bracketed Korean text. The renderer recognises these as labels.
 
    4g. **Dialogues**: each speaker's line on a new line.
 
+   4h. **labelType (문항 유형 라벨)**: 원본에 인쇄된 유형 라벨 ([서답형 N] / [서술형 N] / [단답형 N] / [논술형 N] / [주관식 N]) 이 있으면 그 *단어* 를 \`labelType\` 필드에 그대로 ("서답형" 등). 없으면 "". 한 시험지는 보통 한 용어로 일관되니 앞 문항과 다른 용어로 바꾸지 말 것 (서답형↔서술형 혼동 금지). 라벨 텍스트 자체는 contents 첫 text 블록에 그대로 남겨도 됨 (예: {"type":"text","value":"[서답형 3] 다음 ..."}).
+
 5. **VISUAL ELEMENTS — strict priority order, top to bottom**:
 
    You MUST exhaust each tier before considering the next. Falling back early is the most common transcription failure. mathlab's production rule is "거의 모든 도형은 텍스트·표·구조화로 표현 가능, 이미지 크롭은 진짜 예외 케이스" — adopt that mindset.
 
-   5a. **Tier 1 — MARKDOWN / HTML TABLE** (default for any grid-shaped visual):
-       Use this for: calendars (달력), schedule grids (시간표), number grids (수 배열표), comparison rows (수민/민호 비교), two-column equations (좌:식 / 우:풀이), histogram value tables, statistics tables, attendance grids, anything with rows × columns.
+   5a. **Tier 1 — \`table\` BLOCK** (default for any grid-shaped visual):
+       Use this for: calendars (달력), schedule grids (시간표), number grids (수 배열표), comparison rows, two-column equations, histogram/통계 value tables, 확률분포표·정규분포표·도수분포표, attendance grids — anything with rows × columns.
 
-       - Simple uniform tables → Markdown GFM tables (| col | col |\\n| --- | --- |\\n…). Cells can contain \$…\$ — those are KaTeX-processed normally.
-       - Tables with cell merging (rowspan/colspan) → raw HTML <table>. Example skeleton, calendar-style:
-           <table>
-             <tr><th colspan="7" style="text-align:center">7월</th></tr>
-             <tr><th>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th>토</th></tr>
-             <tr><td></td><td></td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr>
-             <tr><td>6</td><td>7</td>…<td>12</td></tr>
-             …
-           </table>
+       - Emit a {"type":"table","value":"","rows":[ROW0, ROW1, ...]} block where rows[0] = the header row and each row is an array of cell strings. **모든 행·열·헤더(합계 포함)를 한 칸도 빠짐없이** — 표를 요약·생략하지 말 것.
+       - 셀 안 수식은 LaTeX 문자열로 (셀에 그대로, \$ 없이). 예: rows: [["x","1","2"],["P","\\\\frac{1}{3}","\\\\frac{2}{3}"]].
+       - 셀 병합(rowspan/colspan)은 rows 2D 로 단순화: 병합 헤더는 한 셀에 담고 나머지 칸은 평평하게.
        - **CRITICAL**: a "달력" / "calendar" picture is ALWAYS a table — never crop a calendar as an image. The same goes for any timetable or scoring grid.
        - Cells may contain inline <svg> (rule 5b) for small icons like dice faces inside a comparison table.
 
@@ -1224,7 +1247,7 @@ RULES FOR EACH "items" ENTRY
        - 평행사변형·삼각형·정사각형·다각형 같은 모든 polygon 에서 원본이 직각 마커를 그렸으면 그대로 보존. 사용자 보고 사례: 평행사변형 ACDF 의 직각 마커가 SVG 에서 누락.
        - 모르는 경우 (직각이 명시적 마커 없이 90° 일 때): 추측해서 emit 하지 말 것. 원본에 *시각적 마커* 가 있을 때만 emit.
 
-       **(옵션) \`diagramParams\`** — 표준 7 shape (triangle / circle / quadrilateral / polygon / coordinatePlane / solid / composite) 인 경우 *추가로* emit 가능. 단 \`type\` 필드 (7 enum 중 하나) 필수. 모르겠으면 *element 생략* (raw SVG 가 항상 우선). \`diagramParams\` 만 emit 하지 말 것 — 항상 inline SVG 와 함께.
+       (도형 vector spec \`diagramParams\` 는 현재 스키마에 없음 — emit 하지 말 것. 도형은 inline \`<svg>\` 가 메인 경로다.)
 
        **치수 표시 (Dimension labels) — 한국 교과서 관행 (사용자 보고 13번·반복, 강제 규칙)**:
        🚨 *모든* 길이 표시 (변 전체 길이 5y·3x 든, 변의 일부 8·6 이든) 는 **점선 호 (dashed arc)** 로만 그린다.

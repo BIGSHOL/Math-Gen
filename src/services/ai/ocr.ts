@@ -69,6 +69,8 @@ import {
 import { COMMON_INSTRUCTIONS, OCR_PAGE_PROMPT } from "./prompts.js";
 import { OCR_PAGE_SCHEMA } from "./ocrSchema.js";
 import { parseDataUrl, sanitizeText } from "./sanitize.js";
+import { blocksToMarkdown } from "../../lib/blocksToMarkdown.js";
+import type { ContentBlock, ChoiceGroup, BlockType } from "../../types/ocrBlocks.js";
 import {
   normalizeAnthropicUsage,
   normalizeGeminiUsage,
@@ -291,13 +293,36 @@ interface RawOcrImage {
   label: string;
 }
 
+/** OCR 모델이 emit 한 raw 블록 (정규화 전 — type/value/rows 느슨). */
+interface RawOcrBlock {
+  type?: unknown;
+  value?: unknown;
+  rows?: unknown;
+}
+
+/** raw 보기 (number/contents 느슨). */
+interface RawOcrChoice {
+  number?: unknown;
+  contents?: unknown;
+}
+
 interface RawOcrItem {
   number: number;
-  text: string;
+  /**
+   * 옵션 B: 본문 typed-block 배열. markdown `text` 는 `blocksToMarkdown` 로 파생
+   * (스토어/렌더/해설/변형이 markdown 을 소비 — 무변경).
+   */
+  contents: RawOcrBlock[];
+  /** 옵션 B: 보기 (ChoiceGroup raw). 서술형은 빈 배열. */
+  choices: RawOcrChoice[];
+  /** 배점 (0 = 없음 → undefined). */
+  score?: number;
+  /** 문항 유형 라벨 ("서답형"/"서술형"/… , "" = 없음). */
+  labelType?: string;
   topic: string;
   images: RawOcrImage[];
   confidence: "high" | "medium" | "low";
-  /** Phase F: vector 도형 spec — optional (느슨한 array, 런타임 normalizeDiagram 보정). */
+  /** Phase F: vector 도형 spec — vestigial (스키마에서 제거됨, 항상 undefined). */
   diagramParams?: unknown;
   /** Phase B: 모든 [그림N] figure 의 full-page 레이아웃 box (reading order). */
   figures?: unknown;
@@ -471,15 +496,68 @@ const normalizeFigures = (raw: unknown): OCRProblem["figures"] => {
   return out.length > 0 ? out : undefined;
 };
 
+// ─── 옵션 B: typed-block 정규화 ──────────────────────────────────────────
+const BLOCK_TYPES = new Set<BlockType>(["text", "equation", "equation_block", "table"]);
+
+/** raw 블록 → ContentBlock (type 화이트리스트, rows 정규화). 빈 비-table 블록은 drop. */
+const normalizeBlock = (raw: unknown): ContentBlock | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as RawOcrBlock;
+  const type: BlockType =
+    typeof r.type === "string" && BLOCK_TYPES.has(r.type as BlockType)
+      ? (r.type as BlockType)
+      : "text";
+  const value = typeof r.value === "string" ? r.value : "";
+  let rows: string[][] = [];
+  if (Array.isArray(r.rows)) {
+    rows = r.rows
+      .filter((row): row is unknown[] => Array.isArray(row))
+      .map((row) => row.map((cell) => (typeof cell === "string" ? cell : String(cell ?? ""))));
+  }
+  // 빈 text/equation 블록(value "")은 노이즈 — drop. table 은 rows 가 본체라 유지.
+  if (type !== "table" && !value) return null;
+  return { type, value, rows };
+};
+
+const normalizeBlocks = (raw: unknown): ContentBlock[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeBlock).filter((b): b is ContentBlock => b !== null);
+};
+
+const normalizeChoiceGroups = (raw: unknown): ChoiceGroup[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: ChoiceGroup[] = [];
+  raw.forEach((c, i) => {
+    if (!c || typeof c !== "object") return;
+    const r = c as RawOcrChoice;
+    const number = typeof r.number === "number" && r.number > 0 ? r.number : i + 1;
+    out.push({ number, contents: normalizeBlocks(r.contents) });
+  });
+  return out;
+};
+
 /** Map a raw JSON response (provider-agnostic) to OCRProblem[]. */
 const normalizeResponse = (parsed: RawOcrResponse): OCRProblem[] =>
   (parsed.items ?? []).map((raw) => {
-    const text = sanitizeText(raw.text ?? "");
+    // 옵션 B: 블록이 정전, markdown text 는 파생 (기존 휴리스틱·렌더·해설·변형 무변경).
+    const blocks = normalizeBlocks(raw.contents);
+    const choiceGroups = normalizeChoiceGroups(raw.choices);
+    const text = sanitizeText(blocksToMarkdown(blocks, choiceGroups));
     const bodyMissing = isBodyTooShort(text);
     const choicesMissing = isChoicesMissing(text);
+    const score =
+      typeof raw.score === "number" && raw.score > 0 ? raw.score : undefined;
+    const labelType =
+      typeof raw.labelType === "string" && raw.labelType.trim()
+        ? raw.labelType.trim()
+        : undefined;
     return {
       id: newId(),
       number: raw.number,
+      blocks: blocks.length > 0 ? blocks : undefined,
+      choiceGroups: choiceGroups.length > 0 ? choiceGroups : undefined,
+      score,
+      labelType,
       text,
       topic: raw.topic?.trim() ? raw.topic.trim() : undefined,
       images:
