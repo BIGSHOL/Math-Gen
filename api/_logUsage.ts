@@ -1,5 +1,6 @@
 import { getServiceClient } from "./_supabase.js";
 import { computeCost, type NormalizedUsage } from "../src/lib/pricing.js";
+import { normalizeMessage } from "../src/lib/errorFingerprint.js";
 
 /**
  * `api/ai-*.ts` 가 호출 — ai_usage + (에러 시) error_logs row insert.
@@ -107,13 +108,16 @@ export const logError = (input: LogErrorInput): void => {
 };
 
 /**
- * 서버 측 fingerprint — message + endpoint 의 단순 hash (32자 hex).
- * 클라이언트는 별도 lib/errorFingerprint.ts 사용.
+ * 서버 측 fingerprint — message + endpoint 의 djb2 hash (32자 hex).
+ *
+ * message 는 클라이언트와 *동일한* normalizeMessage 로 변동부(req_id·UUID·숫자·
+ * query)를 placeholder 화한 뒤 해시한다. 안 그러면 "401 … req_011A" / "… req_011B"
+ * 가 매번 다른 fingerprint → 같은 에러가 수백 row 로 쪼개짐(Anthropic 401 폭증 사례).
+ * 정규화하면 같은 에러는 1 row + occurrence_count++ 로 묶인다.
  */
 export const serverFingerprint = (message: string, endpoint: string): string => {
-  // 단순 djb2 hash — 빠르고 충돌 충분히 낮음 (admin UI 의 묶음 용도라 OK).
   let hash = 5381;
-  const s = `${endpoint}:${message}`;
+  const s = `${endpoint}:${normalizeMessage(message)}`;
   for (let i = 0; i < s.length; i++) {
     hash = ((hash << 5) + hash + s.charCodeAt(i)) & 0xffffffff;
   }

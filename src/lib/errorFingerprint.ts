@@ -20,7 +20,7 @@
  *   "HTTP 500 at /api/ai-ocr (req_abc123)" → "HTTP NNN at /api/ai-ocr (req_ID)"
  *   "page 42 not found" → "page NNN not found"
  */
-const normalizeMessage = (msg: string): string => {
+export const normalizeMessage = (msg: string): string => {
   return msg
     // UUIDs
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "UUID")
