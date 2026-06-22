@@ -47,7 +47,9 @@ export const UserManagement = () => {
   };
 
   const handleRoleChange = async (id: string, role: UserProfile["role"]) => {
-    if (!confirm(`이 사용자의 권한을 "${role}" 로 변경합니다. 계속하시겠습니까?`)) return;
+    const label =
+      role === "system_admin" ? "시스템 관리자" : role === "tenant_admin" ? "학원 관리자" : "교사";
+    if (!confirm(`이 사용자의 권한을 "${label}" (으)로 변경합니다. 계속하시겠습니까?`)) return;
     setActionPending(id);
     const ok = await updateProfileRole(id, role);
     if (ok) await reload();

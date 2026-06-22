@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Card, Heading, Eyebrow } from "@app/components/ui";
 import { loadTestStats, type TestStatsRow } from "@app/services/api/admin";
+import { GRADE_LABELS } from "@app/services/ai/mathDefense";
+
+/** 학년 코드 → 한글 라벨 (middle2 → 중2, high1_common1 → 고1 공통수학1). 미지정/미매핑 fallback. */
+const gradeLabel = (g: string | null): string =>
+  g ? (GRADE_LABELS[g as keyof typeof GRADE_LABELS] ?? g) : "(미지정)";
 
 /**
  * Admin §4 — 시험지 통계. 학년별 분포 + 평균 문항 수.
@@ -39,7 +44,7 @@ export const TestStats = () => {
           <div className="space-y-2">
             {rows.map((r) => (
               <div key={r.grade ?? "(미지정)"} className="flex items-center gap-3">
-                <div className="w-24 text-small font-semibold">{r.grade ?? "(미지정)"}</div>
+                <div className="w-24 text-small font-semibold">{gradeLabel(r.grade)}</div>
                 <div className="flex-1 bg-surface2 rounded-r1 overflow-hidden" style={{ height: 18 }}>
                   <div
                     className="h-full bg-accent transition-all"

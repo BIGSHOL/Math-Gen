@@ -162,12 +162,12 @@ export const ErrorLogs = () => {
                     <span className="font-mono">{e.fingerprint.slice(0, 16)}…</span>
                   </div>
                   <div>
-                    <span className="text-muted">user_id:</span>{" "}
-                    <span className="font-mono">{e.user_id ?? "(anon)"}</span>
+                    <span className="text-muted">사용자:</span>{" "}
+                    <span className="font-mono">{e.user_id ?? "(비로그인)"}</span>
                   </div>
                   {e.stack && (
                     <div>
-                      <div className="text-muted mb-1">stack:</div>
+                      <div className="text-muted mb-1">스택:</div>
                       <pre className="bg-surface2 p-2 rounded-r1 overflow-x-auto text-caption whitespace-pre-wrap break-all">
                         {e.stack.slice(0, 1500)}
                       </pre>
@@ -175,7 +175,7 @@ export const ErrorLogs = () => {
                   )}
                   {e.context !== null && e.context !== undefined && (
                     <div>
-                      <div className="text-muted mb-1">context:</div>
+                      <div className="text-muted mb-1">추가 정보:</div>
                       <pre className="bg-surface2 p-2 rounded-r1 overflow-x-auto text-caption">
                         {JSON.stringify(e.context, null, 2)}
                       </pre>

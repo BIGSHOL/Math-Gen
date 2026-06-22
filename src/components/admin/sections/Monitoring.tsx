@@ -106,7 +106,7 @@ const AnomalyCard = ({ anomaly }: { anomaly: AnomalyRow }) => {
           </div>
           <div className="text-small text-text">{anomaly.description}</div>
           <div className="text-caption text-muted mt-1 font-mono">
-            사용자: {anomaly.user_id ? anomaly.user_id.slice(0, 12) + "…" : "(anon)"}
+            사용자: {anomaly.user_id ? anomaly.user_id.slice(0, 12) + "…" : "(비로그인)"}
             {anomaly.tenant_id && ` · 학원: ${anomaly.tenant_id.slice(0, 8)}…`}
           </div>
         </div>

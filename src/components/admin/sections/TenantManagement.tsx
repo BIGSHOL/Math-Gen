@@ -62,7 +62,7 @@ export const TenantManagement = () => {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`학원 "${name}" 을 삭제합니다. 해당 학원의 사용자는 tenant_id 가 null 이 됩니다. 계속?`)) return;
+    if (!confirm(`학원 "${name}" 을(를) 삭제합니다. 소속 사용자는 학원 미지정 상태가 됩니다. 계속하시겠습니까?`)) return;
     const ok = await deleteTenant(id);
     if (ok) await reload();
   };
@@ -152,7 +152,13 @@ export const TenantManagement = () => {
                       tone={t.plan_tier === "enterprise" ? "warn" : t.plan_tier === "pro" ? "accent" : "soft"}
                       size="sm"
                     >
-                      {t.plan_tier}
+                      {t.plan_tier === "enterprise"
+                        ? "기업"
+                        : t.plan_tier === "pro"
+                          ? "프로"
+                          : t.plan_tier === "free"
+                            ? "무료"
+                            : t.plan_tier}
                     </Chip>
                   </td>
                   <td className="p-3 text-muted">{new Date(t.created_at).toLocaleDateString("ko-KR")}</td>

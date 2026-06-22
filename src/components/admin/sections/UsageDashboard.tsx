@@ -69,7 +69,7 @@ export const UsageDashboard = () => {
         <SummaryCard
           label="총 토큰"
           value={((summary?.totalInputTokens ?? 0) + (summary?.totalOutputTokens ?? 0)).toLocaleString()}
-          unit="tokens"
+          unit="토큰"
         />
         <SummaryCard
           label="에러 수"
@@ -115,16 +115,16 @@ export const UsageDashboard = () => {
               <tr className="border-b border-line text-muted">
                 <th className="text-left py-2 font-medium">모델</th>
                 <th className="text-right font-medium">호출</th>
-                <th className="text-right font-medium">Input</th>
-                <th className="text-right font-medium">Output</th>
-                <th className="text-right font-medium">Cache Read</th>
+                <th className="text-right font-medium">입력</th>
+                <th className="text-right font-medium">출력</th>
+                <th className="text-right font-medium">캐시 읽기</th>
                 <th className="text-right font-medium">비용 (USD)</th>
               </tr>
             </thead>
             <tbody>
               {byModel.map((m) => (
                 <tr key={m.model} className="border-b border-line/50 hover:bg-surface2">
-                  <td className="py-2 font-mono">{m.model}</td>
+                  <td className="py-2 font-mono">{m.model === "unknown" ? "(알 수 없음)" : m.model}</td>
                   <td className="text-right font-mono">{m.count.toLocaleString()}</td>
                   <td className="text-right font-mono">{m.total_input_tokens.toLocaleString()}</td>
                   <td className="text-right font-mono">{m.total_output_tokens.toLocaleString()}</td>
