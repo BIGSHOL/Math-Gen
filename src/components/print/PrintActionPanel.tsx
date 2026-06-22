@@ -47,6 +47,10 @@ const downloadBlob = (blob: Blob, filename: string): void => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
+/** HWP 도우미(로컬 커넥터) 다운로드 — 한글 설치된 PC 에서 1회 설치 후 자동 실행. */
+const HWP_AGENT_DOWNLOAD_URL =
+  "https://github.com/BIGSHOL/Math-Gen/releases/download/hwp-agent-v1.0.0/MathGenHWP.zip";
+
 export interface PrintActionPanelProps {
   /** Step5Export 의 printable-root ref. PDF 캡처 대상. */
   printableRootRef: RefObject<HTMLDivElement | null>;
@@ -98,6 +102,8 @@ export const PrintActionPanel = ({
   // HWP 변환 중에는 한글 COM 이 저장 직전 잠깐 Visible 로 떠 포커스를 가로챌 수 있어
   // 타이핑이 변환을 깨뜨릴 위험 → 가운데 경고 모달로 상호작용 차단(사용자 보고 2026-06-22).
   const hwpConverting = isExporting && exportKind === "hwp";
+  // 커넥터(HWP 도우미) 미감지 → 다운로드 안내 카드 노출.
+  const [connectorMissing, setConnectorMissing] = useState(false);
 
   const handlePrint = useCallback(async () => {
     if (document.fonts?.ready) await document.fonts.ready;
@@ -203,6 +209,7 @@ export const PrintActionPanel = ({
    */
   const handleHWP = useCallback(async () => {
     setExportKind("hwp");
+    setConnectorMissing(false);
     // 진행 중 입력 필드 등에서 포커스 제거 — 변환 중 stray 키 입력 방지.
     (document.activeElement as HTMLElement | null)?.blur?.();
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
@@ -218,9 +225,11 @@ export const PrintActionPanel = ({
 
       const health = await detectConnector();
       if (!health) {
-        throw new Error(
-          "HWP 커넥터가 실행 중이 아닙니다. 시험지변환기에서 'python -m server.connector' 실행 후 다시 시도하세요.",
-        );
+        // 커넥터 미실행 — 에러 throw 대신 다운로드 안내 카드 노출(사용자 친화).
+        setConnectorMissing(true);
+        setProgress(null);
+        setExportKind(null);
+        return;
       }
       if (problems.length === 0) throw new Error("내보낼 문항이 없습니다.");
 
@@ -379,6 +388,39 @@ export const PrintActionPanel = ({
                 height={4}
               />
             )}
+          </Card>
+        )}
+
+        {/* 커넥터 미감지 — HWP 도우미 다운로드 안내 (한글 설치 PC 1회 설치). */}
+        {connectorMissing && (
+          <Card pad={12} className="bg-warn-soft border-warn/30">
+            <div className="text-caption font-bold mb-1.5">
+              HWP 내보내기 도우미가 필요합니다
+            </div>
+            <p className="text-caption text-text2 leading-relaxed mb-2">
+              .hwp 변환은 PC에 설치된 한글(HWP)을 이용합니다. 아래 도우미를 한 번
+              설치하면 이후 자동 실행됩니다.
+            </p>
+            <Btn
+              kind="accent"
+              icon="download-simple"
+              full
+              size="sm"
+              onClick={() =>
+                window.open(HWP_AGENT_DOWNLOAD_URL, "_blank", "noopener")
+              }
+            >
+              HWP 도우미 다운로드
+            </Btn>
+            <Btn
+              kind="ghost"
+              full
+              size="sm"
+              className="mt-1.5"
+              onClick={() => void handleHWP()}
+            >
+              이미 설치함 · 다시 시도
+            </Btn>
           </Card>
         )}
 
