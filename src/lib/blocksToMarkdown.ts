@@ -34,6 +34,15 @@ const BOX_MARKERS = ["<보기>", "<조건>", "<상자>"];
 const isBoxText = (b: ContentBlock): boolean =>
   b.type === "text" && BOX_MARKERS.some((m) => b.value.trimStart().startsWith(m));
 
+/**
+ * 모델이 이야기/지문 본문에 raw `> ` (markdown blockquote 마커) 를 붙여 emit 한 경우
+ * (서답형 독수리 사례 — OCR 모델 오류). `<보기>`(`<` 시작) 박스와 구분 — 줄머리 `>` 로
+ * 시작하는 순수 blockquote 텍스트만. 이런 블록은 인라인 join 하면 직전 블록과 붙어 `>` 가
+ * 줄 중간으로 가 `&gt;` 로 노출 + 다음 블록이 박스로 끌려가므로, 블록레벨로 분리한다.
+ */
+const isRawBlockquote = (b: ContentBlock): boolean =>
+  b.type === "text" && /^\s*>\s/.test(b.value);
+
 const isSvgText = (b: ContentBlock): boolean =>
   b.type === "text" && b.value.trimStart().toLowerCase().startsWith("<svg");
 
@@ -172,6 +181,11 @@ export const blocksToMarkdown = (
       // 태깅 안 된 단일 블록 박스 fallback (box_member 일관 태깅 후엔 드묾).
       flushInline();
       out.push(boxToBlockquote(b.value));
+    } else if (isRawBlockquote(b)) {
+      // 모델이 본문에 raw `> ` blockquote 를 붙인 경우 — 블록레벨로 분리(앞뒤 flush).
+      // 인라인 join 을 막아 직전 블록의 `&gt;` 누출 + 다음 블록의 박스 끌려감을 방지.
+      flushInline();
+      out.push(b.value.trim());
     } else {
       // text 또는 equation — 인라인 런에 누적
       inline += inlinePiece(b);
