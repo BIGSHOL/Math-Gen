@@ -59,6 +59,13 @@ export interface OCRItemProps {
    * 은 store write 가 no-op 이라 전달 X (canPersist 게이트가 readonly·testId 도 확인).
    */
   persistCrops?: boolean;
+  /**
+   * 문항별 재인식 — 이 문항의 크롭 박스만 다시 OCR. Step2(편집 가능)에서만 주입.
+   * 부모(Step2OCRReview)가 `useItemReocr` 로 page 단위 처리하고 콜백을 내린다.
+   */
+  onReocr?: () => void;
+  /** 이 문항이 재인식 중인지 — 버튼 스피너 표시. */
+  reocring?: boolean;
 }
 
 /** images[idx] 에 storagePath 를 박은 새 배열 (freeze 후 store 기록용). */
@@ -230,6 +237,8 @@ export const OCRItem = ({
   readonly,
   testId,
   persistCrops,
+  onReocr,
+  reocring,
 }: OCRItemProps) => {
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
 
@@ -387,6 +396,19 @@ export const OCRItem = ({
               testId={testId}
               compact
             />
+          )}
+          {!editing && !readonly && onReocr && (
+            <Btn
+              kind="ghost"
+              size="sm"
+              icon="arrow-clockwise"
+              onClick={onReocr}
+              disabled={reocring}
+              title="이 문항만 다시 인식 (크롭 박스 단위)"
+              aria-label="이 문항 재인식"
+            >
+              {reocring ? "인식 중…" : "재인식"}
+            </Btn>
           )}
           {readonly ? null : editing ? (
             <>

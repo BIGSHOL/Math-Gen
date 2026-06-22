@@ -1,5 +1,6 @@
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import { usePageOcr } from "@app/hooks/usePageOcr";
+import { useItemReocr } from "@app/hooks/useItemReocr";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
 import { useWizardStore } from "@app/stores/wizardStore";
 import OCRItem from "./OCRItem";
@@ -89,6 +90,7 @@ export const Step2OCRReview = () => {
   const testId = useWizardStore((s) => s.testId);
 
   const { resetDispatch } = usePageOcr();
+  const { reocrItem, isReocring } = useItemReocr();
 
   const activePage = pages[activeIdx];
   const { url: pageImage, loading: pageImageLoading } = usePageImageDataUrl(activePage);
@@ -264,6 +266,8 @@ export const Step2OCRReview = () => {
               pageImageDataUrl={pageImage}
               testId={testId}
               persistCrops
+              onReocr={() => void reocrItem(activePage, item)}
+              reocring={isReocring(activePage.id, item.number)}
             />
           ))}
         </div>
