@@ -47,9 +47,11 @@ const downloadBlob = (blob: Blob, filename: string): void => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-/** HWP 도우미(로컬 커넥터) 다운로드 — 한글 설치된 PC 에서 1회 설치 후 자동 실행. */
+/** HWP 도우미(로컬 커넥터) 다운로드 — 한글 설치된 PC 에서 1회 설치 후 자동 실행.
+ *  버전 무관 latest URL — 새 도우미 릴리스를 latest 로 올리면 코드 수정 없이 자동 반영
+ *  (에셋명 MathGenHWP.zip 고정 필수). 릴리스 런북은 CLAUDE.md §36. */
 const HWP_AGENT_DOWNLOAD_URL =
-  "https://github.com/BIGSHOL/Math-Gen/releases/download/hwp-agent-v1.0.0/MathGenHWP.zip";
+  "https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip";
 
 export interface PrintActionPanelProps {
   /** Step5Export 의 printable-root ref. PDF 캡처 대상. */

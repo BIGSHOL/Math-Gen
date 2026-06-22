@@ -4462,3 +4462,41 @@ baseline 재생성 후 두 파일 함께 커밋.
 - [ ] `npx tsc --noEmit` exit 0 + 브라우저 콘솔 에러 0(순환 import 없음 — contentParser 는
   ocrBlocks 타입만 import).
 
+---
+
+## 36. HWP 도우미(.exe) 릴리스 — 웹 URL 자동 동기화 (2026-06-22)
+
+한글-only PC 배포용 트레이 도우미(memory `hwp-export-com-only`)의 릴리스·업데이트 런북.
+웹앱 다운로드 버튼이 **버전 무관 `latest` URL** 을 쓰므로, 새 버전을 *latest 로* 올리면
+**웹 코드 수정·재배포 없이 자동 반영**된다.
+
+### 36-1. 불변 규약 (어기면 자동 동기화 깨짐 — CRITICAL)
+- **에셋 파일명은 항상 `MathGenHWP.zip`** — `latest/download/MathGenHWP.zip` 가 *파일명* 으로 해석.
+- 새 릴리스는 **반드시 latest** (`gh release create` 기본값 = latest; `--latest=false` 금지).
+- 웹 URL 상수 `HWP_AGENT_DOWNLOAD_URL` (`src/components/print/PrintActionPanel.tsx`) =
+  `https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip` — **수정 불필요**.
+- 릴리스 repo 는 **BIGSHOL/Math-Gen (public)**. Math-Gen 은 GitHub 릴리스를 *앱* 배포에 안 씀
+  (Vercel) → latest = 항상 도우미라 안전. *만약 앱 릴리스를 도입하면* latest 충돌 → 그땐
+  도우미를 별도 public repo 또는 고정 태그(`hwp-agent`)로 분리할 것.
+
+### 36-2. 새 버전 릴리스 절차 (엔진 `D:\시험지 한글화`)
+1. 소스 수정(`agent.py` / `server/connector.py` 등) → testchange(**BIGSHOL**, `git push testchange master`) 커밋. (origin 은 soseon203 — 권한 없음, push 금지.)
+2. 빌드: `python -m PyInstaller agent.spec --noconfirm --clean --distpath dist_agent --workpath build_agent`
+   (`pyinstaller`·`pystray`·`pillow`·`pywin32` 필요. agent.spec 은 변환경로만 — GUI/OCR/figure 제외 → 39MB.)
+3. 안내문 갱신 시 `dist_agent/MathGenHWP/사용안내.txt` 수정.
+4. 압축(이름 **고정**): `Compress-Archive -Path dist_agent/MathGenHWP -DestinationPath dist_agent/MathGenHWP.zip -Force`
+5. 릴리스(새 태그, latest 기본):
+   `gh release create hwp-agent-vX.Y.Z dist_agent/MathGenHWP.zip --repo BIGSHOL/Math-Gen --title "..." --notes-file ...`
+   → 자동 latest → 웹 URL 자동 반영. **웹 코드/재배포 불필요.**
+   (또는 같은 태그 자산만 교체: `gh release upload <tag> dist_agent/MathGenHWP.zip --clobber`.)
+6. 검증: `curl -I https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip` → `302` + Location 이 새 태그.
+
+### 36-3. 핵심 동작 (재현/디버그)
+- 도우미: PyInstaller **onedir** 트레이 앱. 커넥터(8765) 백그라운드 데몬 스레드 + 부팅 자동시작
+  (HKCU `…\Run\MathGenHWP`) + 변환은 자기 자신을 `--convert-worker` 로 재호출(COM 격리;
+  connector 가 `getattr(sys,"frozen")` 분기, payload 는 `--in` 파일 — windowed exe stdin None 회피).
+- 웹: 커넥터 미감지(`detectConnector()` null) 시 throw 대신 `connectorMissing` → 다운로드 카드.
+  **카드는 도우미가 *실행 안 될 때만* 노출** — 실행 중이면 안 보임(정상). 프로덕션(HTTPS)에선
+  커넥터의 CORS allowlist(`https://mathgen.para-x.co.kr`) + PNA 헤더가 있어야 감지됨(memory 참고).
+- 서명 없음 → SmartScreen "추가 정보→실행" (사용안내.txt + 릴리스 노트에 명시). 코드서명은 보류.
+
