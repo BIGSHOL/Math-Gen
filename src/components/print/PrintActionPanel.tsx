@@ -1,5 +1,5 @@
 import { useCallback, useState, type RefObject } from "react";
-import { Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
+import { Backdrop, Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
 import { useWizardStore } from "@app/stores/wizardStore";
 import { useAppStore } from "@app/stores/appStore";
 import { showToast } from "@app/stores/toastStore";
@@ -93,6 +93,11 @@ export const PrintActionPanel = ({
 
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const isExporting = progress !== null && progress.phase !== "done" && progress.phase !== "error";
+  // 어떤 내보내기가 진행 중인지 — 진행 라벨·경고 모달이 PDF vs HWP 를 구분.
+  const [exportKind, setExportKind] = useState<"hwp" | "pdf" | null>(null);
+  // HWP 변환 중에는 한글 COM 이 저장 직전 잠깐 Visible 로 떠 포커스를 가로챌 수 있어
+  // 타이핑이 변환을 깨뜨릴 위험 → 가운데 경고 모달로 상호작용 차단(사용자 보고 2026-06-22).
+  const hwpConverting = isExporting && exportKind === "hwp";
 
   const handlePrint = useCallback(async () => {
     if (document.fonts?.ready) await document.fonts.ready;
@@ -107,6 +112,7 @@ export const PrintActionPanel = ({
       setProgress({ current: 0, total: 0, phase: "error", error: "인쇄 영역을 찾을 수 없습니다." });
       return;
     }
+    setExportKind("pdf");
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
       // dynamic import — PDF 안 쓰는 사용자에게 비용 zero.
@@ -125,7 +131,10 @@ export const PrintActionPanel = ({
       });
     } finally {
       // 2초 후 progress 클리어 — 완료/에러 모두.
-      setTimeout(() => setProgress(null), 2500);
+      setTimeout(() => {
+        setProgress(null);
+        setExportKind(null);
+      }, 2500);
     }
   }, [filename, printableRootRef, totalPages]);
 
@@ -146,6 +155,7 @@ export const PrintActionPanel = ({
       setProgress({ current: 0, total: 0, phase: "error", error: "인쇄 영역을 찾을 수 없습니다." });
       return;
     }
+    setExportKind("pdf");
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
       const { sanitizeFilename } = await import("@app/lib/pdfExporter");
@@ -179,7 +189,10 @@ export const PrintActionPanel = ({
         error: (err as Error).message ?? "서버 PDF 생성 실패",
       });
     } finally {
-      setTimeout(() => setProgress(null), 2500);
+      setTimeout(() => {
+        setProgress(null);
+        setExportKind(null);
+      }, 2500);
     }
   }, [filename, printableRootRef, totalPages]);
 
@@ -189,6 +202,9 @@ export const PrintActionPanel = ({
    * 커넥터 미실행이면 안내. 401(페어링 토큰)이면 1회 prompt 후 localStorage 저장.
    */
   const handleHWP = useCallback(async () => {
+    setExportKind("hwp");
+    // 진행 중 입력 필드 등에서 포커스 제거 — 변환 중 stray 키 입력 방지.
+    (document.activeElement as HTMLElement | null)?.blur?.();
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
       const {
@@ -240,14 +256,51 @@ export const PrintActionPanel = ({
         error: (err as Error).message ?? "HWP 변환 실패",
       });
     } finally {
-      setTimeout(() => setProgress(null), 3000);
+      setTimeout(() => {
+        setProgress(null);
+        setExportKind(null);
+      }, 3000);
     }
   }, [problems, meta, exportSource, filename, totalPages]);
 
   return (
-    <aside
-      className={`w-[280px] shrink-0 bg-surface border-l border-line flex flex-col ${className ?? ""}`}
-    >
+    <>
+      {/* 변환 중 가운데 경고 모달 — 한글 COM 포커스 탈취 → 타이핑 시 변환 실패 방지.
+          Backdrop 이 fullscreen dim+blur 로 상호작용을 시각 차단. 완료/에러 시
+          isExporting=false → 자동 사라짐. */}
+      {hwpConverting && (
+        <Backdrop>
+          <Card
+            pad={24}
+            className="w-[360px] max-w-[90vw] bg-surface border border-accent/40 shadow-2xl text-center"
+          >
+            <div className="flex flex-col items-center gap-3">
+              <span
+                className="inline-block w-9 h-9 rounded-full border-[3px] border-accent/25 border-t-accent animate-spin"
+                aria-hidden
+              />
+              <Heading level="h3" className="text-text">
+                HWP 변환 중입니다
+              </Heading>
+              <p className="text-small text-text2 leading-relaxed">
+                한글(HWP)이 백그라운드에서 실행 중입니다.
+                <br />
+                변환이 끝날 때까지{" "}
+                <strong className="text-warn">타이핑하거나 클릭하지 마세요.</strong>
+                <br />
+                키 입력이 한글 창에 들어가면 변환이 실패할 수 있습니다.
+              </p>
+              <div className="flex items-center gap-1.5 text-caption text-muted mt-1">
+                <Icon name="hourglass-medium" size={14} weight="duotone" color="#0EA5E9" />
+                <span>보통 5~30초 소요…</span>
+              </div>
+            </div>
+          </Card>
+        </Backdrop>
+      )}
+      <aside
+        className={`w-[280px] shrink-0 bg-surface border-l border-line flex flex-col ${className ?? ""}`}
+      >
       <div className="h-14 flex items-center px-4 border-b border-line">
         <Heading level="h3" className="text-body">
           <Icon name="download-simple" size={16} weight="duotone" color="#0EA5E9" />
@@ -312,8 +365,10 @@ export const PrintActionPanel = ({
               {progress.phase === "preparing" && "준비 중…"}
               {progress.phase === "rendering" &&
                 `${progress.current} / ${progress.total} 페이지 캡처 중…`}
-              {progress.phase === "saving" && "PDF 저장 중…"}
-              {progress.phase === "done" && "✓ PDF 생성 완료"}
+              {progress.phase === "saving" &&
+                (exportKind === "hwp" ? "HWP 변환 중… (한글 실행 중)" : "PDF 저장 중…")}
+              {progress.phase === "done" &&
+                (exportKind === "hwp" ? "✓ HWP 생성 완료" : "✓ PDF 생성 완료")}
               {progress.phase === "error" && `오류: ${progress.error ?? "알 수 없음"}`}
             </div>
             {progress.total > 0 && progress.phase !== "error" && (
@@ -373,7 +428,8 @@ export const PrintActionPanel = ({
           이전 (검토)
         </Btn>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 };
 
