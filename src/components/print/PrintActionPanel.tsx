@@ -85,6 +85,7 @@ export const PrintActionPanel = ({
   className,
 }: PrintActionPanelProps) => {
   const filename = useWizardStore((s) => s.filename);
+  const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
   const setExport = useWizardStore((s) => s.setExport);
   const prev = useWizardStore((s) => s.prev);
   const backToLibrary = useAppStore((s) => s.backToLibrary);
@@ -238,7 +239,11 @@ export const PrintActionPanel = ({
       const payload = buildHwpPayload(problems, meta, exportSource);
       const ext = health.engine === "hwp" ? "hwp" : "hwpx";
       const { sanitizeFilename } = await import("@app/lib/pdfExporter");
-      const safeName = sanitizeFilename(filename || "시험지");
+      // 업로드한 원본 파일명 그대로 (확장자만 .hwpx). 동일 이름 존재 시 (1)(2) 는
+      // 브라우저가 자동 부여. 원본명 없으면 filename 입력값 → "시험지".
+      const baseName =
+        uploadedFileName?.replace(/\.pdf$/i, "").trim() || filename || "시험지";
+      const safeName = sanitizeFilename(baseName);
 
       setProgress({ current: 0, total: totalPages, phase: "saving" });
       let blob: Blob;
