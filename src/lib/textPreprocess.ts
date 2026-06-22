@@ -62,6 +62,28 @@ const UNICODE_MATH_MAP: Array<[RegExp, string]> = [
 const MULTILINE_ENV =
   /\\begin\{(cases|align|aligned|array|matrix|pmatrix|bmatrix|vmatrix|split|gather|gathered)\}/;
 
+/** 연립방정식·piecewise 시스템 — display 로 두지 않고 인라인으로(발문 흐름 유지). */
+const SYSTEM_ENV = /\\begin\{cases\}|\\left\\{|\\left\\lbrace/;
+
+/**
+ * 연립방정식(cases / `\left\{` 시스템)을 display 블록 → 인라인으로 정규화.
+ * 발문 중간 연립이 가운데정렬 블록으로 떠 "멘트 / 식 / 멘트" 로 토막나던 것 방지
+ * (사용자 보고 2026-06-22). 렌더 시점 후처리라 이미 파생된 item.text 도 *재OCR 없이* 교정.
+ * 아래 승격 단계(MULTILINE_ENV)가 인라인 연립을 다시 display 로 올리지 않게 SYSTEM_ENV 제외도 함께.
+ */
+const inlineEquationSystems = (text: string): string => {
+  // (1) 문장 사이 display 연립식: `\n\n$$sys$$\n\n` → ` $sys$ ` (문단 합쳐 흐름 복원)
+  let s = text.replace(
+    /[ \t]*\n{2,}[ \t]*\$\$([\s\S]*?)\$\$[ \t]*\n{2,}[ \t]*/g,
+    (full, inner: string) => (SYSTEM_ENV.test(inner) ? " $" + inner.trim() + "$ " : full),
+  );
+  // (2) 남은 display 연립식: `$$sys$$` → `$sys$`
+  s = s.replace(/\$\$([\s\S]*?)\$\$/g, (full, inner: string) =>
+    SYSTEM_ENV.test(inner) ? "$" + inner.trim() + "$" : full,
+  );
+  return s;
+};
+
 /**
  * 모든 인라인 수식(`$...$`)에 `\displaystyle`을 자동 주입해 display 사이즈로
  * 그리도록 강제한다.
@@ -820,9 +842,16 @@ export const preprocessMathText = (content: string): string => {
     out = next;
   }
 
+  // 연립방정식은 인라인으로 — display 블록(`$$…$$`)이면 인라인으로 당기고 문단 합침.
+  // (승격 단계보다 *먼저* 실행해야, 인라인된 연립이 곧장 다시 승격되지 않는다.)
+  out = inlineEquationSystems(out);
+
   out = out.replace(
     /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)(?<!\$)\$(?!\$)/g,
-    (match, inner) => (MULTILINE_ENV.test(inner) ? `$$${inner}$$` : match),
+    (match, inner) =>
+      // 멀티라인 환경(align/aligned/gather 등)은 display 로 승격하되, *연립방정식
+      // (cases / `\left\{`)* 은 인라인 유지(발문 흐름). SYSTEM_ENV 제외.
+      MULTILINE_ENV.test(inner) && !SYSTEM_ENV.test(inner) ? `$$${inner}$$` : match,
   );
 
   // 한글-수식 분리 — `$...$` / `$$...$$` 안에 섞인 한글을 prose 레벨로 떼어

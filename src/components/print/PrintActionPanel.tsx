@@ -265,19 +265,18 @@ export const PrintActionPanel = ({
       downloadBlob(blob, `${safeName}.${ext}`);
       setProgress({ current: totalPages, total: totalPages, phase: "done" });
     } catch (err) {
-      setProgress({
-        current: 0,
-        total: totalPages,
-        phase: "error",
-        error: (err as Error).message ?? "HWP 변환 실패",
-      });
+      const msg = (err as Error).message ?? "HWP 변환 실패";
+      setProgress({ current: 0, total: totalPages, phase: "error", error: msg });
+      // 변환 실패 — 중앙 경고 모달은 닫히고 사이드 진행카드는 3초 뒤 사라지므로,
+      // 토스트로 확실히 알린다(한글 오류 등 실패 인지, 사용자 보고 2026-06-22).
+      showToast({ kind: "error", message: `HWP 변환 실패 — ${msg}` });
     } finally {
       setTimeout(() => {
         setProgress(null);
         setExportKind(null);
       }, 3000);
     }
-  }, [problems, meta, exportSource, filename, totalPages]);
+  }, [problems, meta, exportSource, filename, uploadedFileName, totalPages]);
 
   return (
     <>
