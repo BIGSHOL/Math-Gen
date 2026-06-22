@@ -8,8 +8,48 @@ import { loadErrors, type ErrorLogRow } from "@app/services/api/admin";
  * occurrence_count = 같은 fingerprint 가 N 회 발생. last_seen_at 으로 정렬.
  */
 
-const KINDS = ["", "ocr", "solution", "variant", "export_pdf", "client_uncaught", "client_unhandled_rejection"];
+const KINDS = ["", "ocr", "solution", "variant", "cropdetect", "export_pdf", "client_uncaught", "client_unhandled_rejection"];
 const SEVERITIES = ["", "info", "warning", "error", "fatal"];
+
+/** 에러 종류 코드 → 한글 라벨. 미매핑 코드는 원문 그대로. */
+const KIND_LABELS: Record<string, string> = {
+  ocr: "문항 인식(OCR)",
+  solution: "해설 생성",
+  variant: "변형 생성",
+  cropdetect: "크롭 검출",
+  export_pdf: "PDF 내보내기",
+  exam_analysis: "시험지 분석",
+  exam_commentary: "총평 생성",
+  exam_v4: "블로그 생성",
+  image: "이미지 생성",
+  api_call: "API 호출",
+  client_uncaught: "화면 오류(미처리)",
+  client_unhandled_rejection: "화면 비동기 오류",
+};
+const kindLabel = (k: string): string => KIND_LABELS[k] ?? k;
+
+/** 심각도 코드 → 한글 라벨. */
+const SEVERITY_LABELS: Record<string, string> = {
+  info: "정보",
+  warning: "경고",
+  error: "오류",
+  fatal: "치명적",
+};
+const severityLabel = (s: string): string => SEVERITY_LABELS[s] ?? s;
+
+/** 자주 나오는 에러 메시지 → 한글 한 줄 요약. 모르면 null(원문 표시). */
+const summarizeMessage = (msg: string): string | null => {
+  const m = msg.toLowerCase();
+  if (/invalid x-api-key|authentication_error|x-api-key/.test(m)) return "API 키 인증 실패 (401) — 키 무효/만료";
+  if (/\b429\b|rate limit|too many requests|overloaded|quota/.test(m)) return "요청 한도/할당량 초과 — 잠시 후 재시도";
+  if (/max_tokens|maxoutputtokens|토큰 한도/.test(m)) return "토큰 한도 초과 — 응답 잘림";
+  if (/timeout|timed out|시간 초과/.test(m)) return "시간 초과";
+  if (/network|fetch failed|err_aborted|networkerror|load failed/.test(m)) return "네트워크 오류";
+  if (/크롭 ocr 실패|페이지 재인식|박스를 확인/.test(msg)) return "크롭 OCR 실패 — 박스 확인 필요";
+  if (/\b50[0-9]\b|internal server error|function_invocation/.test(m)) return "서버 내부 오류 (5xx)";
+  if (/unexpected (end|token)|json|parse error/.test(m)) return "응답 파싱 실패 (JSON)";
+  return null;
+};
 
 export const ErrorLogs = () => {
   const [errors, setErrors] = useState<ErrorLogRow[]>([]);
@@ -47,7 +87,7 @@ export const ErrorLogs = () => {
             className="bg-surface2 border border-line rounded-r1 px-2 py-1"
           >
             {KINDS.map((k) => (
-              <option key={k} value={k}>{k || "(전체 종류)"}</option>
+              <option key={k} value={k}>{k ? kindLabel(k) : "(전체 종류)"}</option>
             ))}
           </select>
           <select
@@ -56,7 +96,7 @@ export const ErrorLogs = () => {
             className="bg-surface2 border border-line rounded-r1 px-2 py-1"
           >
             {SEVERITIES.map((s) => (
-              <option key={s} value={s}>{s || "(전체 심각도)"}</option>
+              <option key={s} value={s}>{s ? severityLabel(s) : "(전체 심각도)"}</option>
             ))}
           </select>
         </div>
@@ -78,9 +118,9 @@ export const ErrorLogs = () => {
                       tone={e.severity === "fatal" ? "warn" : e.severity === "error" ? "warn" : "soft"}
                       size="sm"
                     >
-                      {e.severity}
+                      {severityLabel(e.severity)}
                     </Chip>
-                    <Chip tone="soft" size="sm">{e.kind}</Chip>
+                    <Chip tone="soft" size="sm">{kindLabel(e.kind)}</Chip>
                     {e.occurrence_count > 1 && (
                       <Chip tone="accent" size="sm">×{e.occurrence_count}</Chip>
                     )}
@@ -88,10 +128,23 @@ export const ErrorLogs = () => {
                       {new Date(e.last_seen_at).toLocaleString("ko-KR")}
                     </span>
                   </div>
-                  <div className="text-small font-mono text-text break-all">
-                    {e.message.slice(0, 200)}
-                    {e.message.length > 200 && "…"}
-                  </div>
+                  {(() => {
+                    const summary = summarizeMessage(e.message);
+                    return summary ? (
+                      <>
+                        <div className="text-small font-medium text-text">{summary}</div>
+                        <div className="text-caption font-mono text-muted break-all mt-0.5">
+                          {e.message.slice(0, 160)}
+                          {e.message.length > 160 && "…"}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-small font-mono text-text break-all">
+                        {e.message.slice(0, 200)}
+                        {e.message.length > 200 && "…"}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <Btn
                   kind="ghost"
