@@ -30,7 +30,7 @@
  * `<보기>` prefix + `boxMember` run 으로 렌더한다.
  */
 
-import type { BlockType, ChoiceGroup, ContentBlock } from "@app/types/ocrBlocks";
+import type { BlockType, ChoiceGroup, ContentBlock } from "../../types/ocrBlocks.js";
 
 /** 정규화 산물 — ContentBlock + 박스 멤버 플래그(blocksToMarkdown 그룹핑용). */
 export interface NBlock {

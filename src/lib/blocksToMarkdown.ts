@@ -17,13 +17,13 @@
  * (PR3 에서 커넥터가 그대로 박스 렌더). 웹은 여기서 blockquote(`> `)로 변환해 동일 렌더.
  */
 
-import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
+import type { ContentBlock, ChoiceGroup, SubQuestion } from "../types/ocrBlocks.js";
 import {
   hasGeometryContext,
   type NBlock,
   normalizeChoiceGroups,
   normalizeContents,
-} from "@app/services/ai/contentParser";
+} from "../services/ai/contentParser.js";
 
 /** 보기 마커 ①..⑩. */
 const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩";

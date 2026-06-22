@@ -30,12 +30,12 @@ import {
   buildExamScopeSuffix,
 } from "./examAnalysisPrompts.js";
 import { processAnalysisResult } from "./examAnalysisPostProcess.js";
-import { normalizeAnthropicUsage } from "@app/lib/pricing";
+import { normalizeAnthropicUsage } from "../../lib/pricing.js";
 import type {
   AnalyzeExamInput,
   AnalyzeExamOutput,
   BasicAnalysisResult,
-} from "@app/types/examAnalysis";
+} from "../../types/examAnalysis.js";
 
 // ════════════════════════════════════════════════════════════════════
 // §1. 이미지 input → Anthropic image block 변환
