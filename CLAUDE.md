@@ -4500,3 +4500,32 @@ baseline 재생성 후 두 파일 함께 커밋.
   커넥터의 CORS allowlist(`https://mathgen.para-x.co.kr`) + PNA 헤더가 있어야 감지됨(memory 참고).
 - 서명 없음 → SmartScreen "추가 정보→실행" (사용안내.txt + 릴리스 노트에 명시). 코드서명은 보류.
 
+---
+
+## 37. 연립방정식 인라인 — 두 레이어 충돌 함정 (2026-06-22, CRITICAL)
+
+**증상**(사용자 반복 보고): 발문 중간 연립방정식이 *가운데정렬 display 블록*으로 떠
+"멘트 / 식 / 멘트 / 식" 으로 세로 토막남. 우측 가로공간 비고 줄바꿈 폭발. **재OCR 해도
+안 고쳐짐.**
+
+**근본 원인 — 두 후처리 레이어가 서로 반대로 작동**:
+1. `contentParser.ts` `lightParseBlock` (§35): `equation_block` + `\begin{cases}` → 인라인
+   `equation` 으로 강등 (블록 흐름 위해). item.text 는 `…$\begin{cases}…$…` (인라인).
+2. `textPreprocess.ts` `preprocessMathText` 의 **승격 단계**: 인라인 `$…$` 안에 `MULTILINE_ENV`
+   (`cases|align|aligned|array|…`) 있으면 `$$…$$` display 로 *승격*. → **1 의 인라인 연립을
+   곧장 다시 display 블록으로 되돌림.** 이게 재OCR 로도 안 고쳐지던 진짜 이유.
+
+**해결**(`textPreprocess.ts`, 렌더 시점 — §35/Python/golden 무관):
+- `SYSTEM_ENV = /\\begin\{cases\}|\\left\\{|\\left\\lbrace/` 신설.
+- `inlineEquationSystems()` — display 연립식(`$$sys$$`)을 인라인(`$sys$`)으로 당기고,
+  문장 사이 `\n\n` 도 공백으로 합쳐 흐름 복원. 승격 단계 *직전* 에 호출.
+- 승격 조건에 `&& !SYSTEM_ENV.test(inner)` 추가 — 연립(cases/`\left\{`)은 인라인 유지,
+  align/aligned/gather 등 *진짜 display 환경* 은 그대로 승격(회귀 없음).
+- **렌더 시점 후처리라 *이미 파생된 item.text 도 재OCR 없이* 교정**. blocksToMarkdown
+  /wire/HWP 는 무영향(§35 golden 그대로).
+
+**원칙(§2-17 재확인)**: "인라인으로 만들었는데 화면은 블록" = *다른 레이어가 되돌리는지*
+의심. contentParser(파생) ↔ preprocessMathText(렌더) 가 같은 대상에 반대 변환을 하면
+사용자에겐 "안 고쳐짐" 으로만 보임. 새 math 정규화 추가 시 *양 레이어의 방향* 을 맞출 것.
+빠른 진단: `npx tsx` 로 `preprocessMathText("…$\\begin{cases}…$…")` 출력이 `$$` 로 바뀌는지 확인.
+
