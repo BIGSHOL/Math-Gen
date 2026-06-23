@@ -48,8 +48,8 @@ const TEMPLATE_OPTIONS: Array<{ value: PrintTemplate; label: string; hint: strin
 ];
 
 // 출력 대상 — 순서: 원본만 / 변형만 / 원본+변형. 원본만이 기본 (wizardStore
-// exportSource 기본값 "original"). 변형 기능 준비 중이라 변형만·원본+변형 은
-// 비활성 (사용자 결정 2026-06-04). 변형 출시 시 disabled 만 제거하면 복구.
+// exportSource 기본값 "original"). 2026-06-23 변형 기능 재오픈(§33) — disabled 해제.
+// (재비활성 필요 시 variant/both 에 `disabled: true, title: "변형 출력 준비 중"` 복구.)
 const EXPORT_SOURCE_OPTIONS: Array<{
   value: ExportSource;
   label: string;
@@ -58,8 +58,8 @@ const EXPORT_SOURCE_OPTIONS: Array<{
   title?: string;
 }> = [
   { value: "original", label: "원본만", icon: "scan" },
-  { value: "variant", label: "변형만", icon: "sparkle", disabled: true, title: "변형 출력 준비 중" },
-  { value: "both", label: "원본+변형", icon: "rows", disabled: true, title: "변형 출력 준비 중" },
+  { value: "variant", label: "변형만", icon: "sparkle" },
+  { value: "both", label: "원본+변형", icon: "rows" },
 ];
 
 /**
@@ -163,8 +163,8 @@ export const PrintOptionsPanel = ({
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* 1. 출력 대상 (사용자 결정 최우선). 현재 원본만 활성 — 변형 출력 준비 중. */}
-        <Section title="출력 대상" hint="원본만 (변형 준비 중)">
+        {/* 1. 출력 대상 (사용자 결정 최우선). 원본만 / 변형만 / 원본+변형. */}
+        <Section title="출력 대상" hint="원본 · 변형 · 둘 다">
           <Segmented<ExportSource>
             value={exportSource}
             onChange={onChangeExportSource}

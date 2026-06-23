@@ -16,7 +16,7 @@ const VARIANT_PREVIEW_COUNT = 5;
  * 변형 기능 본격 출시 시 *actionable 하게 재설계* 하며 true 로 (옵션 C). 데이터
  * (variant_history / loadVariantHistory) 는 그대로 쌓이므로 플래그만 켜면 복구.
  */
-const VARIANT_HISTORY_ENABLED = false;
+const VARIANT_HISTORY_ENABLED = true;
 
 export interface DetailMetaSidebarProps {
   test: TestPaper;
