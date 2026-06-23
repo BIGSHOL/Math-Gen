@@ -4603,3 +4603,127 @@ figure는 별도 필드) · `latex_to_hwpeq.py`(HWP 수식 전용, KaTeX 처리)
 ### 38-6. 보안 — npm 취약점 2건
 protobufjs(high)·dompurify(moderate) 신규 advisory(§34-6 "0건" 이후 회귀) → `npm audit fix`
 → 0 vulnerabilities. build 정상.
+
+---
+
+## 39. 2026-06-23 후속 — HWP 내보내기 마무리 + 파일명 자동입력
+
+§38 직후, *HWP 내보내기 = 모든 것의 기준* 정책(미리보기를 HWP 출력에 맞춤) 마무리 +
+정확 미리보기 제거 + 내보내기 피드백 + 파일명 자동입력. 다음 *Step5 내보내기 / 파일명 /
+HWP 미리보기* 작업 시 첫 번째로 읽을 섹션.
+
+### 39-0. 세션 커밋 (웹 + 엔진)
+
+| commit | repo | 내용 |
+|---|---|---|
+| `25d95a0` | 웹 | 시험지 정보 입력 UI + payload meta/style 확장 (plan Part A/B 마무리) |
+| `a75f9bf` | 웹 | 정통 미리보기를 HWP 출력에 맞춤 (번호+배점 인라인·compact 본문) |
+| `4310e3e` | 웹 | HWP 정확 미리보기 제거 → 안내 경고 + 내보내기 품질 피드백 |
+| `9164379` | 엔진(testchange) | connector 변환 1회 재시도 — 한글 COM 간헐 실패 회복 |
+| `6ebc25f` | 웹 | 파일명 자동 입력 + 내보내기 파일명 단일 소스화 |
+
+### 39-1. 미리보기를 HWP 출력에 맞춤 — *HWP 가 기준* (사용자 결정)
+
+두 레이아웃 엔진(웹 CSS vs HWP COM)이 근본적으로 달라 픽셀 일치는 불가. 사용자 결정:
+*HWP 가 기준, 미리보기를 HWP 에 맞춘다*. JeongtongTemplate 의 `toHwpPreview` 헬퍼가
+번호(볼드)+발문 *인라인* + `[배점]` 발문 끝으로 변환 — testchange writer 의
+`_write_question` 흐름과 동일. `ProblemBody` 에 `compact` prop(좁은 줄높이·보기 간격)
+추가. jeongtong gap 18→8, lineHeight 1.8→1.5.
+
+**단 도형은 미리보기/PDF 에서 그대로 렌더**(완성 시험지). HWP 는 도형을 못 그려 "그림
+자리" 가 되지만 그 차이는 §39-2 의 안내 경고로 커버. `compact` 기본 false 라 다른 5
+템플릿 무영향.
+
+**참고**: `src/components/print/templates/JeongtongTemplate.tsx` `toHwpPreview`,
+`ProblemBody.tsx` `compact`.
+
+### 39-2. HWP 정확 미리보기(온디맨드 COM PDF) — *만들었다가 제거* (사용자 결정)
+
+처음엔 "빠른 React 미리보기 + 온디맨드 HWP 정확 미리보기(실제 .hwpx 를 COM 으로 PDF
+렌더)" 하이브리드를 *완성·검증* 했으나, 사용자 통찰: *"렌더링하는거랑 다운로드하는거랑
+시간이 같으면 그냥 다운로드가 낫다(비용도 0)"*. 실제로 정확 미리보기는 COM 세션 2회라
+다운로드보다 *느리고* 읽기전용 → 가치 낮음. → **제거**.
+
+대신 HWP 내보내기 버튼 아래 **안내 경고**(`PrintActionPanel`): "쪽 나눔·간격이 미리보기와
+다를 수 있고, 도형은 한글에서 직접 붙여넣어야 함. PDF·인쇄는 미리보기와 동일."
+
+**엔진 리버트 (중요 — 미커밋 스캐폴딩은 HEAD 환원이 깔끔)**: `convert_cli.py --pdf` +
+`connector.py` 의 `want_pdf`/`?format=pdf`/`convert-pdf` capability/PDF content-type 는
+*working tree 에만 있고 커밋된 적 없음* → 해당 파일을 HEAD 로 되돌리니 net 변경 0.
+웹 `hwpConnector.ts` 의 `convertToHwpPdf` 도 미커밋이라 동일하게 환원. **단 connector 의
+1회 재시도 루프는 유지·커밋**(`9164379`) — 한글 COM SaveAs/Quit 간헐 실패(hwp_com.py:268)
+회복용. 각 시도마다 *이번 변환이 띄운 고아 Hwp.exe 만* 정리(기존 인스턴스 보존).
+
+**원칙**: "준비 중/폐기" 기능이 *아직 커밋 안 된 working-tree 변경* 이면, 부분 Edit 으로
+한 줄씩 지우지 말고 `git checkout -- <file>` 로 HEAD 환원이 가장 안전(§33 의 *커밋된*
+기능 플래그 게이팅과 구분). 검증: 커넥터 소스 재시작 후 `/health` 의 `capabilities` 가
+`["convert-json"]` (convert-pdf 빠짐) + `/convert-json` 실변환 200·유효 .hwpx(PK zip).
+
+### 39-3. 내보내기 품질 피드백 버튼 — content_feedback 재사용
+
+OCR(§Phase E)과 *동일* `content_feedback` 인프라로 내보내기 품질 👍/👎. `FeedbackBar`
+(재사용 컴포넌트, `!supabase||!user` 면 숨김)를 `PrintActionPanel` 액션 영역에 배치.
+`feedback.ts` `FeedbackTargetKind` 에 `"export"` 추가. `targetId = testId || filename ||
+"export"`, context `{ template, columns, problemCount }`. RLS `feedback_insert_own` 가
+`user_id = auth.uid()` 강제(비로그인 차단).
+
+**참고**: `src/components/print/PrintActionPanel.tsx`(FeedbackBar 배치),
+`src/services/api/feedback.ts`(export target kind).
+
+### 39-4. 파일명 자동 입력 + 내보내기 파일명 *단일 소스화* (CRITICAL — 사용자 보고)
+
+**증상**: 내보내기의 *파일명 칸* 이 기본값 "변형시험지" placeholder 인데, 실제 HWP
+다운로드는 *원본 업로드 파일명* 을 씀(`handleHWP` 가 `uploadedFileName` 우선) → **박스에
+보이는 이름 ≠ 실제 내보내는 이름**. 사용자: "파일명 자동 입력 + 그 파일명에 따라
+내보내기 파일명 결정되도록."
+
+**근본 구조 (조사 워크플로 확정)**:
+- `filename`(Step5 내보내기용, 기본값 `"변형시험지"`, `setExport` 로만 변경, partialize
+  포함=세션 유지)과 `uploadedFileName`(원본 PDF명, `setUploadedFile`, hydrate 시 복원)은
+  *별개 필드*. `setUploadedFile(filename)` 의 *인자명이 filename* 이지만 set 대상은
+  uploadedFileName — 혼동 주의.
+- **`hydrateFromTest`("이어서 작업"/보관함 직접)는 `WizardHydrateSnapshot` 에 filename 이
+  없어 항상 기본값으로 리셋**(`...initialState, ...snapshot` 스프레드). uploadedFileName 은
+  snapshot 에 있어 복원됨 → *자동입력 로직은 업로드 시점이 아니라 Step5 마운트에 둬야*
+  새 업로드·hydrate 두 경로 모두 커버.
+
+**해결 — 3 지점**:
+1. `wizardStore.ts` 에 `export const DEFAULT_EXPORT_FILENAME = "변형시험지"` 추출(자동입력
+   판별·폴백의 단일 기준; initialState 도 이 상수 사용).
+2. `Step5Export.tsx` 의 *기존 bundle.answers 시드 effect 에 합류* — `filename ===
+   DEFAULT_EXPORT_FILENAME` 일 때만 `uploadedFileName(.pdf 제거)` → `sourceTest?.title`
+   순으로 자동 입력. **seedRef + 빈 deps + 단일 setExport patch** 구조(§3-7 setState 루프
+   회피). 기본값 가드라 사용자가 고친 값은 절대 덮어쓰지 않음(persist 된 입력도 보존).
+3. `PrintActionPanel.tsx` `handleHWP` baseName 을 `filename || uploadedFileName(.pdf 제거)
+   || DEFAULT_EXPORT_FILENAME` 로 *재정렬*(filename 우선) → PDF 경로(이미 filename 기반)와
+   일치. 파일명 칸 = 내보내기 파일명의 단일 소스.
+
+**함정/원칙**:
+- `uploadedFileName` 은 *실제 파일명* 이라 이미 OS-legal → 자동입력 시점에 sanitize 불필요.
+  각 내보내기 경로가 download 시점에 `sanitizeFilename` 적용(이중 안전). 자동입력 값에
+  `pdfExporter`(jspdf 의존)를 static import 하면 번들 비용 → 안 함.
+- StrictMode 이중 마운트: seedRef 는 remount 마다 새 ref(false)지만, 첫 fill 후 filename
+  ≠ 기본값 → 두 번째 마운트 effect 가 *기본값 가드* 로 skip. ref+가드 이중 방어.
+- selector 는 단순 property access(`(s) => s.uploadedFileName`) — §3-6 inline-object 금지.
+
+**참고**: `src/stores/wizardStore.ts` `DEFAULT_EXPORT_FILENAME`,
+`src/components/wizard/Step5Export.tsx`(마운트 effect),
+`src/components/print/PrintActionPanel.tsx` `handleHWP`.
+
+### 39-5. Chrome MCP 자동검증 환경 제약 (2 함정 — 재발 방지)
+
+이번 세션 브라우저 검증에서 부딪힌 2 함정(메모 `browser-verification-tooling` 에도 기록):
+
+1. **연결된 Chrome 이 dev 머신과 *다른 호스트*** — 브라우저에서 `localhost`/
+   `127.0.0.1:3001` 은 *error page*(curl 은 200). dev 머신 **LAN IP**(`Get-NetIPAddress
+   -AddressFamily IPv4`, 예 `192.168.101.18:3001`)로 접속해야 함. + vite 는 기본 `localhost`
+   (::1, IPv6) 만 바인딩 → LAN 접근하려면 `npm run dev -- --port 3001 --strictPort --host
+   0.0.0.0`. 새 origin(LAN IP) 탭은 기존 로그인 세션 미공유(localStorage origin 별).
+2. **AuthGate 로그인 게이트** — Step5 등 인증 화면은 비밀번호 입력 불가(정책)라 자동검증
+   불가. 사용자 직접 로그인 필요. 안 되면 *tsc 0 + 부팅 콘솔 에러 0 + 로직 리뷰(기존
+   검증된 패턴과 동일 구조 확인)* 로 대체하고 시각 확인은 사용자 위임.
+
+**원칙**: 마법사 깊은 화면(내보내기 등) 자동 시각검증은 위 2 제약으로 종종 불가 →
+*tsc + 콘솔 부팅에러 0 + 기존 검증 패턴 대비 구조 동일성* 을 1차 게이트로, 실물은 사용자
+위임. 새 마운트 effect+setState 는 *기존 동작하는 effect 와 동일 구조인지* 가 렌더 루프
+없음의 강한 증거(§3-6/§3-7).

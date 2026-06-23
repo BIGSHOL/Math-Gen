@@ -1,4 +1,4 @@
-# AGENTS.md — mathg-gen 작업 지침서 (반복 실수 방지)
+# CLAUDE.md — mathg-gen 작업 지침서 (반복 실수 방지)
 
 이 문서는 mathg-gen 프로젝트에서 *실제로 부딪힌 함정과 해결책*을 모은 것이다.
 같은 실수를 두 번 하지 않기 위해, 새 작업 시작 전 관련 섹션을 반드시 읽고
@@ -1961,7 +1961,7 @@ LAN 접근 필요 시 `--host 0.0.0.0` 명시.
 
 **증상**: 같은 식 안에 분수 크기가 *들쭉날쭉*. 대분수 안 `\frac{2}{3}` 와 진분수
 `\frac{1}{2}` 가 다른 크기. `\displaystyle` prefix 가 *식 중간에 reset* 되거나
-*multi-path 누락* (AGENTS.md 2-17 패턴).
+*multi-path 누락* (CLAUDE.md 2-17 패턴).
 
 **기존 코드의 잘못된 가정**: mathlab 의 `\dfrac` → `\frac` *다운그레이드* 가
 "KaTeX fontdimen 부족" 우려로 박혔는데, **KaTeX 0.16.35 + 번들 woff2 폰트**
@@ -2007,7 +2007,7 @@ s = s.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
 합 = 847 인데 선택지에 없으므로 *조건을 재검토한다*" 거쳐 *처음부터 다시* "21 ×
 □의 ... 따라서 b ≤ 3 ... = 280" 까지 *오답 → 재해석 → 정답* 전 과정 그대로 노출.
 
-**근본 한계**: AGENTS.md 7-6 의 *금지 표현 카탈로그* 가 이미 있는데도 모델이
+**근본 한계**: CLAUDE.md 7-6 의 *금지 표현 카탈로그* 가 이미 있는데도 모델이
 *새로운 표현* 으로 우회. "조건을 재검토", "선택지에 없으므로", "그런데 ...
 이므로", "처음부터 다시" 등.
 
@@ -2027,7 +2027,7 @@ s = s.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
 
 **원칙**: 모델 출력 *형식 통제* 는 일반 룰보다 *(a) 금지 표현 카탈로그 + (b)
 사용자 실제 잘못된 출력 + (c) 올바른 압축 비교* 3 종 세트가 가장 효과적
-(AGENTS.md 7-5 패턴). 새 사용자 보고 → 카탈로그에 *즉시 추가*.
+(CLAUDE.md 7-5 패턴). 새 사용자 보고 → 카탈로그에 *즉시 추가*.
 
 ### 18-5. "서로 다른 N 개" 조건 위반 — Pattern J + runtime validator harness
 
@@ -2090,7 +2090,7 @@ return wrapped
 **원칙**: 모델 출력에서 *control char escape 사고* 는 자주 발생.
 `fixLatexEscaping` 이 *반대 방향* (`\t` → `\\t` 보호) 도 처리하므로 충돌 없게
 `sanitizeText` 의 *마지막 단계* 에서 literal → newline 변환. 추가로 사용자 보고
-시 sanitize 강화 패턴 (AGENTS.md 2-6 의 `fixLatexEscaping` 과 같은 패턴).
+시 sanitize 강화 패턴 (CLAUDE.md 2-6 의 `fixLatexEscaping` 과 같은 패턴).
 
 ### 18-7. 진행 가시성 — Step 2/3/4 일관 패턴
 
@@ -2536,7 +2536,7 @@ barrel. 단 *순환 import 위험* — barrel 이 sibling 을 import 하지 않�
 | `26c4b6f` | feat(wizard) | Phase I-1: wizardStore foundation (CropBox + Step 1.5 액션) |
 
 세션 결과물:
-- **로드맵 doc**: `C:\Users\user\.Codex\plans\logical-mapping-aho.md` (per-user plan 파일; G/H/I/J/K/L/M 전체 phase 전략)
+- **로드맵 doc**: `C:\Users\user\.claude\plans\logical-mapping-aho.md` (per-user plan 파일; G/H/I/J/K/L/M 전체 phase 전략)
 - **Phase G/H 완료** — Auth 가동 + Vercel async backend E2E 검증
 - **Phase I 시작** — I-1 (store foundation) 완료, I-2~9 남음
 
@@ -2668,7 +2668,7 @@ JS syntax. ... index.html:8:4`.
 **최우선 작업**: `src/hooks/useCropDetect.ts` 생성. ~140줄.
 
 **패턴**: `usePageOcr.ts` 와 동일 fan-out — `dispatched` Set membership 만으로
-cancel 신호 (AGENTS.md §1-6-b — AbortController 금지).
+cancel 신호 (CLAUDE.md §1-6-b — AbortController 금지).
 
 **골격** (plan agent 결과 발췌):
 
@@ -2909,7 +2909,7 @@ box 조회 실패 → `continue` → upgradedByNumber 비어있음 → 모든 it
 모두 45s 타임아웃. Fresh tab 로딩은 정상 (일회성).
 
 **의심 원인**: `vite.config.ts` 의 보안 조치 (`command === "serve"` 분기로
-AI key define 제거 — AGENTS.md §13 / task #69 참고). dev 빌드에서
+AI key define 제거 — CLAUDE.md §13 / task #69 참고). dev 빌드에서
 `VITE_OPENAI_API_KEY` / `VITE_GEMINI_API_KEY` 미노출 → SDK 가 *키 없이*
 fetch 시도 → 401 응답 또는 *별도 path* (SDK 내부의 키 검증 throw / 무한
 재시도 / response 파싱 hang?) 에서 main thread block.
@@ -2929,7 +2929,7 @@ fetch 시도 → 401 응답 또는 *별도 path* (SDK 내부의 키 검증 throw
 - **API 키 활성 환경에서 검증** — Vercel preview 배포 또는 dev 에 `VITE_*_API_KEY`
   명시. 그러면 SDK 가 정상 API call 하고 fail 안 함. 실제 cropped Pass 2
   동작 시간 / token 절감 측정.
-- **AGENTS.md §22-6 에 기록** — production 환경에서 검증 후 함정 확정 시
+- **CLAUDE.md §22-6 에 기록** — production 환경에서 검증 후 함정 확정 시
   여기 update.
 
 **원칙**: dev 환경의 *API 키 노출 정책* (vite define 제거) 으로 *AI 호출
@@ -2949,7 +2949,7 @@ Pass 2 의 핵심 매칭: *Pass 1 figureItems* (도형 검출된 item) ↔ *prob
   Phase K 에서 활용)
 - *OCR 결과의 한 item* = *한 문항* = `class="problem"` box 1 개. 1:1 매핑.
 
-**verified 필드는 사용 안 함** (AGENTS.md §I-1 — `verified` 는 후속 phase
+**verified 필드는 사용 안 함** (CLAUDE.md §I-1 — `verified` 는 후속 phase
 reserved). 페이지 단위 `cropInspected=true` 가 검수 완료 신호. *모든*
 class="problem" + `typeof number === "number"` 박스가 매칭 대상.
 
@@ -2990,7 +2990,7 @@ Profiler) — render count 가 비정상이면 selector / useMemo 보강.
 ### 24-10. 회귀 방지 checklist — fan-out hook 의 Pass N 화
 
 새 fan-out hook 도입 시 (Pass 3 / 별도 분석 단계 등):
-- [ ] `dispatched` Set membership 만 cancel 신호 (no AbortController — AGENTS.md §1-6-b)
+- [ ] `dispatched` Set membership 만 cancel 신호 (no AbortController — CLAUDE.md §1-6-b)
 - [ ] `pLimit(N)` 으로 concurrency 제한 — N 은 모델 RPM / TPM 한도 보수적으로
 - [ ] eligibility check 의 `!page.upgrading` (또는 동등) 으로 *self-skip 무한 dispatch* 방지
 - [ ] worker 내부 await 직후마다 `isCancelled(id)` 재체크
@@ -3102,7 +3102,7 @@ if (error) {
 
 ### 25-4. **백틱 함정 — prompts.ts 편집 시 *반복* 발견**
 
-AGENTS.md §4-6 의 백틱 함정. 이번 세션 *2 회* 발생:
+CLAUDE.md §4-6 의 백틱 함정. 이번 세션 *2 회* 발생:
 - 사례 A: `[단답형 N]` 처럼 backtick 안 한국어 본문에 외부 backtick 사용
 - 사례 B: ``\`<line>\``` 같은 escape backtick + 본문 backtick 혼용
 
@@ -3171,7 +3171,7 @@ DB 영구 저장. 새 AI 결과 필드 추가 시 §25-3 의 7-단계 checklist 
 
 **원칙**: 새 Vercel function (`api/*.ts`) 구현 시 *검증은 항상 Vercel preview*.
 사용자가 dev 환경에서 검증 시도하면 *반드시* 안내:
-> dev 환경 API 키 미노출 정책 (AGENTS.md §24-7). 검증은 `vercel deploy --yes`
+> dev 환경 API 키 미노출 정책 (CLAUDE.md §24-7). 검증은 `vercel deploy --yes`
 > 후 preview URL 에서.
 
 ### 25-10. **Plan mode 의 Phase 5-스텝 워크플로우** — Plan agent 활용
@@ -3281,7 +3281,7 @@ CROP_DETECT_PROMPT 의 *서술형 4* 케이스 인용:
   bottom 끌어올림.**
 
 원칙: 사용자 보고 *실제 케이스* 를 prompt 에 그대로 인용하는 게 일반 룰보다 효과적
-(AGENTS.md §7-5 패턴 재확인).
+(CLAUDE.md §7-5 패턴 재확인).
 
 ### 26-5. 변경 파일 정리 + 다음 세션 sequence
 
@@ -3312,7 +3312,7 @@ content 통째로 한 박스에 감싸기 때문에 4 글자가 한 박스로 �
 **원인**: 모델이 *시각적 분리* (박스 사이 내부 border) 를 인지 못하고 일반적인
 `\boxed{}` 표기로 합침. Korean 교과서의 *칸당 1 글자* 표기 관행 미숙지.
 
-**이중 방어선 (AGENTS.md §7-5 패턴)**:
+**이중 방어선 (CLAUDE.md §7-5 패턴)**:
 
 **(1) OCR_PAGE_PROMPT 4d-2 룰** (`src/services/ai/prompts.ts`):
 ```
@@ -3363,7 +3363,7 @@ const splitMultiLetterBoxed = (math: string): string =>
 //   8. injectDisplayStyle
 ```
 
-**원칙 — 시각 패턴 분리는 prompt + runtime 이중 방어선** (AGENTS.md §2-17, §16-1
+**원칙 — 시각 패턴 분리는 prompt + runtime 이중 방어선** (CLAUDE.md §2-17, §16-1
 패턴과 동일):
 - prompt 만 → 모델 컨디션 변동으로 leak 가능
 - runtime 만 → false positive 위험 (보수적 휴리스틱 필요)
@@ -3386,7 +3386,7 @@ const splitMultiLetterBoxed = (math: string): string =>
 | `src/hooks/useCropDetect.ts` | model.class whitelist | artwork |
 | `src/services/ai/prompts.ts` | OCR_PAGE_PROMPT Tier 4 + 4d-2 | 손글씨 + 인접 박스 |
 | `src/lib/textPreprocess.ts` | splitMultiLetterBoxed harness | 인접 박스 (runtime) |
-| `AGENTS.md` | §26 카탈로그 8 sub-section | 문서화 |
+| `CLAUDE.md` | §26 카탈로그 8 sub-section | 문서화 |
 
 DB schema 변경 0. 옛 row 모두 backward compatible.
 
@@ -3488,7 +3488,7 @@ Vercel Pro ($20/월, 300s timeout) 필요.
   - complex 문항 없으면 즉시 return (no-op)
   - GPT-5.5 Responses API 호출 (`gpt-5.5-pro`, `max_output_tokens: 8192`,
     `reasoning: { effort: "low" }`)
-  - output_text fallback 패턴 (AGENTS.md §1-3)
+  - output_text fallback 패턴 (CLAUDE.md §1-3)
   - JSON parse → number 기준 merge (개별 교체)
   - column-aware padding 재적용
   - catch (AbortError 제외) → initialResults fallback
@@ -3643,7 +3643,7 @@ Tier 1 측정 후 사용자 보고:
 |---|---|---|---|
 | 1 | `fbaa3dc` | artwork class + 손글씨 폰트 방어 | CropBox.class 4-way, OCR_PAGE_PROMPT Tier 4 강화, cropDetect schema/prompt |
 | 2 | `eba282f` | 인접 박스 prompt 룰 | OCR_PAGE_PROMPT 4d-2 룰 (`\boxed{ABCD}` → 칸당 분리) |
-| 3 | `25d2cc1` | runtime auto-split harness | `splitMultiLetterBoxed` 자동 분리 + AGENTS.md §26-6~8 |
+| 3 | `25d2cc1` | runtime auto-split harness | `splitMultiLetterBoxed` 자동 분리 + CLAUDE.md §26-6~8 |
 | 4 | `e0f9671` | GPT-5.5 complexity routing | DetectedCrop.complexity + `refineCropBoxesWithGpt55` + §27 |
 | 5 | `dc12ac4` | UI 3 fixes | DALL-E 비용 표시 제거 + 박스크기 px + [그림N] inline 이미지 |
 | 6 | `4c2eaf7` | 이미지 전처리 + §28 | `imagePreprocess.ts` (removeColorInk + contrast + 2x) + 인식률 카탈로그 |
@@ -3680,7 +3680,7 @@ Tier 1 측정 후 사용자 보고:
 | 박스크기 표시 | "% 말고 픽셀 크기" | 직접 보고 |
 | 인식률 Tier 1 | "전체 다 적용" (4 방법 모두) | AskUserQuestion 3차 |
 | 인식률 Tier 2 | "Sonnet 전환 + ensemble" (측정 후) | AskUserQuestion 3차 |
-| AGENTS.md 문서화 | "§28 으로 추가" (장기 보존) | AskUserQuestion 3차 |
+| CLAUDE.md 문서화 | "§28 으로 추가" (장기 보존) | AskUserQuestion 3차 |
 
 ### 29-4. 다음 세션 시작 시 추천 sequence
 
@@ -3752,7 +3752,7 @@ npm run dev -- --port 3001 --strictPort
 
 한 페이지에 5-7 문항이면 schema 출력이 ~1500 토큰. 그러나 `cropDetect.ts` 의 `maxOutputTokens: 8192` 가 prompt + reasoning 토큰까지 포함이라 부족. → 응답 잘림 → invalid JSON → `parseJsonOrThrow` throw → friendly 변환 → UI "처리 실패".
 
-**해결**: callGemini 와 동일한 `maxOutputTokens: 65536` + `finishReason === "MAX_TOKENS"` 명시적 처리 (AGENTS.md §1-2 의 OCR 적용 패턴을 cropDetect 에도 동일하게):
+**해결**: callGemini 와 동일한 `maxOutputTokens: 65536` + `finishReason === "MAX_TOKENS"` 명시적 처리 (CLAUDE.md §1-2 의 OCR 적용 패턴을 cropDetect 에도 동일하게):
 
 ```ts
 const finishReason = (response as { candidates?: Array<{ finishReason?: string }> })
@@ -3848,13 +3848,13 @@ prod 에서 fan-out hook 의 *진짜 에러 메시지* 가 console 에 *전혀* 
 
 **원칙**: prod 빌드의 console.warn 모든 strip 정책이 *디버깅 가치* 와 충돌. fan-out hook 의 catch 에서 *익명·짧은* warn 은 prod 에도 emit 하는 게 합리적. 새 fan-out hook 추가 시 *처음부터* prod-safe warn 패턴 사용.
 
-### 30-4. ocr_feedback 테이블 미마이그레이션 — 404 noise 함정 (AGENTS.md §25-2 적용)
+### 30-4. ocr_feedback 테이블 미마이그레이션 — 404 noise 함정 (CLAUDE.md §25-2 적용)
 
 **증상**: 콘솔에 `GET .../rest/v1/ocr_feedback?... 404 (Not Found)` 가 *문항당 1 회씩* 폭주. PostgREST 의 404 는 *테이블 자체가 schema cache 에 없음* 의미 (Phase #6 의 ocr_feedback 테이블이 production Supabase 에 ALTER TABLE / CREATE TABLE 마이그레이션 안 됨).
 
 **Root cause**: schema.sql L321-388 의 `CREATE TABLE IF NOT EXISTS ocr_feedback` 가 *코드는 commit 됐지만* 사용자가 Supabase SQL editor 에서 실행 안 함. 클라이언트 코드는 *테이블 존재 가정* 으로 fetch → 404.
 
-**해결** (AGENTS.md §25-2 graceful fallback 패턴 적용):
+**해결** (CLAUDE.md §25-2 graceful fallback 패턴 적용):
 
 ```ts
 const TABLE_MISSING_RE = /(PGRST20[45]|schema cache|relation .* does not exist|404)/i;
@@ -3917,13 +3917,13 @@ const warnSchemaMigration = (): void => {
 | §30-3 prod console.warn strip | (없음 — 신규 함정) | DEV-only 로깅의 prod 진단 부재 |
 | §30-4 ocr_feedback 404 | §25-2 PGRST204 컬럼 fallback | 컬럼 → 테이블 단위 확장 |
 
-**일반 원칙**: 함정 카탈로그 (AGENTS.md) 의 *원형* 을 따라가되, *호출 경로 / layer / 단위가 다르면* 동일 함정이 *다른 옷* 입고 재발. 새 코드 추가 시 *체크리스트 형태* 로 모든 비슷한 path 검토:
+**일반 원칙**: 함정 카탈로그 (CLAUDE.md) 의 *원형* 을 따라가되, *호출 경로 / layer / 단위가 다르면* 동일 함정이 *다른 옷* 입고 재발. 새 코드 추가 시 *체크리스트 형태* 로 모든 비슷한 path 검토:
 - AI 호출 추가 → §1-2 MAX_TOKENS 처리 + maxOutputTokens 검증
 - 새 Supabase 테이블 → §25-2 graceful fallback 동시 적용
 - 친구 메시지 변환 → 자체 한국어는 무조건 통과
 - prod 빌드 사용자 보고 → 우선 dev 재현 안내
 
-§30 의 4 함정은 *모두* 이미 알려진 패턴이었지만 새 path 에서 미적용. 새 PR 시 *AGENTS.md 의 모든 §* 를 *전수 검색* 하는 도구·습관이 필요. 사용자 보고 → 즉시 grep 으로 *비슷한 함정* 카탈로그 매치.
+§30 의 4 함정은 *모두* 이미 알려진 패턴이었지만 새 path 에서 미적용. 새 PR 시 *CLAUDE.md 의 모든 §* 를 *전수 검색* 하는 도구·습관이 필요. 사용자 보고 → 즉시 grep 으로 *비슷한 함정* 카탈로그 매치.
 
 ---
 
@@ -4173,6 +4173,12 @@ tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
 
 ## 33. 변형(Variant) 기능 비활성 + 부활 조건 (2026-06-04 세션)
 
+> **⚠️ 상태 갱신 (2026-06-23): §33-1·§33-2 재오픈됨.** 사용자 요청으로 변형 출력 옵션
+> (변형만/원본+변형, `EXPORT_SOURCE_OPTIONS` disabled 제거)과 변형 이력
+> (`VARIANT_HISTORY_ENABLED = true`)을 다시 켰다. 생성 파이프라인은 §33대로 계속 intact.
+> *재비활성* 필요 시 아래 플래그 복구. 단 §33-2의 비활성 사유(읽기전용 카드·digitize 노이즈)는
+> 미해소 상태 — actionable 재설계는 후속. 자세한 내용 §38.
+
 변형 생성·출력의 품질/완성도가 아직 미달이라 사용자 결정으로 *내보내기 출력 대상*
 과 *변형 이력 UI* 를 비활성화. **데이터 레이어 (variant_history 적재, 변형 생성
 파이프라인 Step3/4) 는 그대로 유지** — 아래 플래그/코드만 되돌리면 복구된다.
@@ -4236,3 +4242,488 @@ tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
 **원칙**: "준비 중" 기능은 *삭제하지 말고 플래그 게이팅* — 데이터/스캐폴드 보존 +
 한 줄로 복구. 단 부활 시 *왜 껐었는지* (위 사유) 를 먼저 해소했는지 확인.
 
+## 34. 보안 검수 패치 기준선 (2026-06-09, commit `4fa6722`)
+
+이번 섹션은 과거 메모 중 `api/export-pdf.ts deps missing`, `tsc exit 0 (api/export-pdf 제외)`,
+브라우저 직접 AI 호출 전제, 개발 라우트 운영 노출 전제를 **대체**한다. 이후 검수는 아래
+상태를 기준으로 진행한다.
+
+### 34-1. Vite env 로딩: `loadEnv(..., "")` 금지
+
+`vite.config.ts` 에서 Vite `loadEnv(mode, cwd, "")` 를 쓰면 shell/Vercel env 전체가
+resolved config 로 들어가고, `vite --debug` 계열 로그에 provider key 또는 Supabase
+service-role key 가 찍힐 수 있다.
+
+현재 기준:
+- shell env 는 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+  `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_ENABLED` 만 읽는다.
+- `.env.example` placeholder 는 fallback 에만 쓰고, placeholder 값은 strip 한다.
+- production build 에서는 AI provider key define 을 주입하지 않는다.
+- Supabase anon key 는 공개 가능하지만 service-role key 는 절대 `VITE_*` 로 두지 않는다.
+
+운영 조치: 2026-06-09 검수 중 과거 build debug 로그에 실제 키가 출력된 정황이 있었으므로
+provider key 와 Supabase service-role key 는 배포 전에 회전한다.
+
+### 34-2. 비용 API 는 `requireAuth` 를 통과해야 한다
+
+`api/_jwt.ts` 의 `requireAuth(req, res)` 가 `resolveAuth` 결과에 `userId` 가 없으면
+401 을 반환한다. 비용이 발생하는 서버 함수는 익명 호출을 허용하지 않는다.
+
+현재 적용 대상:
+- `api/ai-ocr.ts`
+- `api/ai-solution.ts`
+- `api/ai-variant.ts`
+- `api/ai-cropdetect.ts`
+- `api/ai-exam-analysis.ts`
+- `api/ai-exam-commentary.ts`
+- `api/ai-exam-v4.ts`
+- `api/ai-image.ts`
+- `api/export-pdf.ts`
+
+새 AI/PDF endpoint 를 추가하면 `resolveAuth` 만 호출하지 말고 `requireAuth` 를 먼저 적용한다.
+
+### 34-3. 개발 라우트는 운영에서 닫혀 있어야 한다
+
+`?bench`, `?croptest`, `?katex`, `?legacy`, `?ui` 는 개발/검증 도구다. 특히 `?bench`,
+`?croptest` 는 AI 비용이 발생할 수 있으므로 production 에서 기본 차단한다.
+
+현재 기준:
+- `import.meta.env.DEV` 또는 `VITE_ENABLE_DEV_TOOLS=true` 일 때만 dev tool route 허용.
+- `admin` 포함 모든 route 는 `AuthGate` 뒤에서 렌더링한다.
+- `AdminScreen` 은 `AuthGate` 초기화 없이 직접 열리지 않는다.
+
+### 34-4. `/api/export-pdf` 보안 경계
+
+서버 PDF endpoint 는 더 이상 미설치/미검증 상태가 아니다. `@sparticuz/chromium-min`
+`149.0.0` 과 `puppeteer-core` 가 package dependency 에 추가되어 있고, Chromium pack URL 도
+`v149.0.0` 으로 맞춰져 있다.
+
+현재 방어선:
+- POST only
+- `requireAuth` 필수
+- HTML 최대 길이 제한
+- CSS URL 개수 제한
+- same-origin `.css` 만 `<link>` 로 주입
+- Puppeteer request interception 으로 `about:blank`, `data:`, `blob:`, same-origin
+  document/stylesheet/font/image 만 허용
+- title / Content-Disposition filename sanitize
+- error log 는 인증된 `userId`, `tenantId` 기준으로 기록
+
+프론트 호출부(`PrintActionPanel`)는 서버 PDF 호출 시 `currentAccessToken()` 으로 Bearer
+토큰을 붙인다. 버튼은 아직 UX 상 비활성 상태지만, 재활성화할 때 인증 헤더 경로를 유지한다.
+
+### 34-5. `expr-eval` 제거 및 audit 기준
+
+`expr-eval@2.0.2` 는 prototype pollution / evaluate function 제한 문제 advisory 가 있고
+공식 fix 가 없어 제거했다. `src/lib/diagram/eval-expr.ts` 는 제한된 수식 파서로 대체했다.
+
+지원 범위:
+- 숫자, `x`, `pi`/`PI`, `e`/`E`
+- `+ - * / % ^`, 괄호, 암시적 곱셈(`2x`, `2(x+1)`)
+- 허용된 Math 함수: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`,
+  `abs`, `log`, `ln`, `log2`, `log10`, `exp`, `ceil`, `floor`, `round`, `min`, `max`, `pow`
+
+`jspdf` 는 `^4.2.1` 로 올렸고 `dompurify` advisory 도 함께 해소했다.
+
+### 34-6. 2차 검증 명령
+
+2026-06-09 2차 검증에서 아래를 모두 통과하고 `origin/main` 에 push 했다.
+
+```bash
+npx.cmd tsc --noEmit --pretty false
+npm.cmd audit --omit=dev
+npm.cmd run build
+```
+
+결과:
+- TypeScript: exit 0
+- npm audit: `found 0 vulnerabilities`
+- production build: exit 0
+- dist secret scan: `sk-ant=0`, `sk-proj=0`, `AIza=0`, `SUPABASE_SERVICE_ROLE=0`,
+  `long-sk-token=0`
+
+남은 경고:
+- Anthropic SDK 의 Node built-in externalization warning 이 production build 에 남아 있다.
+- main chunk / `pdfExporter` chunk 가 500 kB 를 넘는다.
+
+둘 다 현재 실패 조건은 아니지만, 다음 성능/번들 최적화 작업의 우선 후보로 둔다.
+
+---
+
+## 35. content_parser 정규화 웹 이식 — 미리보기 HWP 일치 (2026-06-21, 커밋 `543b827`)
+
+옵션 B(네이티브 typed-block) 에서 **웹 미리보기가 HWP 출력과 달랐던 근본 원인**과 그
+해결(testchange `content_parser.py` 의 display-영향 정규화를 TS 로 이식)을 정리한다. 다음
+*OCR 블록 정규화 / 웹↔HWP 일치* 작업 시 첫 번째로 읽을 섹션.
+
+### 35-1. 근본 원인 — 커넥터는 content_parser 재실행, 웹은 직렬화만 (CRITICAL)
+
+HWP 커넥터(`F:\시험지변환기\server\adapter.py` `_adapt_native_problem`)는 Math-Gen 네이티브
+블록을 **그대로** `parse_ocr_response → _parse_question → _finalize_contents` 에 넘긴다 →
+.hwp 출력은 content_parser **전체 파이프라인을 거쳐 정규화**됨. 반면 웹은
+`blocksToMarkdown` 으로 블록을 **직렬화만** 해 그 정규화를 못 받았다.
+
+→ 같은 네이티브 블록인데 **HWP = 정규화됨 / 웹 = 정규화 안 됨** → 발산. 사용자 보고 증상:
+- `eq("x")+text("=")+eq("-2y+3")` 가 `$x$=$-2y+3$` (KaTeX 3 조각 + 평문 `=`) 로 렌더
+- 멀티블록 보기 박스(`<보기>` text + equation + `ㄴ.` text…)가 **마커 블록만 박스화**되고
+  나머지 항목 유출 = "박스 미완"
+
+**원칙**: 웹↔HWP 일치 문제는 *어느 쪽이 어떤 후처리를 하는가* 를 먼저 확인. 커넥터가
+content_parser 를 재실행한다는 사실이 핵심 — 웹도 *같은 정규화* 를 거쳐야 일치한다.
+
+### 35-2. 이식 범위 — display-영향 + 웹 미보유만 (`contentParser.ts` 신규)
+
+`src/services/ai/contentParser.ts` (≈930줄). testchange content_parser 중 **display 영향 +
+웹이 아직 안 하던** 변환만 이식:
+
+- **`_finalize_contents` 값 변환 체인 15 단계 (순서 보존 CRITICAL)**: splitTrailingDomain →
+  splitCommaEquations → mergeOperatorSplitEquations → mergeTextEqFragments →
+  mergeEmptyGroupSubscript → mergeDegreeTempUnits → mergeParenRange → stripScoreText →
+  italicizeStatOperators → romanizePointNames → italicizeNongeoSingleLetters →
+  romanizeAngleLetters → romanizeContextUnits → spaceHangulBeforeEq → rstripLastText.
+  (Python `_finalize_contents` 는 **16 단계** — spaceHangulBeforeEq↔rstripLastText 사이에
+  `_emphasize_negation`(부정문 "옳지 않은 것" 볼드+밑줄 플래그)이 더 있으나, web 렌더가
+  bold/underline 플래그를 미사용해 **의도적 제외**(15 단계 이식). 유지 15 단계의 *상대 순서*
+  는 Python 과 100% 일치. golden 25/25 로 검증된 결정.)
+- **박스경계**: `rawBoxEnd` / `trailingQuestionSplit` / `dropDuplicateBoxFragments` +
+  `tagBoxRun`(box_member 태깅).
+- **`_parse_choice` 선택지 체인**(다른 순서/부분집합 + `force_geo` 전파) — `normalizeChoice`.
+- **경량 per-block**(`lightParseBlock`): 선두 박스 마커 분리(`_split_box_marker_prefix`) +
+  box circles(ㅇ→○) + cases 강등(equation_block + `\begin{cases}` → equation).
+
+**forward-split 은 의도적 제외**(`_split_inline_latex`/`_split_latex_commands`/
+`_split_mixed_text_equation`/`_split_underline_markup`) — markdown→블록 *역방향* 파싱으로,
+Math-Gen OCR 모델이 이미 typed-block 으로 분리 emit(OCR_PAGE_PROMPT 규칙 1)하므로 불필요.
+feasibility 의 "essential port set" 밖. 모델이 *계약 위반*(text 블록에 수식 혼입) 시에만
+web↔HWP 미세 차이 — 드물고, 그땐 커넥터가 HWP 쪽만 forward-split. 필요 시 golden 하니스로
+안전하게 추가 이식 가능.
+
+### 35-3. 통합 지점 — `blocksToMarkdown` 내부, wire 는 네이티브 (이중정규화 0)
+
+`blocksToMarkdown`(src/lib/blocksToMarkdown.ts) 이 *파생 시점에* `normalizeContents` 적용.
+**저장 `OCRProblem.blocks` 와 wire payload 는 네이티브 그대로** — 커넥터가 단독으로
+content_parser 를 재실행하므로(35-1), 웹에서도 정규화한 블록을 wire 에 실으면 **이중정규화**
+(web 선정규화 → 커넥터 재정규화). 대부분 idempotent 라 정확성은 안 깨지나 비-idempotent
+변환 drift 위험. → **변환은 wire 경계의 *웹 렌더 쪽에만*** 둔다.
+
+선택지 `force_geo` = 본문(정규화 후) 기하 문맥 → `hasGeometryContext(norm)` 산출해 전달
+(`_parse_question` 의 `q_geo = _has_geometry_context(question.contents)` 미러, 대륜중 #1 점
+좌표 선택지 로만+이탤릭).
+
+### 35-4. box_member 그룹핑 — 멀티블록 박스 미완 fix + web-only 편차
+
+`blocksToMarkdown` 이 연속 `boxMember` 블록을 **한 blockquote 로 그룹핑**(인라인 직렬화 후
+`boxToBlockquote`) → 멀티블록 박스 항목 유출("박스 미완") 차단.
+
+testchange `_parse_question` 은 box_member 를 *box_end≠null 일 때만* 태깅(HWP writer 가
+`<보기>` 마커로 박스 식별, box_member 는 발문 연속 제외용). 그러나 웹은 box_member run 으로
+박스를 *그룹핑* 하므로, `normalizeContents` 는 **box_end===null 케이스(박스가 끝까지
+이어지는 멀티블록)도 `tagBoxRun`** 한다 — 안 그러면 항목 유출. **box_member 는 웹 전용**
+(wire 무관, 커넥터가 자체 계산)이라 이 편차는 안전.
+
+### 35-5. golden-file 하니스 — Python 원본 vs TS 포팅본 byte 동치 (회귀 방지)
+
+`scripts/contentParserGolden*` — 이식본이 testchange content_parser 와 *블록 byte 동치* 인지
+검증. **API 비용 0 순수 로직 테스트**.
+
+- `contentParserGolden.fixtures.json` — 25 픽스처(각 변환 + 상호작용 + 박스경계 + choice).
+- `contentParserGolden.baseline.json` — Python content_parser 출력(**커밋됨 = golden truth**).
+- `contentParserGolden.py` — baseline 재생성기(testchange 필요, `TESTCHANGE_DIR` 환경변수
+  기본 `F:\시험지변환기`).
+- `contentParserGoldenHarness.mts` — TS 포팅본 실행 후 baseline 대조(**testchange 불필요**,
+  커밋된 baseline 과 standalone 비교).
+
+```bash
+# 회귀 확인 (어느 컴퓨터든, mathgen repo 만):
+npx tsx scripts/contentParserGoldenHarness.mts          # 25/25 기대, 실패 시 exit 1
+# baseline 재생성 (이식본/원본 변경 시, testchange 체크아웃 필요):
+set TESTCHANGE_DIR=...path\to\시험지변환기 && python scripts/contentParserGolden.py
+```
+
+비교는 **type/value 만**(box_member 제외 — 35-4 의 web-only 편차). 새 변환/픽스처 추가 시
+baseline 재생성 후 두 파일 함께 커밋.
+
+### 35-6. Python `re` → JS RegExp 포팅 함정
+
+- **g-flag stateful (CRITICAL)**: g 정규식의 `.test()`/`.exec()` 는 `lastIndex` 가 누적돼
+  반복 호출 시 버그. `INNER_LABEL_ANY_RE`(test 용, no-g) 와 `INNER_LABEL_ANY_G`(matchAll 용,
+  g) 로 **분리**. `.replace(re, ...)` 만 쓰는 정규식은 g 안전.
+- **named group**: Python `(?P<body>…)` → JS `(?<body>…)`, `m.groups?.body`.
+- **DOTALL**: Python `re.DOTALL` → JS `s` 플래그.
+- **lookbehind**: JS V8 지원(`(?<![A-Za-z\\{])`). 가변길이도 V8 OK.
+- **str 메서드**: Python `.strip()/.rstrip()/.lstrip()` → JS `.trim()` + `rstrip`/`lstrip`
+  헬퍼(`/\s+$/u`, `/^\s+/u`). `re.match`(앵커 start) → 패턴에 `^` 명시 + `.test()`/`.exec()`.
+- **lightParseBlock 은 NBlock[] 반환**(마커 분리로 1~2 블록) → 호출부 `.flatMap`(`.map` 쓰면
+  NBlock[][] 중첩 → `type:null` 버그).
+
+### 35-7. 회귀 방지 체크리스트 (content_parser 정규화 수정 시)
+
+- [ ] `npx tsx scripts/contentParserGoldenHarness.mts` → 25/25 (실패면 발산 — 픽스처가
+  잡아낸 것).
+- [ ] 새 변환 추가 시: 픽스처에 케이스 추가 → `python scripts/contentParserGolden.py` 로
+  baseline 재생성 → fixtures + baseline 함께 커밋.
+- [ ] `_finalize_contents` 순서(35-2) 변경 금지 — 단계 간 의존(예: stripScoreText 가
+  기하 판정 *앞* — "점"(배점) vs "점"(point) 충돌).
+- [ ] wire payload·저장 블록은 네이티브 유지(35-3) — 정규화는 `blocksToMarkdown` 안에서만.
+- [ ] `npx tsc --noEmit` exit 0 + 브라우저 콘솔 에러 0(순환 import 없음 — contentParser 는
+  ocrBlocks 타입만 import).
+
+---
+
+## 36. HWP 도우미(.exe) 릴리스 — 웹 URL 자동 동기화 (2026-06-22)
+
+한글-only PC 배포용 트레이 도우미(memory `hwp-export-com-only`)의 릴리스·업데이트 런북.
+웹앱 다운로드 버튼이 **버전 무관 `latest` URL** 을 쓰므로, 새 버전을 *latest 로* 올리면
+**웹 코드 수정·재배포 없이 자동 반영**된다.
+
+### 36-1. 불변 규약 (어기면 자동 동기화 깨짐 — CRITICAL)
+- **에셋 파일명은 항상 `MathGenHWP.zip`** — `latest/download/MathGenHWP.zip` 가 *파일명* 으로 해석.
+- 새 릴리스는 **반드시 latest** (`gh release create` 기본값 = latest; `--latest=false` 금지).
+- 웹 URL 상수 `HWP_AGENT_DOWNLOAD_URL` (`src/components/print/PrintActionPanel.tsx`) =
+  `https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip` — **수정 불필요**.
+- 릴리스 repo 는 **BIGSHOL/Math-Gen (public)**. Math-Gen 은 GitHub 릴리스를 *앱* 배포에 안 씀
+  (Vercel) → latest = 항상 도우미라 안전. *만약 앱 릴리스를 도입하면* latest 충돌 → 그땐
+  도우미를 별도 public repo 또는 고정 태그(`hwp-agent`)로 분리할 것.
+
+### 36-2. 새 버전 릴리스 절차 (엔진 `D:\시험지 한글화`)
+1. 소스 수정(`agent.py` / `server/connector.py` 등) → testchange(**BIGSHOL**, `git push testchange master`) 커밋. (origin 은 soseon203 — 권한 없음, push 금지.)
+2. 빌드: `python -m PyInstaller agent.spec --noconfirm --clean --distpath dist_agent --workpath build_agent`
+   (`pyinstaller`·`pystray`·`pillow`·`pywin32` 필요. agent.spec 은 변환경로만 — GUI/OCR/figure 제외 → 39MB.)
+3. 안내문 갱신 시 `dist_agent/MathGenHWP/사용안내.txt` 수정.
+4. 압축(이름 **고정**): `Compress-Archive -Path dist_agent/MathGenHWP -DestinationPath dist_agent/MathGenHWP.zip -Force`
+5. 릴리스(새 태그, latest 기본):
+   `gh release create hwp-agent-vX.Y.Z dist_agent/MathGenHWP.zip --repo BIGSHOL/Math-Gen --title "..." --notes-file ...`
+   → 자동 latest → 웹 URL 자동 반영. **웹 코드/재배포 불필요.**
+   (또는 같은 태그 자산만 교체: `gh release upload <tag> dist_agent/MathGenHWP.zip --clobber`.)
+6. 검증: `curl -I https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip` → `302` + Location 이 새 태그.
+
+### 36-3. 핵심 동작 (재현/디버그)
+- 도우미: PyInstaller **onedir** 트레이 앱. 커넥터(8765) 백그라운드 데몬 스레드 + 부팅 자동시작
+  (HKCU `…\Run\MathGenHWP`) + 변환은 자기 자신을 `--convert-worker` 로 재호출(COM 격리;
+  connector 가 `getattr(sys,"frozen")` 분기, payload 는 `--in` 파일 — windowed exe stdin None 회피).
+- 웹: 커넥터 미감지(`detectConnector()` null) 시 throw 대신 `connectorMissing` → 다운로드 카드.
+  **카드는 도우미가 *실행 안 될 때만* 노출** — 실행 중이면 안 보임(정상). 프로덕션(HTTPS)에선
+  커넥터의 CORS allowlist(`https://mathgen.para-x.co.kr`) + PNA 헤더가 있어야 감지됨(memory 참고).
+- 서명 없음 → SmartScreen "추가 정보→실행" (사용안내.txt + 릴리스 노트에 명시). 코드서명은 보류.
+
+---
+
+## 37. 연립방정식 인라인 — 두 레이어 충돌 함정 (2026-06-22, CRITICAL)
+
+**증상**(사용자 반복 보고): 발문 중간 연립방정식이 *가운데정렬 display 블록*으로 떠
+"멘트 / 식 / 멘트 / 식" 으로 세로 토막남. 우측 가로공간 비고 줄바꿈 폭발. **재OCR 해도
+안 고쳐짐.**
+
+**근본 원인 — 두 후처리 레이어가 서로 반대로 작동**:
+1. `contentParser.ts` `lightParseBlock` (§35): `equation_block` + `\begin{cases}` → 인라인
+   `equation` 으로 강등 (블록 흐름 위해). item.text 는 `…$\begin{cases}…$…` (인라인).
+2. `textPreprocess.ts` `preprocessMathText` 의 **승격 단계**: 인라인 `$…$` 안에 `MULTILINE_ENV`
+   (`cases|align|aligned|array|…`) 있으면 `$$…$$` display 로 *승격*. → **1 의 인라인 연립을
+   곧장 다시 display 블록으로 되돌림.** 이게 재OCR 로도 안 고쳐지던 진짜 이유.
+
+**해결**(`textPreprocess.ts`, 렌더 시점 — §35/Python/golden 무관):
+- `SYSTEM_ENV = /\\begin\{cases\}|\\left\\{|\\left\\lbrace/` 신설.
+- `inlineEquationSystems()` — display 연립식(`$$sys$$`)을 인라인(`$sys$`)으로 당기고,
+  문장 사이 `\n\n` 도 공백으로 합쳐 흐름 복원. 승격 단계 *직전* 에 호출.
+- 승격 조건에 `&& !SYSTEM_ENV.test(inner)` 추가 — 연립(cases/`\left\{`)은 인라인 유지,
+  align/aligned/gather 등 *진짜 display 환경* 은 그대로 승격(회귀 없음).
+- **렌더 시점 후처리라 *이미 파생된 item.text 도 재OCR 없이* 교정**. blocksToMarkdown
+  /wire/HWP 는 무영향(§35 golden 그대로).
+
+**원칙(§2-17 재확인)**: "인라인으로 만들었는데 화면은 블록" = *다른 레이어가 되돌리는지*
+의심. contentParser(파생) ↔ preprocessMathText(렌더) 가 같은 대상에 반대 변환을 하면
+사용자에겐 "안 고쳐짐" 으로만 보임. 새 math 정규화 추가 시 *양 레이어의 방향* 을 맞출 것.
+빠른 진단: `npx tsx` 로 `preprocessMathText("…$\\begin{cases}…$…")` 출력이 `$$` 로 바뀌는지 확인.
+
+
+---
+
+## 38. 2026-06-23 세션 — 버그 2건 + 인식률 Step3 + 변형 재오픈 + testchange 이식
+
+전체 점검 후 사용자 보고 버그 수정 + 비활성 기능 재오픈 + testchange 파서 픽스 이식.
+하니스 4종(golden 25 · port 8 · ocrJson 5 · textLayer 6) + tsc + build 전부 green.
+
+### 38-1. 버그 — 서술형 소문항 `(1) (1)` 중복
+`blocksToMarkdown.ts` 소문항 직렬화가 `(${sub.number}) ` 를 prepend 하는데 OCR 본문이
+이미 인쇄된 `(1)` 까지 전사 → 중복. **fix**: body 선두 `/^\s*\(\d+\)\s*/` 1회 strip 후
+prepend. 좌표쌍 `(1, 2)` 는 콤마에서 끊겨 미매칭(안전). §26-6 `\boxed{ABCD}` 분리와 동류.
+
+### 38-2. 버그 — 문항별 재인식 `/api/ai-ocr` 500 (깨진 JSON)
+**증상**: 서답형(지문 포함) 재인식 시 500. 서버 stack: `parseJsonOrThrow` ← `callAnthropic`,
+`Expected ',' or '}' after property value`. Sonnet 이 서술형 지문(아라비안 나이트)의 *대사
+큰따옴표를 escape 안 함* → `recoverJson` 5단계가 복구 실패.
+
+**근본 한계**: `recoverJson` stage 4(`repairJsonStrings`)가 산문 value 안의 `"` 뒤에
+구조문자(`,}]`)가 오면 *진짜 끝*으로 오인해 조기 종료.
+
+**fix — `ocrJsonRecovery.ts` stage 6 추가(`repairValueStrings`)**: 문자열이 *값 위치*(직전
+의미 구조문자 `:`)인지 추적해, 값이면 "진짜 끝"을 더 엄격히 판정(`"` 뒤가 `}`/`]` 거나, `,`
+인데 그 뒤가 *새 키*(`"...":`)·새 원소·EOF). 그 외 내부 `"`·줄바꿈은 escape. **stage 1-5가
+모두 실패할 때만 진입 → 기존 동작 회귀 0**. 하니스 `ocrJsonRecoveryHarness.mts` 5/5.
+
+**원칙**: 모델 깨진 JSON 복구 강화는 *additive 단계*로. 기존 단계가 파싱하는 입력은 새 단계에
+도달 못 하므로 회귀 불가능 — 가장 안전한 확장 패턴.
+
+### 38-3. 인식률 Step 3 — born-digital text-layer 대조 경고
+`textLayerValidator.ts` 신규(순수). born-digital PDF 임베디드 텍스트(정답)와 OCR 조립
+텍스트의 *anchor recall*(한글 2자+ / 정수 3자리+ 토큰) 측정 → 임계 미만이면 누락 의심.
+**비파괴**(§18-5 solutionValidator 동일 — 답 무효화 X, 검토 배너만). `usePageOcr` Pass1
+완료 후 산출 → 휘발성 `ocrTextLayerWarning` 페이지 필드(partialize strip) → Step2 접이식
+배너. 스캔(textLayer 빈값)·짧은 페이지는 skip. 하니스 6/6. (§28 Tier1 측정 키스톤 — D01
+픽셀 전처리와 무충돌, 측정 기반 후속 Step1/2/4 게이팅용.)
+
+**주의 — imagePreprocess.ts 는 dead code**: §29-2가 "Step1 완료"로 적었으나 `preprocessForOcr`
+등은 OCR 경로에서 *호출 안 됨*(`usePageOcr.ts:194` D01 — testchange 파리티 + 손글씨는
+프롬프트가 담당). storage 헬퍼(`compressForStorage`)만 사용. Step1/2/4는 측정 후 게이팅.
+
+### 38-4. 변형 기능 재오픈 (§33-1·§33-2)
+`PrintOptionsPanel` `EXPORT_SOURCE_OPTIONS` 의 variant/both `disabled` 제거 +
+`DetailMetaSidebar` `VARIANT_HISTORY_ENABLED = true`. `ENABLED_EXPORT_SOURCES`(단일 소스)가
+Step5Export 가드(L78)·`buildHwpPayload(…, exportSource)` 로 cascade → 미리보기·HWP 가
+변형 반영. 생성 파이프라인 intact. **품질·actionable 이력은 미해소** — §33 부활 체크리스트 참조.
+
+### 38-5. testchange 파서 픽스 4건 이식 (§35 parity)
+testchange 신규 커밋 3건(`99d2ff1`·`8126286`·`dbe8143`)의 `content_parser.py` 픽스를 웹
+`contentParser.ts` 로 이식(전부 display 영향 + 웹 누락):
+
+| 이식 | testchange | 웹 대상 |
+|---|---|---|
+| 선택지 `① ①` 이중마커 제거 | dbe8143 `_parse_choice` | `normalizeChoiceGroups` + `stripSelfChoiceMarker` |
+| 값나열 쉼표 보존(has_rel 게이트·√atom·`\,` 가드) | 99d2ff1 | `splitOneEqCommas`·`isAtomItem`·`splitAtTopLevelCommas` |
+| mid-block 박스마커 분리 | 8126286 `_split_embedded_box_markers` | `splitEmbeddedBoxMarkers`(신규) + `normalizeContents` |
+| 라벨없는 박스 trailing question 분리 | dbe8143 `_trailing_question_split` | `trailingQuestionSplit` label-less 분기 |
+
+**제외**: `_move_trailing_figure_before_box`(웹 contents 엔 image/`※그림자리` 블록 없음 —
+figure는 별도 필드) · `latex_to_hwpeq.py`(HWP 수식 전용, KaTeX 처리). §35-2 정책대로.
+
+**검증**: golden 25/25(회귀 0 — 기존 픽스처 신규경로 미접촉) + `contentParserPortHarness.mts`
+8/8. **원칙**: testchange `content_parser.py` 수정 시 §35-5 골든 + 신규 픽스는 port 하니스로
+회귀 방지. 선택지 `① ①`는 §38-1 서술형 `(1)(1)`와 같은 클래스(마커 중복 prepend).
+
+### 38-6. 보안 — npm 취약점 2건
+protobufjs(high)·dompurify(moderate) 신규 advisory(§34-6 "0건" 이후 회귀) → `npm audit fix`
+→ 0 vulnerabilities. build 정상.
+
+---
+
+## 39. 2026-06-23 후속 — HWP 내보내기 마무리 + 파일명 자동입력
+
+§38 직후, *HWP 내보내기 = 모든 것의 기준* 정책(미리보기를 HWP 출력에 맞춤) 마무리 +
+정확 미리보기 제거 + 내보내기 피드백 + 파일명 자동입력. 다음 *Step5 내보내기 / 파일명 /
+HWP 미리보기* 작업 시 첫 번째로 읽을 섹션.
+
+### 39-0. 세션 커밋 (웹 + 엔진)
+
+| commit | repo | 내용 |
+|---|---|---|
+| `25d95a0` | 웹 | 시험지 정보 입력 UI + payload meta/style 확장 (plan Part A/B 마무리) |
+| `a75f9bf` | 웹 | 정통 미리보기를 HWP 출력에 맞춤 (번호+배점 인라인·compact 본문) |
+| `4310e3e` | 웹 | HWP 정확 미리보기 제거 → 안내 경고 + 내보내기 품질 피드백 |
+| `9164379` | 엔진(testchange) | connector 변환 1회 재시도 — 한글 COM 간헐 실패 회복 |
+| `6ebc25f` | 웹 | 파일명 자동 입력 + 내보내기 파일명 단일 소스화 |
+
+### 39-1. 미리보기를 HWP 출력에 맞춤 — *HWP 가 기준* (사용자 결정)
+
+두 레이아웃 엔진(웹 CSS vs HWP COM)이 근본적으로 달라 픽셀 일치는 불가. 사용자 결정:
+*HWP 가 기준, 미리보기를 HWP 에 맞춘다*. JeongtongTemplate 의 `toHwpPreview` 헬퍼가
+번호(볼드)+발문 *인라인* + `[배점]` 발문 끝으로 변환 — testchange writer 의
+`_write_question` 흐름과 동일. `ProblemBody` 에 `compact` prop(좁은 줄높이·보기 간격)
+추가. jeongtong gap 18→8, lineHeight 1.8→1.5.
+
+**단 도형은 미리보기/PDF 에서 그대로 렌더**(완성 시험지). HWP 는 도형을 못 그려 "그림
+자리" 가 되지만 그 차이는 §39-2 의 안내 경고로 커버. `compact` 기본 false 라 다른 5
+템플릿 무영향.
+
+**참고**: `src/components/print/templates/JeongtongTemplate.tsx` `toHwpPreview`,
+`ProblemBody.tsx` `compact`.
+
+### 39-2. HWP 정확 미리보기(온디맨드 COM PDF) — *만들었다가 제거* (사용자 결정)
+
+처음엔 "빠른 React 미리보기 + 온디맨드 HWP 정확 미리보기(실제 .hwpx 를 COM 으로 PDF
+렌더)" 하이브리드를 *완성·검증* 했으나, 사용자 통찰: *"렌더링하는거랑 다운로드하는거랑
+시간이 같으면 그냥 다운로드가 낫다(비용도 0)"*. 실제로 정확 미리보기는 COM 세션 2회라
+다운로드보다 *느리고* 읽기전용 → 가치 낮음. → **제거**.
+
+대신 HWP 내보내기 버튼 아래 **안내 경고**(`PrintActionPanel`): "쪽 나눔·간격이 미리보기와
+다를 수 있고, 도형은 한글에서 직접 붙여넣어야 함. PDF·인쇄는 미리보기와 동일."
+
+**엔진 리버트 (중요 — 미커밋 스캐폴딩은 HEAD 환원이 깔끔)**: `convert_cli.py --pdf` +
+`connector.py` 의 `want_pdf`/`?format=pdf`/`convert-pdf` capability/PDF content-type 는
+*working tree 에만 있고 커밋된 적 없음* → 해당 파일을 HEAD 로 되돌리니 net 변경 0.
+웹 `hwpConnector.ts` 의 `convertToHwpPdf` 도 미커밋이라 동일하게 환원. **단 connector 의
+1회 재시도 루프는 유지·커밋**(`9164379`) — 한글 COM SaveAs/Quit 간헐 실패(hwp_com.py:268)
+회복용. 각 시도마다 *이번 변환이 띄운 고아 Hwp.exe 만* 정리(기존 인스턴스 보존).
+
+**원칙**: "준비 중/폐기" 기능이 *아직 커밋 안 된 working-tree 변경* 이면, 부분 Edit 으로
+한 줄씩 지우지 말고 `git checkout -- <file>` 로 HEAD 환원이 가장 안전(§33 의 *커밋된*
+기능 플래그 게이팅과 구분). 검증: 커넥터 소스 재시작 후 `/health` 의 `capabilities` 가
+`["convert-json"]` (convert-pdf 빠짐) + `/convert-json` 실변환 200·유효 .hwpx(PK zip).
+
+### 39-3. 내보내기 품질 피드백 버튼 — content_feedback 재사용
+
+OCR(§Phase E)과 *동일* `content_feedback` 인프라로 내보내기 품질 👍/👎. `FeedbackBar`
+(재사용 컴포넌트, `!supabase||!user` 면 숨김)를 `PrintActionPanel` 액션 영역에 배치.
+`feedback.ts` `FeedbackTargetKind` 에 `"export"` 추가. `targetId = testId || filename ||
+"export"`, context `{ template, columns, problemCount }`. RLS `feedback_insert_own` 가
+`user_id = auth.uid()` 강제(비로그인 차단).
+
+**참고**: `src/components/print/PrintActionPanel.tsx`(FeedbackBar 배치),
+`src/services/api/feedback.ts`(export target kind).
+
+### 39-4. 파일명 자동 입력 + 내보내기 파일명 *단일 소스화* (CRITICAL — 사용자 보고)
+
+**증상**: 내보내기의 *파일명 칸* 이 기본값 "변형시험지" placeholder 인데, 실제 HWP
+다운로드는 *원본 업로드 파일명* 을 씀(`handleHWP` 가 `uploadedFileName` 우선) → **박스에
+보이는 이름 ≠ 실제 내보내는 이름**. 사용자: "파일명 자동 입력 + 그 파일명에 따라
+내보내기 파일명 결정되도록."
+
+**근본 구조 (조사 워크플로 확정)**:
+- `filename`(Step5 내보내기용, 기본값 `"변형시험지"`, `setExport` 로만 변경, partialize
+  포함=세션 유지)과 `uploadedFileName`(원본 PDF명, `setUploadedFile`, hydrate 시 복원)은
+  *별개 필드*. `setUploadedFile(filename)` 의 *인자명이 filename* 이지만 set 대상은
+  uploadedFileName — 혼동 주의.
+- **`hydrateFromTest`("이어서 작업"/보관함 직접)는 `WizardHydrateSnapshot` 에 filename 이
+  없어 항상 기본값으로 리셋**(`...initialState, ...snapshot` 스프레드). uploadedFileName 은
+  snapshot 에 있어 복원됨 → *자동입력 로직은 업로드 시점이 아니라 Step5 마운트에 둬야*
+  새 업로드·hydrate 두 경로 모두 커버.
+
+**해결 — 3 지점**:
+1. `wizardStore.ts` 에 `export const DEFAULT_EXPORT_FILENAME = "변형시험지"` 추출(자동입력
+   판별·폴백의 단일 기준; initialState 도 이 상수 사용).
+2. `Step5Export.tsx` 의 *기존 bundle.answers 시드 effect 에 합류* — `filename ===
+   DEFAULT_EXPORT_FILENAME` 일 때만 `uploadedFileName(.pdf 제거)` → `sourceTest?.title`
+   순으로 자동 입력. **seedRef + 빈 deps + 단일 setExport patch** 구조(§3-7 setState 루프
+   회피). 기본값 가드라 사용자가 고친 값은 절대 덮어쓰지 않음(persist 된 입력도 보존).
+3. `PrintActionPanel.tsx` `handleHWP` baseName 을 `filename || uploadedFileName(.pdf 제거)
+   || DEFAULT_EXPORT_FILENAME` 로 *재정렬*(filename 우선) → PDF 경로(이미 filename 기반)와
+   일치. 파일명 칸 = 내보내기 파일명의 단일 소스.
+
+**함정/원칙**:
+- `uploadedFileName` 은 *실제 파일명* 이라 이미 OS-legal → 자동입력 시점에 sanitize 불필요.
+  각 내보내기 경로가 download 시점에 `sanitizeFilename` 적용(이중 안전). 자동입력 값에
+  `pdfExporter`(jspdf 의존)를 static import 하면 번들 비용 → 안 함.
+- StrictMode 이중 마운트: seedRef 는 remount 마다 새 ref(false)지만, 첫 fill 후 filename
+  ≠ 기본값 → 두 번째 마운트 effect 가 *기본값 가드* 로 skip. ref+가드 이중 방어.
+- selector 는 단순 property access(`(s) => s.uploadedFileName`) — §3-6 inline-object 금지.
+
+**참고**: `src/stores/wizardStore.ts` `DEFAULT_EXPORT_FILENAME`,
+`src/components/wizard/Step5Export.tsx`(마운트 effect),
+`src/components/print/PrintActionPanel.tsx` `handleHWP`.
+
+### 39-5. Chrome MCP 자동검증 환경 제약 (2 함정 — 재발 방지)
+
+이번 세션 브라우저 검증에서 부딪힌 2 함정(메모 `browser-verification-tooling` 에도 기록):
+
+1. **연결된 Chrome 이 dev 머신과 *다른 호스트*** — 브라우저에서 `localhost`/
+   `127.0.0.1:3001` 은 *error page*(curl 은 200). dev 머신 **LAN IP**(`Get-NetIPAddress
+   -AddressFamily IPv4`, 예 `192.168.101.18:3001`)로 접속해야 함. + vite 는 기본 `localhost`
+   (::1, IPv6) 만 바인딩 → LAN 접근하려면 `npm run dev -- --port 3001 --strictPort --host
+   0.0.0.0`. 새 origin(LAN IP) 탭은 기존 로그인 세션 미공유(localStorage origin 별).
+2. **AuthGate 로그인 게이트** — Step5 등 인증 화면은 비밀번호 입력 불가(정책)라 자동검증
+   불가. 사용자 직접 로그인 필요. 안 되면 *tsc 0 + 부팅 콘솔 에러 0 + 로직 리뷰(기존
+   검증된 패턴과 동일 구조 확인)* 로 대체하고 시각 확인은 사용자 위임.
+
+**원칙**: 마법사 깊은 화면(내보내기 등) 자동 시각검증은 위 2 제약으로 종종 불가 →
+*tsc + 콘솔 부팅에러 0 + 기존 검증 패턴 대비 구조 동일성* 을 1차 게이트로, 실물은 사용자
+위임. 새 마운트 effect+setState 는 *기존 동작하는 effect 와 동일 구조인지* 가 렌더 루프
+없음의 강한 증거(§3-6/§3-7).
