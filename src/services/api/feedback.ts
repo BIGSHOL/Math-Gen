@@ -10,7 +10,7 @@ import { supabase, currentUserId } from "./supabase";
  * auth.uid()` 강제 — anon 은 fail. UI 단에서 비로그인 시 FeedbackBar 자체 숨김.
  */
 
-export type FeedbackTargetKind = "ocr_problem" | "solution" | "variant";
+export type FeedbackTargetKind = "ocr_problem" | "solution" | "variant" | "export";
 
 export interface SubmitFeedbackInput {
   target_kind: FeedbackTargetKind;

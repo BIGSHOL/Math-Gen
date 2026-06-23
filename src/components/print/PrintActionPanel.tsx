@@ -1,5 +1,6 @@
 import { useCallback, useState, type RefObject } from "react";
 import { Backdrop, Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
+import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
 import { useWizardStore } from "@app/stores/wizardStore";
 import { useAppStore } from "@app/stores/appStore";
 import { showToast } from "@app/stores/toastStore";
@@ -108,6 +109,7 @@ export const PrintActionPanel = ({
   const hwpConverting = isExporting && exportKind === "hwp";
   // 커넥터(HWP 도우미) 미감지 → 다운로드 안내 카드 노출.
   const [connectorMissing, setConnectorMissing] = useState(false);
+  const testId = useWizardStore((s) => s.testId);
 
   const handlePrint = useCallback(async () => {
     if (document.fonts?.ready) await document.fonts.ready;
@@ -443,6 +445,14 @@ export const PrintActionPanel = ({
           HWP 내보내기
         </Btn>
 
+        {/* HWP 출력 안내 — 한글 자체 레이아웃이라 미리보기와 차이 가능(사용자 결정 2026-06-23:
+            정확 미리보기 대신 다운로드 + 안내. PDF·인쇄는 미리보기와 동일). */}
+        <p className="text-caption text-text2 leading-relaxed bg-warn-soft/40 border border-warn/20 rounded-r2 px-2.5 py-2">
+          <Icon name="info" size={12} weight="duotone" color="#F59E0B" />{" "}
+          HWP는 한글 자체 레이아웃이라 <strong>쪽 나눔·간격이 미리보기와 다를 수 있고</strong>,
+          도형은 한글에서 직접 붙여넣어야 합니다. (PDF·인쇄는 미리보기와 동일)
+        </p>
+
         {/* 저장 완료 — 보관함 복귀. */}
         <Btn kind="secondary" icon="check-circle" full onClick={handleSaveDone}>
           저장 완료 (보관함으로)
@@ -461,6 +471,19 @@ export const PrintActionPanel = ({
           <Btn kind="ghost" icon="file-doc" full disabled>
             DOCX (구현중)
           </Btn>
+        </div>
+
+        {/* 내보내기 품질 피드백 — 👍/👎 (OCR 피드백과 동일 content_feedback 인프라). */}
+        <div className="pt-3 border-t border-line">
+          <FeedbackBar
+            targetKind="export"
+            targetId={testId || filename || "export"}
+            context={{
+              template: printOptions.template,
+              columns: printOptions.columns,
+              problemCount,
+            }}
+          />
         </div>
       </div>
 
