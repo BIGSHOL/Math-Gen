@@ -6,9 +6,22 @@ import type { ProblemReview } from "@app/stores/wizardStore";
 import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
-import { QuestionNumber, PointsLabel } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
 import type { PrintTemplateProps } from "../types";
+
+// HWP 본문 표현에 최대한 맞춘 미리보기(사용자 결정 2026-06-23): 번호(볼드)+발문 인라인,
+// [배점] 발문 끝 — testchange writer 의 _write_question 과 동일 흐름.
+// 단 *도형은 그대로 렌더*(미리보기/PDF 는 완성 시험지). HWP 는 도형을 못 그려 "그림 자리"가
+// 되지만, 그 차이는 PrintActionPanel 의 HWP 내보내기 안내 경고로 커버(쪽 나눔·간격·도형
+// 차이 + 직접 붙여넣기 안내). 정확 미리보기(COM PDF)는 다운로드와 시간 동일·읽기전용이라 제거.
+const toHwpPreview = (
+  v: ProblemReview["variant"],
+  num: number,
+  points: number,
+): ProblemReview["variant"] => ({
+  ...v,
+  question: `**${num}.** ${v.question ?? ""} [${points}점]`,
+});
 
 const tdLabel = (w?: number): CSSProperties => ({
   width: w,
@@ -46,14 +59,11 @@ export function JeongtongTemplate({
   const renderItem = (p: ProblemReview, i: number) => {
     const num = startingNumber + i;
     const points = p.variant.points ?? 3;
+    // HWP 출력과 동일하게: 번호+발문 인라인, [배점] 발문 끝, 그림은 "그림 자리" 안내.
+    const hwpProblem = toHwpPreview(p.variant, num, points);
     return (
       <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid" }}>
-        <div style={{ display: "flex", alignItems: "baseline", marginBottom: 4 }}>
-          <QuestionNumber template="jeongtong" num={num} accent={PAPER_COLORS.ink} />
-          <span style={{ flex: 1 }} />
-          <PointsLabel points={points} />
-        </div>
-        <ProblemBody problem={p.variant} fontSize={fs} />
+        <ProblemBody problem={hwpProblem} fontSize={fs} compact />
       </div>
     );
   };
@@ -67,7 +77,7 @@ export function JeongtongTemplate({
           width: measure.columnWidthPx,
           fontFamily: "var(--paper-font-serif)",
           fontSize: fs,
-          lineHeight: 1.8,
+          lineHeight: 1.5,
         }}
       >
         <BodyContainer columns={1} gap={gap}>
@@ -238,7 +248,7 @@ export function JeongtongTemplate({
           marginTop: isFirstPage ? 18 : 0,
           marginBottom: 8,
           fontSize: fs,
-          lineHeight: 1.8,
+          lineHeight: 1.5,
           fontFamily: "var(--paper-font-serif)",
         }}
       >

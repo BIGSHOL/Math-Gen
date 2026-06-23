@@ -33,7 +33,7 @@ export interface TemplateGeometry {
 
 export const TEMPLATE_GEOMETRY: Record<PrintTemplate, TemplateGeometry> = {
   pyeongga:  { padX: 56, fontSize1: 13.2, fontSize2: 13.2, gap1: 16, gap2: 16, columnGap: 26 },
-  jeongtong: { padX: 50, fontSize1: 13.5, fontSize2: 13.5, gap1: 18, gap2: 18, columnGap: 26 },
+  jeongtong: { padX: 50, fontSize1: 13.5, fontSize2: 13.5, gap1: 8, gap2: 8, columnGap: 26 },
   modern:    { padX: 56, fontSize1: 13.5, fontSize2: 13.5, gap1: 16, gap2: 16, columnGap: 32 },
   workbook:  { padX: 44, fontSize1: 12.5, fontSize2: 11.5, gap1: 12, gap2: 14, columnGap: 26, stretch1Col: true, perPageOneCol: 4 },
   jaseup:    { padX: 50, fontSize1: 12.5, fontSize2: 11.5, gap1: 12, gap2: 16, columnGap: 26, stretch1Col: true, perPageOneCol: 4 },

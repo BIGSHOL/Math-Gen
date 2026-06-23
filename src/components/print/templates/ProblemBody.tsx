@@ -28,6 +28,11 @@ export interface ProblemBodyProps {
   diagrams?: Array<{ dataUrl: string; label: string }>;
   /** 선택지 grid 숨김 — workbook/jaseup 의 풀이공간 영역 분리 등에서 활용. */
   hideChoices?: boolean;
+  /**
+   * 조밀 모드 — HWP 출력과 동일한 밀도(좁은 줄높이·보기 간격)로 렌더(jeongtong WYSIWYG,
+   * 사용자 결정 2026-06-23). 미설정(기본 false)이면 기존 여유 간격 유지(다른 템플릿 무영향).
+   */
+  compact?: boolean;
 }
 
 /** 서술형 소문항 풀이공간 (px) — 사용자 요청 2026-06-04: 소문항마다 2~3줄. */
@@ -65,6 +70,7 @@ export const ProblemBody = ({
   accentColor,
   diagrams,
   hideChoices,
+  compact = false,
 }: ProblemBodyProps) => {
   // 우선순위: (1) diagramParams (vector, Phase E) > (2) diagramSVG (legacy) >
   // (3) diagrams (OCR bbox crop fallback — svgList 가 없을 때만 표시).
@@ -119,7 +125,9 @@ export const ProblemBody = ({
         </span>
       )}
       <div
-        className="text-slate-900 leading-relaxed printable-math-content"
+        className={`text-slate-900 printable-math-content ${
+          compact ? "leading-snug" : "leading-relaxed"
+        }`}
         style={{ fontSize: `${fontSize}px` }}
       >
         {hasSubQ ? (
@@ -168,10 +176,9 @@ export const ProblemBody = ({
       {/* Choices grid — Phase #7: original 보기 layout 상속 (auto fallback 시 길이 휴리스틱). */}
       {!hideChoices && effectiveChoices && effectiveChoices.length > 0 && (
         <div
-          className={`grid gap-x-4 gap-y-2 text-slate-700 mt-1.5 ${printGridClass(
-            effectiveChoices,
-            problem.choicesLayout,
-          )}`}
+          className={`grid gap-x-4 text-slate-700 ${
+            compact ? "gap-y-0.5 mt-1 leading-snug" : "gap-y-2 mt-1.5"
+          } ${printGridClass(effectiveChoices, problem.choicesLayout)}`}
           style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }}
         >
           {effectiveChoices.map((choice, ci) => {
