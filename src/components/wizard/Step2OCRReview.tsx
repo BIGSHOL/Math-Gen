@@ -1,4 +1,5 @@
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
+import type { TextLayerWarning } from "@app/lib/textLayerValidator";
 import { usePageOcr } from "@app/hooks/usePageOcr";
 import { useItemReocr } from "@app/hooks/useItemReocr";
 import { usePageImageDataUrl } from "@app/hooks/usePageImageDataUrl";
@@ -62,6 +63,38 @@ const ErrorBanner = ({ message, onRetry }: { message: string; onRetry: () => voi
         </div>
       </div>
     </div>
+  </Card>
+);
+
+/**
+ * born-digital 페이지의 text-layer 대조 경고 (인식률 Step 3, §28-2). OCR 실패와
+ * 구분되는 *비차단 검토 힌트* — 답을 막지 않고 collapsible 로 누락 의심만 surfacing.
+ */
+const TextLayerWarningBanner = ({
+  warning,
+  onRetry,
+}: {
+  warning: TextLayerWarning;
+  onRetry: () => void;
+}) => (
+  <Card pad={14} className="border-warn/60 bg-warn-soft">
+    <details>
+      <summary className="flex items-center gap-2 cursor-pointer list-none">
+        <Icon name="magnifying-glass" size={16} weight="bold" color="#F59E0B" />
+        <span className="flex-1 text-small text-warn-ink break-words">{warning.summary}</span>
+        <Chip tone="warn" size="sm">
+          {Math.round(warning.score * 100)}%
+        </Chip>
+      </summary>
+      <p className="mt-2 pl-6 text-caption text-warn-ink/90 break-words leading-relaxed">
+        {warning.detail}
+      </p>
+      <div className="mt-2 pl-6">
+        <Btn kind="ghost" size="sm" icon="arrow-clockwise" onClick={onRetry}>
+          페이지 재인식
+        </Btn>
+      </div>
+    </details>
   </Card>
 );
 
@@ -255,6 +288,17 @@ export const Step2OCRReview = () => {
                   보세요.
                 </p>
               </Card>
+            )}
+
+          {/* born-digital text-layer 대조 경고 — 결과 카드 위에 비차단 배너 */}
+          {activePage.ocrComplete &&
+            !activePage.ocrError &&
+            activePage.ocrTextLayerWarning &&
+            activePage.ocrResult.length > 0 && (
+              <TextLayerWarningBanner
+                warning={activePage.ocrTextLayerWarning}
+                onRetry={requestRetry}
+              />
             )}
 
           {/* Result cards */}

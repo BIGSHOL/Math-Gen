@@ -216,6 +216,12 @@ export interface WizardPage {
   cropDetectInflight?: boolean;
   /** cropDetect 호출 실패 메시지 — Step 1.5 재시도 배너용. */
   cropDetectError?: string;
+  /**
+   * born-digital PDF text-layer 와 OCR 결과 대조 경고 (인식률 Step 3, §28-2).
+   * OCR 완료 시 `validateOcrAgainstTextLayer` 가 산출. 비파괴 — 검토 유도용
+   * 배너만 띄움. *파생/휘발성* 이라 `partialize` 에서 제외(재OCR 시 재계산).
+   */
+  ocrTextLayerWarning?: import("@app/lib/textLayerValidator").TextLayerWarning;
 }
 
 export interface OCRImage {
@@ -531,6 +537,7 @@ export interface WizardState {
         | "ocrInflightModel"
         | "ocrStartedAt"
         | "imageRef"
+        | "ocrTextLayerWarning"
       >
     >,
   ) => void;
@@ -820,6 +827,7 @@ export const useWizardStore = create<WizardState>()(
           ocrStartedAt: undefined,
           upgrading: false,
           cropDetectInflight: false,
+          ocrTextLayerWarning: undefined,
           ocrResult: p.ocrResult.map((item) => ({
             ...item,
             solutionGenerating: false,

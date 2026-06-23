@@ -8,6 +8,7 @@ import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
 import { reconcileChoicesMissingWithCrop } from "@app/lib/cropKindReconcile";
+import { validateOcrAgainstTextLayer, assembleOcrText } from "@app/lib/textLayerValidator";
 import { reportError } from "@app/lib/errorReporter";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
 import { GEMINI_3_1_PRO, GEMINI_3_5_FLASH, isGeminiAvailable } from "@app/services/ai/gemini";
@@ -363,13 +364,28 @@ export const usePageOcr = () => {
 
           // 크롭 분류(kind="essay") 권위 신호로 "보기 누락" 오경고 제거 (§18, 2026-06-02).
           const reconciled = reconcileChoicesMissingWithCrop(result.items, page.cropBoxes);
+          // 인식률 Step 3 (§28-2) — born-digital 페이지면 PDF 원문 대조로 누락 검출.
+          // 비파괴(D01 무영향) — 경고만 attach. 스캔(textLayer 빈값)이면 null.
+          const textLayerWarning = validateOcrAgainstTextLayer(
+            assembleOcrText(reconciled),
+            page.textLayer,
+          );
           setPageOCR(page.id, {
             ocrResult: reconciled,
             ocrComplete: true,
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             ocrInflightModel: undefined,
             ocrStartedAt: undefined,
+            ocrTextLayerWarning: textLayerWarning ?? undefined,
           });
+          if (import.meta.env.DEV && textLayerWarning) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[usePageOcr] ${page.id} text-layer 불일치 ` +
+                `${Math.round(textLayerWarning.score * 100)}% (matched ${textLayerWarning.matched}/${textLayerWarning.total}) — ` +
+                `누락 의심: ${textLayerWarning.missingSample.slice(0, 6).join(", ")}`,
+            );
+          }
           if (import.meta.env.DEV) {
             // eslint-disable-next-line no-console
             console.debug(
