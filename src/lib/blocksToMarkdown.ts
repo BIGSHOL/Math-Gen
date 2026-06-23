@@ -215,9 +215,13 @@ export const blocksToMarkdown = (
   for (const sub of subQuestions ?? []) {
     if (!sub || !Array.isArray(sub.contents)) continue;
     const body = blocksToMarkdown(sub.contents, sub.choices ?? []);
+    // 모델이 인쇄된 소문항 마커 "(1)" 까지 contents 에 전사한 경우, 아래 prepend 와
+    // 겹쳐 "(1) (1) ..." 중복 표기됨(사용자 보고 2026-06-22). 선두 "(숫자)" 1회 strip.
+    // 좌표쌍 "(1, 2)" 는 `\(\d+\)` 가 콤마에서 끊겨 매칭 안 되므로 안전.
+    const bodyNoMarker = body.replace(/^\s*\(\d+\)\s*/, "");
     const scoreTag =
       typeof sub.score === "number" && sub.score > 0 ? ` [${sub.score}점]` : "";
-    const line = `(${sub.number}) ${body}${scoreTag}`.trim();
+    const line = `(${sub.number}) ${bodyNoMarker}${scoreTag}`.trim();
     if (line) out.push(line);
   }
 

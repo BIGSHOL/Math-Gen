@@ -152,8 +152,95 @@ const repairJsonStrings = (textIn: string): string => {
 };
 
 /**
- * testchange `_extract_json` 5단계 복구. 성공 시 파싱 객체, 모두 실패 시 `undefined`.
- * (caller `parseJsonOrThrow` 가 undefined 면 기존 한국어 진단 에러를 throw.)
+ * stage 6 (최후 수단) — *VALUE 문자열* 안의 escape 안 된 내부 큰따옴표 복구.
+ *
+ * `repairJsonStrings`(stage 4) 의 빈틈: 산문 value 안의 `"` 뒤에 구조문자(`,}]`)가
+ * 오면 *진짜 문자열 끝* 으로 오인해 조기 종료 → 나머지가 'Extra data'/구문오류.
+ * 서술형 지문(예: 아라비안 나이트 이야기)에서 모델이 대사 큰따옴표를 escape 안 한
+ * 케이스가 대표적(사용자 보고 2026-06-22, /api/ai-ocr 500).
+ *
+ * 여기선 문자열이 *값 위치*(직전 의미 구조문자가 `:`)인지 추적해, 값이면 "진짜 끝"을
+ * 더 엄격히 판정한다: `"` 뒤가 `}`/`]` 거나, `,` 인데 그 뒤가 *새 키*(`"...":`)·새 원소
+ * (`{`/`[`)·문서 끝일 때만 종료. 그 외 내부 `"`·줄바꿈은 escape. 키/원소 위치 문자열은
+ * 기존(`:,}]`)대로. stage 1-5 가 모두 실패할 때만 진입하므로 *기존 동작 회귀 0*.
+ */
+const repairValueStrings = (textIn: string): string => {
+  const text = stripControlChars(textIn);
+  const out: string[] = [];
+  let i = 0;
+  let lastSig = ""; // 문자열 밖에서 마지막으로 본 의미 구조문자
+  const isWs = (c: string) => c === " " || c === "\t" || c === "\r" || c === "\n";
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"') {
+      const isValue = lastSig === ":";
+      let j = i + 1;
+      const parts: string[] = [];
+      while (j < text.length) {
+        const c = text[j];
+        if (c === "\\" && j + 1 < text.length) {
+          const nc = text[j + 1];
+          if (nc === "u") {
+            parts.push("\\u");
+            j += 2;
+          } else if ('"\\/bfnrt'.includes(nc)) {
+            parts.push("\\", nc);
+            j += 2;
+          } else {
+            parts.push("\\\\", nc); // \frac 등 LaTeX → 이중 이스케이프
+            j += 2;
+          }
+          continue;
+        }
+        if (c === '"') {
+          let k = j + 1;
+          while (k < text.length && isWs(text[k])) k++;
+          const nx = text[k];
+          let realEnd: boolean;
+          if (!isValue) {
+            realEnd = k >= text.length || nx === ":" || nx === "," || nx === "}" || nx === "]";
+          } else if (k >= text.length || nx === "}" || nx === "]") {
+            realEnd = true;
+          } else if (nx === ",") {
+            const after = text.slice(k + 1).replace(/^\s+/, "");
+            realEnd =
+              after === "" || /^"[^"]{1,80}"\s*:/.test(after) || /^[[{]/.test(after);
+          } else {
+            realEnd = false;
+          }
+          if (realEnd) break;
+          parts.push('\\"'); // 내부 따옴표 escape
+          j += 1;
+          continue;
+        }
+        if (c === "\n") {
+          parts.push("\\n");
+          j += 1;
+          continue;
+        }
+        if (c === "\r") {
+          j += 1;
+          continue;
+        }
+        parts.push(c);
+        j += 1;
+      }
+      out.push('"', parts.join(""), '"');
+      i = j + 1;
+      lastSig = '"';
+      continue;
+    }
+    if (!isWs(ch)) lastSig = ch;
+    out.push(ch);
+    i += 1;
+  }
+  return out.join("");
+};
+
+/**
+ * testchange `_extract_json` 5단계 복구 + stage 6(value 문자열 복구). 성공 시 파싱
+ * 객체, 모두 실패 시 `undefined`. (caller `parseJsonOrThrow` 가 undefined 면 기존
+ * 한국어 진단 에러를 throw.)
  */
 export const recoverJson = (rawText: string): unknown | undefined => {
   // 1단계: 펜스 제거 + 첫 `{` + trailing comma 제거.
@@ -200,6 +287,12 @@ export const recoverJson = (rawText: string): unknown | undefined => {
   const text5 = lines.join("\n").replace(/,\s*([}\]])/g, "$1");
   try {
     return parseFirstObject(text5);
+  } catch {
+    /* 다음 단계 */
+  }
+  // 6단계: value 문자열 내부 escape 안 된 큰따옴표 contextual 복구 (서술형 지문 등).
+  try {
+    return parseFirstObject(repairValueStrings(text));
   } catch {
     return undefined;
   }
