@@ -40,8 +40,8 @@ export type ExamCategory = "MIDTERM" | "FINAL" | "MOCK" | "OTHER";
  * default / minimal / classic) 는 `matchLegacyTemplate` 헬퍼가 가까운 값으로
  * 자동 매핑. 정의 source: `@app/components/print/types`.
  */
-export type { PrintTemplate } from "@app/components/print/types";
-import type { PrintTemplate } from "@app/components/print/types";
+export type { PrintTemplate, PrintMeta } from "@app/components/print/types";
+import type { PrintTemplate, PrintMeta } from "@app/components/print/types";
 
 /**
  * Step 5 의 출력 대상. 라디오 선택:
@@ -82,6 +82,11 @@ export interface PrintOptions {
   columnDivider: boolean;
   /** 한글 폰트 팩 (sans/serif 한 쌍). FONT_PACKS 의 id. */
   fontPack: FontPackId;
+  /**
+   * 쪽 여백 프리셋 — 내보내기 시 HWP 출력에 자동 적용(좁게/보통/넓게). 미리보기(웹
+   * 템플릿)는 자체 여백을 쓰므로 영향 없음. HWP payload 의 style.margins 로 전달.
+   */
+  marginPreset: "narrow" | "normal" | "wide";
 }
 
 /**
@@ -103,6 +108,34 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   showDifficulty: true,
   columnDivider: false,
   fontPack: "system",
+  marginPreset: "normal", // 좌우 15mm·상하 12mm (HWP 출력 기본; 좁게/넓게 선택 가능)
+};
+
+/**
+ * 기본 시험지 메타 — Step5 정보 입력 패널의 초기값. 사용자가 입력하지 않은
+ * 필드는 빈 문자열(또는 totalScore 100)로 두고, Step5Export 의 meta useMemo 가
+ * 빈 값일 때 testTitle / gradeBadge / 오늘 날짜 등으로 폴백한다.
+ *
+ * 6 종 인쇄 템플릿(헤더)과 HWP payload(meta) 가 *동일* 한 이 값을 공유 — 고른
+ * 폼이 미리보기·HWP 에 일관 유지되도록(§내보내기 고도화). title/subject 는
+ * PrintMeta 에서 non-optional 이라 빈 문자열로 시드.
+ */
+export const DEFAULT_PRINT_META: PrintMeta = {
+  title: "",
+  subject: "수학",
+  schoolName: "",
+  grade: "",
+  semester: "",
+  examDate: "",
+  examDuration: "",
+  examiner: "",
+  totalScore: 100,
+  academyName: "",
+  instructorName: "",
+  conceptNote: "",
+  todayGoal: "",
+  patternName: "",
+  patternStrategy: "",
 };
 
 /**
@@ -514,6 +547,12 @@ export interface WizardState {
   printOptions: PrintOptions;
   /** Step 5 출력 대상: 변형 / 원본 / 둘 다. */
   exportSource: ExportSource;
+  /**
+   * Step 5 시험지 정보(학교명·학원명·시험일·배점·개념정리 등). 미리보기 6종
+   * 헤더 + HWP payload(meta) 가 공유 — 고른 폼이 모든 내보내기에 일관 유지.
+   * sessionStorage persist (Supabase row 엔 미저장, printOptions 와 동일 정책).
+   */
+  printMeta: PrintMeta;
 
   // Actions
   setStep: (step: WizardStepIndex) => void;
@@ -552,7 +591,10 @@ export interface WizardState {
   updateProblem: (id: string, patch: Partial<ProblemReview>) => void;
   setExport: (
     patch: Partial<
-      Pick<WizardState, "format" | "bundle" | "filename" | "printOptions" | "exportSource">
+      Pick<
+        WizardState,
+        "format" | "bundle" | "filename" | "printOptions" | "exportSource" | "printMeta"
+      >
     >,
   ) => void;
 
@@ -606,6 +648,7 @@ const initialState = {
   // 기본 출력 대상 = 원본만. 변형 출력 준비 중이라 변형/원본+변형 은 UI 비활성
   // (PrintOptionsPanel). 사용자 결정 2026-06-04.
   exportSource: "original" as ExportSource,
+  printMeta: DEFAULT_PRINT_META,
 };
 
 export const useWizardStore = create<WizardState>()(
@@ -854,6 +897,7 @@ export const useWizardStore = create<WizardState>()(
         filename: s.filename,
         printOptions: s.printOptions,
         exportSource: s.exportSource,
+        printMeta: s.printMeta,
       }),
       // 신규 필드 (printOptions / exportSource) 가 이전 session 에 없으면
       // hydration 후 undefined → crash. version bump 대신 fallback 으로 안전
@@ -870,6 +914,12 @@ export const useWizardStore = create<WizardState>()(
         state.printOptions.template = matchLegacyTemplate(state.printOptions.template);
         if (!state.exportSource) {
           state.exportSource = "original";
+        }
+        // 신규 printMeta — 옛 세션엔 없으므로 기본값 머지(누락 필드 보강).
+        if (!state.printMeta) {
+          state.printMeta = DEFAULT_PRINT_META;
+        } else {
+          state.printMeta = { ...DEFAULT_PRINT_META, ...state.printMeta };
         }
       },
     },

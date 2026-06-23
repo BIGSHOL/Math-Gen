@@ -86,6 +86,7 @@ export const PrintActionPanel = ({
 }: PrintActionPanelProps) => {
   const filename = useWizardStore((s) => s.filename);
   const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
+  const printOptions = useWizardStore((s) => s.printOptions);
   const setExport = useWizardStore((s) => s.setExport);
   const prev = useWizardStore((s) => s.prev);
   const backToLibrary = useAppStore((s) => s.backToLibrary);
@@ -236,7 +237,7 @@ export const PrintActionPanel = ({
       }
       if (problems.length === 0) throw new Error("내보낼 문항이 없습니다.");
 
-      const payload = buildHwpPayload(problems, meta, exportSource);
+      const payload = buildHwpPayload(problems, meta, exportSource, printOptions);
       const ext = health.engine === "hwp" ? "hwp" : "hwpx";
       const { sanitizeFilename } = await import("@app/lib/pdfExporter");
       // 업로드한 원본 파일명 그대로 (확장자만 .hwpx). 동일 이름 존재 시 (1)(2) 는
@@ -276,7 +277,7 @@ export const PrintActionPanel = ({
         setExportKind(null);
       }, 3000);
     }
-  }, [problems, meta, exportSource, filename, uploadedFileName, totalPages]);
+  }, [problems, meta, exportSource, printOptions, filename, uploadedFileName, totalPages]);
 
   return (
     <>

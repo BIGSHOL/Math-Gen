@@ -8,7 +8,7 @@
  * 스펙: docs/mathgen-hwp-ocr-integration-handoff.md §12-1 (wire 계약).
  */
 
-import type { ProblemReview } from "@app/stores/wizardStore";
+import type { ProblemReview, PrintOptions } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
 import type { GeneratedProblem } from "@app/types";
 import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
@@ -55,9 +55,57 @@ export interface HwpPayloadProblem {
   labelType?: string;
 }
 
+/**
+ * 시험지 메타 — 커넥터(adapter.adapt_payload)가 헤더 렌더에 사용. title/subject/
+ * grade 는 필수(구버전 호환), 나머지는 고른 템플릿이 쓰는 필드만 optional 로 전달.
+ */
+export interface HwpPayloadMeta {
+  title: string;
+  subject: string;
+  grade: string;
+  schoolName?: string;
+  semester?: string;
+  examDate?: string;
+  examDuration?: string;
+  examiner?: string;
+  totalScore?: number;
+  academyName?: string;
+  instructorName?: string;
+  conceptNote?: string;
+  todayGoal?: string;
+  patternName?: string;
+  patternStrategy?: string;
+}
+
+/**
+ * 출력 스타일 — 엔진이 헤더 디자인을 분기. 누락(구버전 웹)이면 커넥터가
+ * template="jeongtong" 기본 + 단순 제목 헤더로 폴백(회귀 0).
+ */
+export interface HwpPayloadStyle {
+  /** 인쇄 템플릿 id (pyeongga|jeongtong|modern|workbook|jaseup|yuhyung). */
+  template: string;
+  /** 강조 색 (#RRGGBB). 빈 문자열이면 엔진이 템플릿 기본 accent 사용. */
+  accentColor: string;
+  columns: 1 | 2;
+  /** 쪽 여백(mm) — 내보내기 시 HWP 에 적용. 없으면 폼/기본 여백 유지. */
+  margins?: { top: number; bottom: number; left: number; right: number };
+}
+
+/** 여백 프리셋(mm) — wizardStore PrintOptions.marginPreset 와 매핑. */
+const MARGIN_PRESETS: Record<
+  string,
+  { top: number; bottom: number; left: number; right: number }
+> = {
+  narrow: { top: 10, bottom: 10, left: 12, right: 12 },
+  normal: { top: 12, bottom: 12, left: 15, right: 15 },
+  wide: { top: 18, bottom: 15, left: 22, right: 22 },
+};
+
 export interface HwpPayload {
   schema: "v2";
-  meta: { title: string; subject: string; grade: string };
+  meta: HwpPayloadMeta;
+  /** 고른 폼(템플릿+accent+단) — 엔진 헤더 재현용. */
+  style?: HwpPayloadStyle;
   problems: HwpPayloadProblem[];
 }
 
@@ -154,12 +202,32 @@ export const buildHwpPayload = (
   problems: ProblemReview[],
   meta: PrintMeta,
   exportSource: string,
+  printOptions: Pick<PrintOptions, "template" | "color" | "columns" | "marginPreset">,
 ): HwpPayload => ({
   schema: "v2",
   meta: {
     title: meta.title || "시험지",
     subject: meta.subject || "수학",
     grade: meta.grade || "",
+    // 고른 폼이 쓰는 메타만 — 빈 값은 생략(엔진이 placeholder 폴백).
+    ...(meta.schoolName ? { schoolName: meta.schoolName } : {}),
+    ...(meta.semester ? { semester: meta.semester } : {}),
+    ...(meta.examDate ? { examDate: meta.examDate } : {}),
+    ...(meta.examDuration ? { examDuration: meta.examDuration } : {}),
+    ...(meta.examiner ? { examiner: meta.examiner } : {}),
+    ...(typeof meta.totalScore === "number" ? { totalScore: meta.totalScore } : {}),
+    ...(meta.academyName ? { academyName: meta.academyName } : {}),
+    ...(meta.instructorName ? { instructorName: meta.instructorName } : {}),
+    ...(meta.conceptNote ? { conceptNote: meta.conceptNote } : {}),
+    ...(meta.todayGoal ? { todayGoal: meta.todayGoal } : {}),
+    ...(meta.patternName ? { patternName: meta.patternName } : {}),
+    ...(meta.patternStrategy ? { patternStrategy: meta.patternStrategy } : {}),
+  },
+  style: {
+    template: printOptions.template,
+    accentColor: printOptions.color || "",
+    columns: printOptions.columns,
+    margins: MARGIN_PRESETS[printOptions.marginPreset] ?? MARGIN_PRESETS.normal,
   },
   problems: problems.map((r, i) => {
     // §33: exportSource 는 현재 항상 "original". digitize 면 original===variant.

@@ -1,11 +1,12 @@
 import { useEffect } from "react";
-import { Heading, Icon, Segmented, Toggle, Chip } from "@app/components/ui";
+import { Heading, Icon, Input, Segmented, Toggle, Chip } from "@app/components/ui";
 import {
   DEFAULT_PRINT_OPTIONS,
   type ExportSource,
   type PrintOptions,
   type PrintTemplate,
 } from "@app/stores/wizardStore";
+import type { PrintMeta } from "@app/components/print/types";
 import { FONT_PACKS, type FontPackId } from "@app/lib/printFontPacks";
 
 /**
@@ -22,8 +23,15 @@ import { FONT_PACKS, type FontPackId } from "@app/lib/printFontPacks";
 interface PrintOptionsPanelProps {
   printOptions: PrintOptions;
   exportSource: ExportSource;
+  /** 시험지 정보(학교명·학원명·시험일·배점 등) — 헤더/HWP 에 반영. */
+  printMeta: PrintMeta;
+  /** title 미입력 시 placeholder (Step5 의 testTitle). */
+  titlePlaceholder?: string;
+  /** grade 미입력 시 placeholder (선택 학년 라벨). */
+  gradePlaceholder?: string;
   onChangePrintOptions: (patch: Partial<PrintOptions>) => void;
   onChangeExportSource: (next: ExportSource) => void;
+  onChangePrintMeta: (patch: Partial<PrintMeta>) => void;
   className?: string;
 }
 
@@ -76,6 +84,13 @@ const COLUMNS_OPTIONS: Array<{ value: string; label: string; icon: string }> = [
   { value: "2", label: "2단", icon: "columns" },
 ];
 
+// 쪽 여백 프리셋 — HWP 내보내기 시 적용. mm 값은 hwpConnector MARGIN_PRESETS 와 일치.
+const MARGIN_OPTIONS: Array<{ value: "narrow" | "normal" | "wide"; label: string }> = [
+  { value: "narrow", label: "좁게" },
+  { value: "normal", label: "보통" },
+  { value: "wide", label: "넓게" },
+];
+
 /**
  * 세로 여백 5 단계 preset. 자유 슬라이더 (drag 느림 + 결정 부담) 대신
  * 한국 시험지 관행 기반의 *5 단계* — Segmented 로 빠르게 선택.
@@ -126,8 +141,12 @@ const PER_COLUMN_OPTIONS = [2, 3, 4];
 export const PrintOptionsPanel = ({
   printOptions,
   exportSource,
+  printMeta,
+  titlePlaceholder,
+  gradePlaceholder,
   onChangePrintOptions,
   onChangeExportSource,
+  onChangePrintMeta,
   className,
 }: PrintOptionsPanelProps) => {
   // `exportSource === "both"` 시 columns 강제 1단 — 한 카드에 두 본문 들어가서
@@ -205,6 +224,155 @@ export const PrintOptionsPanel = ({
             })}
           </div>
         </Section>
+
+        {/* 2.2 시험지 정보 — 헤더/HWP 에 반영되는 메타. 고른 템플릿이 실제 쓰는
+            필드만 노출(공통 + 템플릿별). 미입력 필드는 placeholder 로 표시. */}
+        <details open className="group">
+          <summary className="flex items-center justify-between cursor-pointer list-none select-none mb-2">
+            <span className="text-caption font-semibold uppercase tracking-wider text-muted">
+              시험지 정보
+            </span>
+            <Icon
+              name="caret-down"
+              size={12}
+              color="#9CA3AF"
+              className="transition-transform group-open:rotate-180"
+            />
+          </summary>
+          <div className="space-y-2">
+            <MetaText
+              label="시험지 제목"
+              value={printMeta.title}
+              placeholder={titlePlaceholder || "예: 2025학년도 1학기 중간고사"}
+              onChange={(v) => onChangePrintMeta({ title: v })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <MetaText
+                label="학교/기관명"
+                value={printMeta.schoolName ?? ""}
+                placeholder="○○고등학교"
+                onChange={(v) => onChangePrintMeta({ schoolName: v })}
+              />
+              <MetaText
+                label="학년"
+                value={printMeta.grade ?? ""}
+                placeholder={gradePlaceholder || "2학년"}
+                onChange={(v) => onChangePrintMeta({ grade: v })}
+              />
+              <MetaText
+                label="과목"
+                value={printMeta.subject ?? ""}
+                placeholder="수학"
+                onChange={(v) => onChangePrintMeta({ subject: v })}
+              />
+              <MetaText
+                label="학기"
+                value={printMeta.semester ?? ""}
+                placeholder="1학기"
+                onChange={(v) => onChangePrintMeta({ semester: v })}
+              />
+              <MetaText
+                label="시험일"
+                type="date"
+                value={printMeta.examDate ?? ""}
+                onChange={(v) => onChangePrintMeta({ examDate: v })}
+              />
+              <MetaText
+                label="시험 시간"
+                value={printMeta.examDuration ?? ""}
+                placeholder="50분"
+                onChange={(v) => onChangePrintMeta({ examDuration: v })}
+              />
+              <MetaText
+                label="출제자"
+                value={printMeta.examiner ?? ""}
+                placeholder="홍길동"
+                onChange={(v) => onChangePrintMeta({ examiner: v })}
+              />
+              <MetaText
+                label="총점"
+                type="number"
+                value={
+                  typeof printMeta.totalScore === "number"
+                    ? String(printMeta.totalScore)
+                    : ""
+                }
+                placeholder="100"
+                suffix="점"
+                onChange={(v) => {
+                  const n = Number.parseInt(v, 10);
+                  onChangePrintMeta({ totalScore: Number.isFinite(n) ? n : undefined });
+                }}
+              />
+            </div>
+
+            {/* 워크북 전용 — 학원명/강사명 */}
+            {printOptions.template === "workbook" && (
+              <div className="grid grid-cols-2 gap-2">
+                <MetaText
+                  label="학원명"
+                  value={printMeta.academyName ?? ""}
+                  placeholder="○○수학학원"
+                  onChange={(v) => onChangePrintMeta({ academyName: v })}
+                />
+                <MetaText
+                  label="강사명"
+                  value={printMeta.instructorName ?? ""}
+                  placeholder="김선생"
+                  onChange={(v) => onChangePrintMeta({ instructorName: v })}
+                />
+              </div>
+            )}
+
+            {/* 유형 훈련지 전용 — 유형명/핵심 전략 */}
+            {printOptions.template === "yuhyung" && (
+              <div className="space-y-2">
+                <MetaText
+                  label="유형명"
+                  value={printMeta.patternName ?? ""}
+                  placeholder="이차함수의 최대·최소"
+                  onChange={(v) => onChangePrintMeta({ patternName: v })}
+                />
+                <MetaText
+                  label="핵심 전략"
+                  value={printMeta.patternStrategy ?? ""}
+                  placeholder="완전제곱식으로 꼭짓점을 찾는다"
+                  onChange={(v) => onChangePrintMeta({ patternStrategy: v })}
+                />
+              </div>
+            )}
+
+            {/* 자습 학습지 전용 — 오늘의 목표 + 개념 정리(멀티라인) */}
+            {printOptions.template === "jaseup" && (
+              <div className="space-y-2">
+                <MetaText
+                  label="오늘의 목표"
+                  value={printMeta.todayGoal ?? ""}
+                  placeholder="삼각비의 정의를 이해한다"
+                  onChange={(v) => onChangePrintMeta({ todayGoal: v })}
+                />
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-caption text-text2">개념 정리</span>
+                  <textarea
+                    rows={4}
+                    value={printMeta.conceptNote ?? ""}
+                    onChange={(e) => onChangePrintMeta({ conceptNote: e.target.value })}
+                    placeholder="핵심 개념을 정리하세요 (markdown 가능)"
+                    className="w-full rounded-r2 bg-surface border border-line-strong px-2.5 py-1.5 text-[12px] text-text placeholder:text-muted outline-none focus:border-accent focus:shadow-accent-glow resize-y"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 평가원 양식은 고정 헤더라 정보가 반영되지 않음 — 안내. */}
+            {printOptions.template === "pyeongga" && (
+              <p className="text-caption text-muted leading-tight">
+                <Icon name="info" size={11} color="#9CA3AF" /> 평가원 양식은 고정
+                헤더라 위 정보가 반영되지 않습니다.
+              </p>
+            )}
+          </div>
+        </details>
 
         {/* 2.5 폰트 — 5 한글 폰트 팩 (Sans/Serif 쌍) */}
         <Section title="폰트">
@@ -284,6 +452,20 @@ export const PrintOptionsPanel = ({
               />
             </div>
           )}
+        </Section>
+
+        {/* 4.5 쪽 여백 — HWP 내보내기 시 적용(미리보기는 자체 여백). 좁게/보통/넓게. */}
+        <Section title="쪽 여백" hint="HWP 출력">
+          <Segmented<"narrow" | "normal" | "wide">
+            value={printOptions.marginPreset}
+            onChange={(v) => onChangePrintOptions({ marginPreset: v })}
+            options={MARGIN_OPTIONS}
+            size="sm"
+            full
+          />
+          <p className="mt-1.5 text-caption text-muted leading-tight">
+            <Icon name="info" size={11} color="#9CA3AF" /> HWP 출력에 적용 — 좁게(좌우12·상하10) / 보통(15·12) / 넓게(22·18mm)
+          </p>
         </Section>
 
         {/* 5. 세로 배치 — 택일: 여백 직접 지정 vs 단별 문항 수 지정.
@@ -427,6 +609,29 @@ const Section = ({ title, hint, children }: SectionProps) => (
     )}
     {children}
   </section>
+);
+
+interface MetaTextProps {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  type?: "text" | "number" | "date";
+  suffix?: string;
+}
+
+/** 시험지 정보 입력 한 줄 — Input(size sm) + caption 라벨 래퍼. */
+const MetaText = ({ label, value, onChange, placeholder, type = "text", suffix }: MetaTextProps) => (
+  <Input
+    size="sm"
+    label={<span className="text-caption">{label}</span>}
+    value={value}
+    type={type}
+    suffix={suffix}
+    placeholder={placeholder}
+    onChange={(e) => onChange(e.target.value)}
+    aria-label={label}
+  />
 );
 
 export default PrintOptionsPanel;

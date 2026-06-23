@@ -50,6 +50,7 @@ export const Step5Export = () => {
   const pages = useWizardStore((s) => s.pages);
   const printOptions = useWizardStore((s) => s.printOptions);
   const exportSource = useWizardStore((s) => s.exportSource);
+  const printMeta = useWizardStore((s) => s.printMeta);
   const bundle = useWizardStore((s) => s.bundle);
   const filename = useWizardStore((s) => s.filename);
   const testId = useWizardStore((s) => s.testId);
@@ -100,26 +101,32 @@ export const Step5Export = () => {
 
   // 시험지 메타 — usePrintLayout(probe 헤더 높이 측정) 과 PageBody(렌더) 가 *동일*
   // 객체 사용. 참조 안정(useMemo) 이라야 측정 key 가 매 렌더 흔들리지 않음.
-  const meta: PrintMeta = useMemo(
-    () => ({
-      title: testTitle,
-      schoolName: undefined,
-      grade: gradeBadge,
-      subject: "수학",
-      semester: undefined,
-      examDate: new Date().toISOString().slice(0, 10),
-      examDuration: undefined,
-      examiner: undefined,
-      totalScore: 100,
-      academyName: undefined,
-      instructorName: undefined,
-      conceptNote: undefined,
-      todayGoal: undefined,
-      patternName: undefined,
-      patternStrategy: undefined,
-    }),
-    [testTitle, gradeBadge],
-  );
+  //
+  // store.printMeta(사용자 입력) 를 우선하되, 비어 있으면 testTitle / gradeBadge /
+  // 오늘 날짜 등으로 폴백. 빈 문자열은 undefined 로 정규화(템플릿의 placeholder
+  // fallback 이 동작하도록). 이 같은 meta 가 buildHwpPayload 로도 흘러 HWP 헤더에
+  // 동일 반영(§내보내기 고도화).
+  const meta: PrintMeta = useMemo(() => {
+    const t = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+    return {
+      title: t(printMeta.title) ?? testTitle,
+      schoolName: t(printMeta.schoolName),
+      grade: t(printMeta.grade) ?? gradeBadge,
+      subject: t(printMeta.subject) ?? "수학",
+      semester: t(printMeta.semester),
+      examDate: t(printMeta.examDate) ?? new Date().toISOString().slice(0, 10),
+      examDuration: t(printMeta.examDuration),
+      examiner: t(printMeta.examiner),
+      totalScore:
+        typeof printMeta.totalScore === "number" ? printMeta.totalScore : 100,
+      academyName: t(printMeta.academyName),
+      instructorName: t(printMeta.instructorName),
+      conceptNote: t(printMeta.conceptNote),
+      todayGoal: t(printMeta.todayGoal),
+      patternName: t(printMeta.patternName),
+      patternStrategy: t(printMeta.patternStrategy),
+    };
+  }, [printMeta, testTitle, gradeBadge]);
 
   // 측정 기반 페이지 분할 — 문항·헤더 실측 후 printPack. measureNode 는 화면 밖에
   // 렌더해야 함 (return 트리에 포함).
@@ -178,10 +185,16 @@ export const Step5Export = () => {
         className="wizard-chrome"
         printOptions={printOptions}
         exportSource={exportSource}
+        printMeta={printMeta}
+        gradePlaceholder={gradeBadge}
+        titlePlaceholder={testTitle}
         onChangePrintOptions={(patch) =>
           setExport({ printOptions: { ...printOptions, ...patch } })
         }
         onChangeExportSource={(next) => setExport({ exportSource: next })}
+        onChangePrintMeta={(patch) =>
+          setExport({ printMeta: { ...printMeta, ...patch } })
+        }
       />
 
       {/* 중앙: 미리보기 */}
