@@ -4173,6 +4173,12 @@ tsc 가 commit 전에 차단. 통과 확인 *후에만* 커밋.
 
 ## 33. 변형(Variant) 기능 비활성 + 부활 조건 (2026-06-04 세션)
 
+> **⚠️ 상태 갱신 (2026-06-23): §33-1·§33-2 재오픈됨.** 사용자 요청으로 변형 출력 옵션
+> (변형만/원본+변형, `EXPORT_SOURCE_OPTIONS` disabled 제거)과 변형 이력
+> (`VARIANT_HISTORY_ENABLED = true`)을 다시 켰다. 생성 파이프라인은 §33대로 계속 intact.
+> *재비활성* 필요 시 아래 플래그 복구. 단 §33-2의 비활성 사유(읽기전용 카드·digitize 노이즈)는
+> 미해소 상태 — actionable 재설계는 후속. 자세한 내용 §38.
+
 변형 생성·출력의 품질/완성도가 아직 미달이라 사용자 결정으로 *내보내기 출력 대상*
 과 *변형 이력 UI* 를 비활성화. **데이터 레이어 (variant_history 적재, 변형 생성
 파이프라인 Step3/4) 는 그대로 유지** — 아래 플래그/코드만 되돌리면 복구된다.
@@ -4529,3 +4535,71 @@ baseline 재생성 후 두 파일 함께 커밋.
 사용자에겐 "안 고쳐짐" 으로만 보임. 새 math 정규화 추가 시 *양 레이어의 방향* 을 맞출 것.
 빠른 진단: `npx tsx` 로 `preprocessMathText("…$\\begin{cases}…$…")` 출력이 `$$` 로 바뀌는지 확인.
 
+
+---
+
+## 38. 2026-06-23 세션 — 버그 2건 + 인식률 Step3 + 변형 재오픈 + testchange 이식
+
+전체 점검 후 사용자 보고 버그 수정 + 비활성 기능 재오픈 + testchange 파서 픽스 이식.
+하니스 4종(golden 25 · port 8 · ocrJson 5 · textLayer 6) + tsc + build 전부 green.
+
+### 38-1. 버그 — 서술형 소문항 `(1) (1)` 중복
+`blocksToMarkdown.ts` 소문항 직렬화가 `(${sub.number}) ` 를 prepend 하는데 OCR 본문이
+이미 인쇄된 `(1)` 까지 전사 → 중복. **fix**: body 선두 `/^\s*\(\d+\)\s*/` 1회 strip 후
+prepend. 좌표쌍 `(1, 2)` 는 콤마에서 끊겨 미매칭(안전). §26-6 `\boxed{ABCD}` 분리와 동류.
+
+### 38-2. 버그 — 문항별 재인식 `/api/ai-ocr` 500 (깨진 JSON)
+**증상**: 서답형(지문 포함) 재인식 시 500. 서버 stack: `parseJsonOrThrow` ← `callAnthropic`,
+`Expected ',' or '}' after property value`. Sonnet 이 서술형 지문(아라비안 나이트)의 *대사
+큰따옴표를 escape 안 함* → `recoverJson` 5단계가 복구 실패.
+
+**근본 한계**: `recoverJson` stage 4(`repairJsonStrings`)가 산문 value 안의 `"` 뒤에
+구조문자(`,}]`)가 오면 *진짜 끝*으로 오인해 조기 종료.
+
+**fix — `ocrJsonRecovery.ts` stage 6 추가(`repairValueStrings`)**: 문자열이 *값 위치*(직전
+의미 구조문자 `:`)인지 추적해, 값이면 "진짜 끝"을 더 엄격히 판정(`"` 뒤가 `}`/`]` 거나, `,`
+인데 그 뒤가 *새 키*(`"...":`)·새 원소·EOF). 그 외 내부 `"`·줄바꿈은 escape. **stage 1-5가
+모두 실패할 때만 진입 → 기존 동작 회귀 0**. 하니스 `ocrJsonRecoveryHarness.mts` 5/5.
+
+**원칙**: 모델 깨진 JSON 복구 강화는 *additive 단계*로. 기존 단계가 파싱하는 입력은 새 단계에
+도달 못 하므로 회귀 불가능 — 가장 안전한 확장 패턴.
+
+### 38-3. 인식률 Step 3 — born-digital text-layer 대조 경고
+`textLayerValidator.ts` 신규(순수). born-digital PDF 임베디드 텍스트(정답)와 OCR 조립
+텍스트의 *anchor recall*(한글 2자+ / 정수 3자리+ 토큰) 측정 → 임계 미만이면 누락 의심.
+**비파괴**(§18-5 solutionValidator 동일 — 답 무효화 X, 검토 배너만). `usePageOcr` Pass1
+완료 후 산출 → 휘발성 `ocrTextLayerWarning` 페이지 필드(partialize strip) → Step2 접이식
+배너. 스캔(textLayer 빈값)·짧은 페이지는 skip. 하니스 6/6. (§28 Tier1 측정 키스톤 — D01
+픽셀 전처리와 무충돌, 측정 기반 후속 Step1/2/4 게이팅용.)
+
+**주의 — imagePreprocess.ts 는 dead code**: §29-2가 "Step1 완료"로 적었으나 `preprocessForOcr`
+등은 OCR 경로에서 *호출 안 됨*(`usePageOcr.ts:194` D01 — testchange 파리티 + 손글씨는
+프롬프트가 담당). storage 헬퍼(`compressForStorage`)만 사용. Step1/2/4는 측정 후 게이팅.
+
+### 38-4. 변형 기능 재오픈 (§33-1·§33-2)
+`PrintOptionsPanel` `EXPORT_SOURCE_OPTIONS` 의 variant/both `disabled` 제거 +
+`DetailMetaSidebar` `VARIANT_HISTORY_ENABLED = true`. `ENABLED_EXPORT_SOURCES`(단일 소스)가
+Step5Export 가드(L78)·`buildHwpPayload(…, exportSource)` 로 cascade → 미리보기·HWP 가
+변형 반영. 생성 파이프라인 intact. **품질·actionable 이력은 미해소** — §33 부활 체크리스트 참조.
+
+### 38-5. testchange 파서 픽스 4건 이식 (§35 parity)
+testchange 신규 커밋 3건(`99d2ff1`·`8126286`·`dbe8143`)의 `content_parser.py` 픽스를 웹
+`contentParser.ts` 로 이식(전부 display 영향 + 웹 누락):
+
+| 이식 | testchange | 웹 대상 |
+|---|---|---|
+| 선택지 `① ①` 이중마커 제거 | dbe8143 `_parse_choice` | `normalizeChoiceGroups` + `stripSelfChoiceMarker` |
+| 값나열 쉼표 보존(has_rel 게이트·√atom·`\,` 가드) | 99d2ff1 | `splitOneEqCommas`·`isAtomItem`·`splitAtTopLevelCommas` |
+| mid-block 박스마커 분리 | 8126286 `_split_embedded_box_markers` | `splitEmbeddedBoxMarkers`(신규) + `normalizeContents` |
+| 라벨없는 박스 trailing question 분리 | dbe8143 `_trailing_question_split` | `trailingQuestionSplit` label-less 분기 |
+
+**제외**: `_move_trailing_figure_before_box`(웹 contents 엔 image/`※그림자리` 블록 없음 —
+figure는 별도 필드) · `latex_to_hwpeq.py`(HWP 수식 전용, KaTeX 처리). §35-2 정책대로.
+
+**검증**: golden 25/25(회귀 0 — 기존 픽스처 신규경로 미접촉) + `contentParserPortHarness.mts`
+8/8. **원칙**: testchange `content_parser.py` 수정 시 §35-5 골든 + 신규 픽스는 port 하니스로
+회귀 방지. 선택지 `① ①`는 §38-1 서술형 `(1)(1)`와 같은 클래스(마커 중복 prepend).
+
+### 38-6. 보안 — npm 취약점 2건
+protobufjs(high)·dompurify(moderate) 신규 advisory(§34-6 "0건" 이후 회귀) → `npm audit fix`
+→ 0 vulnerabilities. build 정상.
