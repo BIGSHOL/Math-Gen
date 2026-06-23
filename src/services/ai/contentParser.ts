@@ -217,6 +217,9 @@ const isAtomItem = (p: string): boolean => {
     /^\\[A-Za-z]+(?:[_^]\{?[A-Za-z0-9]+\}?)?$/.test(s) ||
     /^\\(?:overline|overarc|vec|hat|bar|widehat|dot|ddot|tilde)\{[A-Za-z0-9']+\}$/.test(s) ||
     /^\\\{.+\\\}$/.test(s) ||
+    // 근호 값 리터럴(`\sqrt{2}`·`-\sqrt{3}`·`\sqrt[3]{5}`) = 해집합/값 나열 항목
+    // (`b, 0, \sqrt{2}` 사대부고 수2 #16). 안 그러면 곱셈잡음으로 오판해 `b 0 √2` 로 뭉갠다.
+    /^[-+]?\\sqrt(?:\[[^\]]*\])?\{[^{}]*\}$/.test(s) ||
     /^(?:\\c?dots|\\ldots|⋯|\.\.\.)$/.test(s)
   );
 };
@@ -234,18 +237,24 @@ const hasToplevelRelation = (p: string): boolean => {
 
 /** 최상위 레벨 쉼표에서 분리(_split_at_top_level_commas). */
 const splitAtTopLevelCommas = (s: string): string[] => {
+  // ⚠️ `\,`(LaTeX 얇은공백)의 백슬래시-쉼표는 분리자가 *아니다* — `20\,\mathrm{m}`·`\int…\,dx`
+  // 의 `,` 에서 쪼개면 "20, m"·"…, dx" 가짜 쉼표가 삽입된다(testchange 99d2ff1). 백슬래시 직후
+  // 쉼표는 건너뛴다. (has_rel 게이트가 스푸리어스 병합을 풀자 드러난 잠복 오split.)
   const parts: string[] = [];
   let depth = 0;
   let current = "";
+  let prev = "";
   for (const ch of s) {
     if (ch === "(" || ch === "{" || ch === "[") depth += 1;
     else if (ch === ")" || ch === "}" || ch === "]") depth = Math.max(0, depth - 1);
-    else if (ch === "," && depth === 0) {
+    else if (ch === "," && depth === 0 && prev !== "\\") {
       parts.push(current);
       current = "";
+      prev = ch;
       continue;
     }
     current += ch;
+    prev = ch;
   }
   parts.push(current);
   return parts;
@@ -358,8 +367,11 @@ const splitOneEqCommas = (block: NBlock, result: NBlock[]): boolean => {
     result.push(mk("equation", v.replace(/,\s*/g, ",~")));
     return true;
   }
-  // 스푸리어스 쉼표 방어 — 원자도 관계식도 list-term 도 아닌 항목이 하나라도 있으면 곱셈 잡음.
-  if (parts.some((p) => !isAtomItem(p) && !hasToplevelRelation(p) && !isListTerm(p))) {
+  // 스푸리어스 쉼표 방어는 *관계식(=·≤…)이 낀* 나열에만 적용(testchange 99d2ff1 has_rel
+  // 게이트) — OCR 곱셈 오split 은 늘 `…=값, …` 처럼 관계식을 동반한다. 관계식 없는 순수
+  // 값/좌표/함수 나열(`b, 0, √2`·`(-3,-3),(-2,1)`·`f(x), g(x)`)은 진짜 나열이라 쉼표 보존.
+  const hasRel = parts.some((p) => hasToplevelRelation(p));
+  if (hasRel && parts.some((p) => !isAtomItem(p) && !hasToplevelRelation(p) && !isListTerm(p))) {
     result.push(mk("equation", parts.join(" ")));
     return true;
   }
@@ -759,6 +771,46 @@ const finalizeContents = (input: NBlock[]): NBlock[] => {
 
 // ── 박스경계 검출 ────────────────────────────────────────────────────────
 
+// 발문 종결 뒤 *같은 text 블록 중간*에 오는 박스 머리(`…고른 것은? <보기> ㄱ.`). RAW_BOX_MARK_RE
+// 는 블록 *시작*(^) 앵커라 mid-block 마커를 못 잡아 박스 미형성·마커 노출됐다(testchange 8126286,
+// 성서고 수2 #6·12·14·15·20). 마커 + *항목라벨/불릿*(ㄱ./（가）/•) 직결일 때만 — 조사 `<보기>의`·
+// 참조어 `<보기> 중`은 제외(EMBED_ITEM_LOOKAHEAD).
+const EMBED_ITEM_LOOKAHEAD =
+  "(?=\\s*(?:[•·▪◦○〇ㅇ]|[ㄱ-ㅎ]\\s*\\.|[（(]\\s*[가-힣]\\s*[)）]))";
+const EMBED_BOX_MARK_RE = new RegExp(
+  "<\\s*상자\\s*>" +
+    EMBED_ITEM_LOOKAHEAD +
+    "|(?:<\\s*(?:조건|보기)\\s*>|\\[\\s*(?:조건|보기)\\s*\\])(?![가-힣])" +
+    EMBED_ITEM_LOOKAHEAD,
+);
+
+/**
+ * 발문 종결 뒤 같은 text 블록 중간 박스 머리(`<보기>/<조건>/<상자>` + 항목라벨)를 마커 앞에서
+ * 쪼개 마커가 새 raw 블록 *시작*이 되게 한다(testchange 8126286). 그러면 RAW_BOX_MARK_RE(블록시작
+ * 앵커) 박스 인식·rawBoxEnd·tagBoxRun 이 정상 동작한다.
+ */
+const splitEmbeddedBoxMarkers = (raw: ContentBlock[]): ContentBlock[] => {
+  const out: ContentBlock[] = [];
+  for (const bd of raw) {
+    if (bd.type !== "text") {
+      out.push(bd);
+      continue;
+    }
+    const v = bd.value || "";
+    const m = EMBED_BOX_MARK_RE.exec(v);
+    if (m && m.index > 0) {
+      const before = rstrip(v.slice(0, m.index));
+      if (before) {
+        out.push({ ...bd, value: before });
+        out.push({ ...bd, value: v.slice(m.index) });
+        continue;
+      }
+    }
+    out.push(bd);
+  }
+  return out;
+};
+
 /** 발문 본문 중복 박스 조각 제거(_drop_duplicate_box_fragments). */
 const dropDuplicateBoxFragments = (raw: ContentBlock[]): ContentBlock[] => {
   const ko = (s: string): string => (s || "").replace(/[^가-힣]/g, "");
@@ -787,7 +839,20 @@ const trailingQuestionSplit = (raws: ContentBlock[], i: number): number | null =
   for (let j = i + 1; j < raws.length; j++) {
     if (raws[j].type === "text" && INNER_ITEM_LABEL_RE.test(raws[j].value || "")) lastLabel = j;
   }
-  if (lastLabel === null) return null;
+  if (lastLabel === null) {
+    // 라벨 없는 박스(풀이과정 `<상자> … \boxed{가}…\boxed{다} 이다.`)도 *마지막 블록이
+    // 질문*(`위의 과정에서 …나열한 것은?`)이면 그 질문을 박스 밖으로 분리한다 — 박스가 질문까지
+    // 흡수하던 것(testchange dbe8143, 동부고 확통 #17). 박스 내용(마커 다음~질문 전)이 있어야.
+    const last = raws.length - 1;
+    if (
+      last > i + 1 &&
+      raws[last].type === "text" &&
+      QUESTION_END_RE.test(raws[last].value || "")
+    ) {
+      return last;
+    }
+    return null;
+  }
   let q: number | null = null;
   for (let j = raws.length - 1; j > lastLabel; j--) {
     if (raws[j].type === "text" && QUESTION_END_RE.test(raws[j].value || "")) {
@@ -881,6 +946,9 @@ const tagBoxRun = (blocks: NBlock[]): void => {
 export const normalizeContents = (blocks: ContentBlock[]): NBlock[] => {
   let raw = (blocks ?? []).filter((b) => b && typeof b.type === "string");
   raw = dropDuplicateBoxFragments(raw);
+  // 발문 종결 뒤 같은 블록 중간 박스 머리(`…고른 것은? <보기> ㄱ.`)를 마커 앞에서 쪼갠다
+  // (testchange 8126286 — mid-block 마커 박스 미형성). dropDuplicate 직후, 박스경계 검출 전.
+  raw = splitEmbeddedBoxMarkers(raw);
   const boxEnd = rawBoxEnd(raw);
   if (boxEnd !== null) {
     const head = finalizeContents(raw.slice(0, boxEnd).flatMap(lightParseBlock));
@@ -918,6 +986,27 @@ export const normalizeChoice = (contents: ContentBlock[], parentGeo = false): NB
   return blocks;
 };
 
+/** ①②③… (U+2460~) — 선택지 자기번호 마커. */
+const CIRCLED_NUMS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+
+/**
+ * 선택지 text 선두에 전사된 *자기 동그라미 마커*(#1 의 `①`) 제거 (testchange dbe8143
+ * `_parse_choice`). 폼/blocksToMarkdown 이 c.number 로 ①②③ 를 자동 부여하므로 그대로 두면
+ * `① ① 14` 로 중복 렌더(학남고 수2 #15·16). 자기 번호와 일치하는 선두 1개만 — 마커 *뒤에
+ * 내용이 있을 때만* strip(`① 14`→`14`). 마커 단독(`①`)+단일 블록은 figure-choice(그래프가
+ * 내용)라 비우면 빈 선택지가 되므로 보존.
+ */
+const stripSelfChoiceMarker = (contents: ContentBlock[], number: number): ContentBlock[] => {
+  if (!(number >= 1 && number <= 20) || !contents.length) return contents;
+  const first = contents[0];
+  if (!first || first.type !== "text") return contents;
+  const mk = CIRCLED_NUMS[number - 1];
+  const ls = lstrip(first.value || "");
+  if (!ls.startsWith(mk)) return contents;
+  if (contents.length === 1 && !ls.slice(1).trim()) return contents; // 마커 단독 = figure-choice
+  return [{ ...first, value: lstrip(ls.slice(1)) }, ...contents.slice(1)];
+};
+
 /** 선택지 그룹 일괄 정규화 — parentGeo 는 호출부가 본문에서 산출해 전달. */
 export const normalizeChoiceGroups = (
   choices: ChoiceGroup[],
@@ -925,4 +1014,7 @@ export const normalizeChoiceGroups = (
 ): Array<{ number: number; contents: NBlock[] }> =>
   (choices ?? [])
     .filter((c) => c && Array.isArray(c.contents) && typeof c.number === "number")
-    .map((c) => ({ number: c.number, contents: normalizeChoice(c.contents, parentGeo) }));
+    .map((c) => ({
+      number: c.number,
+      contents: normalizeChoice(stripSelfChoiceMarker(c.contents, c.number), parentGeo),
+    }));
