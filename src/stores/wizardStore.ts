@@ -139,6 +139,14 @@ export const DEFAULT_PRINT_META: PrintMeta = {
 };
 
 /**
+ * 내보내기 파일명 기본값(미입력 상태 sentinel). Step5Export 가 마운트 시 이 값이면
+ * *아직 사용자가 안 건드린 것* 으로 보고 원본 업로드 파일명으로 자동 입력한다 —
+ * 사용자가 다른 값을 입력했으면 그대로 보존(이 값과 비교해 판별). PDF·HWP 내보내기
+ * 경로의 빈값 폴백과도 동일(파일명 입력값이 내보내기 파일명의 단일 소스).
+ */
+export const DEFAULT_EXPORT_FILENAME = "변형시험지";
+
+/**
  * Step 1.5 검수 단계의 크롭 박스. ?croptest 의 cropDetect 가 자동 검출 →
  * 사용자가 Step 1.5 에서 검토/편집 → Step 2 의 cropped Pass 2 가 이 박스만
  * 잘라 GPT-5.5 재OCR.
@@ -643,7 +651,7 @@ const initialState = {
   reviewFilter: "all" as const,
   format: "pdf" as ExportFormat,
   bundle: { problems: true, answers: true, solutions: false, stats: false },
-  filename: "변형시험지",
+  filename: DEFAULT_EXPORT_FILENAME,
   printOptions: DEFAULT_PRINT_OPTIONS,
   // 기본 출력 대상 = 원본만. 변형 출력 준비 중이라 변형/원본+변형 은 UI 비활성
   // (PrintOptionsPanel). 사용자 결정 2026-06-04.

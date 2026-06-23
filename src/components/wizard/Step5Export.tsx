@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Btn, Heading, Icon } from "@app/components/ui";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
-import { useWizardStore } from "@app/stores/wizardStore";
+import { useWizardStore, DEFAULT_EXPORT_FILENAME } from "@app/stores/wizardStore";
 import {
   paginateAnswerKey,
   type PaginatedAnswerPage,
@@ -39,8 +39,9 @@ import { GRADE_LABELS } from "@app/services/ai/mathDefense";
  *   - PDF 캡처도 같은 hidden DOM 을 사용 — `pdfExporter` 의 onclone 이 display
  *     강제로 paint 가능하게 함
  *
- * **effect**: bundle.answers seed (mount 1회) — Step3 의 answers 옵션이 켜져
- * 있으면 Step5 진입 시 자동으로 printOptions.showAnswers = true.
+ * **effect**: bundle.answers seed + 파일명 자동 입력 (mount 1회) — Step3 의 answers
+ * 옵션이 켜져 있으면 자동 showAnswers; filename 이 기본값이면 원본 업로드 파일명
+ * (.pdf 제거)/시험지 제목으로 자동 입력(내보내기 파일명의 단일 소스).
  *
  * **레이아웃**: usePrintLayout 이 문항·헤더를 화면 밖에서 실측 → printPack 으로
  * 페이지/컬럼 분할 (measureNode 를 return 트리에 렌더).
@@ -53,6 +54,7 @@ export const Step5Export = () => {
   const printMeta = useWizardStore((s) => s.printMeta);
   const bundle = useWizardStore((s) => s.bundle);
   const filename = useWizardStore((s) => s.filename);
+  const uploadedFileName = useWizardStore((s) => s.uploadedFileName);
   const testId = useWizardStore((s) => s.testId);
   const selectedGrade = useWizardStore((s) => s.selectedGrade);
   const setExport = useWizardStore((s) => s.setExport);
@@ -85,14 +87,30 @@ export const Step5Export = () => {
   const sourceTest = useLibraryStore((s) => (testId ? s.getTest(testId) : undefined));
   const backToLibrary = useAppStore((s) => s.backToLibrary);
 
-  // ── effect 1: bundle.answers seed (mount-only) ───────────────────────
+  // ── effect 1: bundle.answers seed + 파일명 자동 입력 (mount-only) ──────
+  // 둘 다 mount 1회 시드 — seedRef + 빈 deps 로 재실행 방지(§3-7 setState 루프 회피).
+  // 한 번의 setExport patch 로 묶어 단일 store 업데이트.
   const seedRef = useRef(false);
   useEffect(() => {
     if (seedRef.current) return;
     seedRef.current = true;
+    const patch: Parameters<typeof setExport>[0] = {};
+    // Step3 answers 옵션이 켜져 있으면 Step5 진입 시 자동 showAnswers.
     if (bundle.answers && !printOptions.showAnswers) {
-      setExport({ printOptions: { ...printOptions, showAnswers: true } });
+      patch.printOptions = { ...printOptions, showAnswers: true };
     }
+    // 파일명 자동 입력 — 사용자가 아직 안 건드린 기본값일 때만(입력값 보호). 원본 업로드
+    // 파일명(.pdf 제거) 우선, 없으면 시험지 제목. 이 값이 내보내기 파일명의 *단일 소스*
+    // (PDF·HWP 공통). 새 업로드·이어서 작업(hydrate) 두 진입 경로 모두 여기서 채워짐
+    // — hydrate 는 filename 을 기본값으로 리셋하지만 uploadedFileName 은 복원하므로.
+    if (filename === DEFAULT_EXPORT_FILENAME) {
+      const base =
+        uploadedFileName?.replace(/\.pdf$/i, "").trim() ||
+        sourceTest?.title?.trim() ||
+        "";
+      if (base && base !== DEFAULT_EXPORT_FILENAME) patch.filename = base;
+    }
+    if (Object.keys(patch).length > 0) setExport(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

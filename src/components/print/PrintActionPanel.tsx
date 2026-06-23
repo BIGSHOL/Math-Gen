@@ -1,7 +1,7 @@
 import { useCallback, useState, type RefObject } from "react";
 import { Backdrop, Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
 import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
-import { useWizardStore } from "@app/stores/wizardStore";
+import { useWizardStore, DEFAULT_EXPORT_FILENAME } from "@app/stores/wizardStore";
 import { useAppStore } from "@app/stores/appStore";
 import { showToast } from "@app/stores/toastStore";
 import type { ExportProgress } from "@app/lib/pdfExporter";
@@ -242,10 +242,11 @@ export const PrintActionPanel = ({
       const payload = buildHwpPayload(problems, meta, exportSource, printOptions);
       const ext = health.engine === "hwp" ? "hwp" : "hwpx";
       const { sanitizeFilename } = await import("@app/lib/pdfExporter");
-      // 업로드한 원본 파일명 그대로 (확장자만 .hwpx). 동일 이름 존재 시 (1)(2) 는
-      // 브라우저가 자동 부여. 원본명 없으면 filename 입력값 → "시험지".
+      // 내보내기 파일명은 *파일명 입력값* 이 단일 소스(Step5Export 가 원본 업로드명으로
+      // 자동 입력 → 사용자가 수정 가능). PDF 경로와 동일 우선순위. 비어 있을 때만 원본
+      // 업로드명 → 기본값 폴백. 확장자만 .hwp/.hwpx, 동일 이름은 브라우저가 (1)(2) 자동.
       const baseName =
-        uploadedFileName?.replace(/\.pdf$/i, "").trim() || filename || "시험지";
+        filename || uploadedFileName?.replace(/\.pdf$/i, "").trim() || DEFAULT_EXPORT_FILENAME;
       const safeName = sanitizeFilename(baseName);
 
       setProgress({ current: 0, total: totalPages, phase: "saving" });
