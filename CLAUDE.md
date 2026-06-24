@@ -4727,3 +4727,82 @@ OCR(§Phase E)과 *동일* `content_feedback` 인프라로 내보내기 품질 �
 *tsc + 콘솔 부팅에러 0 + 기존 검증 패턴 대비 구조 동일성* 을 1차 게이트로, 실물은 사용자
 위임. 새 마운트 effect+setState 는 *기존 동작하는 effect 와 동일 구조인지* 가 렌더 루프
 없음의 강한 증거(§3-6/§3-7).
+
+---
+
+## 40. 2026-06-24 — 인쇄 6 템플릿 HWP 헤더 완성 + accent 색 인프라 (엔진)
+
+§39 까지 jeongtong 만 HWP 헤더가 구현돼 있었고(나머지 5 종은 *제목만* 출력), 사용자
+요청으로 6 종 전부의 HWP 헤더를 *웹 미리보기 디자인에 맞춰* 구현. 엔진 레포(testchange)
+작업. 다음 *HWP 템플릿 헤더 / accent 색 / COM 렌더 검증* 작업 시 첫 번째로 읽을 섹션.
+
+### 40-0. 조사로 확정한 핵심 사실 (2 워크플로)
+
+- **HWP 본문(번호·배점·내용)은 100% template-agnostic** — `hwp_com_writer._write_question`
+  에 template 분기 0. 6 종 모두 평문 `N.` 볼드 + `[N점]` 인라인 + 보기 길이기준 단. 즉
+  *본문은 손댈 필요 없고*, 템플릿 차이는 **헤더에만** 존재.
+- **헤더는 jeongtong 만 구현**돼 있었음: `forms/jeongtong.hwpx` 폼 파일 + `_header_jeongtong`
+  COM 함수. 나머지 5 종 `_header_*` 는 전부 `_header_default`(제목만) 한 줄 stub.
+- **변환 경로 분기**: `convert_cli` → `resolve_form_path(template)` → `forms/<t>.hwpx` 있으면
+  폼 모드(픽셀완벽), 없으면 COM 헤더(`_header_<t>`). jeongtong 만 폼 있음 → 나머지는 COM 헤더.
+- 따라서 *5 종은 COM 헤더 함수를 채우면* 변환 출력에 헤더가 나옴(폼 파일 불필요).
+
+### 40-1. pyeongga (무채색) — COM 헤더만으로 충분 (commit `550e735`)
+
+수능 클론 양식: 1×2 제목 박스(`수학 영역` | `제 1 교시`) + `5지 선다형 · 다음 물음에
+답하시오` 안내. 시험정보표 없음(고정 양식). 무채색(ink)이라 **색 불필요** → `_grid`/table
+프리미티브만으로 구현. `_header_pyeongga` 채움. 렌더 검증 완료.
+
+### 40-2. accent 색 인프라 — PUA 센티넬 (CRITICAL, commit `b4cfc50`)
+
+나머지 4 종(modern/workbook/jaseup/yuhyung)은 accent 색 필요. **걸림돌**: `hwp_com.set_char_shape`
+에 *색 인자가 없음*(pt·bold 만) — COM 한계. 글자색·배경색은 *저장 후 XML 후처리*로만 가능.
+또한 jeongtong 의 색 후처리(`_shade_header_labels`/`_style_header_runs`/`_thicken`)는 *스타터
+폼 생성에서만* 돌고 *변환 경로엔 없으며*, 매칭이 jeongtong 라벨(학교/학년/점수)에 하드코딩.
+
+**해결 — PUA 센티넬 마커 + 변환 경로 후처리** (`hwp_com_writer._apply_accent_header`):
+- `template_headers` 가 3 마커 정의(producer): `ACCENT_WHITE_INK`(U+E010, 흰글자+검정 ink 배너) /
+  `ACCENT_TEXT_MARK`(U+E011, accent 글자) / `ACCENT_WHITE_FILL`(U+E012, 흰글자+accent 배너).
+  헤더 함수가 `s.text(MARK + "텍스트")` 로 셀/런에 마커를 박음.
+- `_apply_accent_header(hwpx, accent_rgb)`: section XML 스캔 → (1) 마커 든 *셀*의
+  `borderFillIDRef` 를 faceColor 채운 borderFill 로 교체(`_append_borderfills` 재사용, 테두리도
+  같은 색=솔리드 배너), (2) 마커 든 *런*의 charPr 복제 → `textColor` 흰/accent(`_clone_charpr`
+  재사용), (3) **모든 마커 strip(tofu 방지)**. 마커 없으면 no-op → jeongtong/pyeongga 무영향.
+- `write_exam_to_hwp` 변환 후처리(`_fit_header_tables` 다음)에 배선. accent_rgb 는
+  `resolve_accent_rgb(template, accent_color)`.
+- **순환 import 주의**: `hwp_com_writer` 가 `template_headers` 를 import(단방향) → 마커 상수는
+  *template_headers(producer)*에 정의하고 hwp_com_writer 가 import. 반대로 정의하면 순환.
+
+**함정**: 마커는 PUA(본문 미사용 코드포인트)라 충돌 0. 단 *후처리가 strip 실패하면 tofu(□)*
+노출 → step 3 에서 모든 section 의 모든 마커를 무조건 `.replace(mk,"")`. 마커는 `chr(0xE010)`
+*표현식*으로 정의(CLAUDE.md §4-1 — 리터럴 PUA 는 Edit 에서 안 보임).
+
+### 40-3. 4 accent 헤더 (commits `b4cfc50` yuhyung, `02be9eb` workbook/modern/jaseup)
+
+- **yuhyung** (slate): 검정 유형 배너(1×1, `ACCENT_WHITE_INK` → 흰글자) `PATTERN + 유형명` +
+  accent 핵심전략 라인(`ACCENT_TEXT_MARK`).
+- **workbook** (red): accent 로고(■, `ACCENT_TEXT_MARK`) + 학원명 라인 + 검정 단원 배너(흰 title).
+- **modern** (navy): semester(accent) + 학교명(큰) + 일시 라인 + 학생정보표(1×12, accent 라벨).
+- **jaseup** (gold): SELF-STUDY(accent) + 제목 + 오늘의 목표(accent) + 개념정리 박스(테두리).
+
+**accent 테두리는 COM 한계로 미구현**(검정 근사) — 웹의 3px accent 하단선·박스 테두리는
+검정으로 나오지만 *글자/배너 색*이 식별 캐리. faceColor(배너)+textColor(글자)만 색 입힘.
+
+### 40-4. 렌더 검증 루프 (재사용)
+
+`scripts/render_to_png.py <hwpx> <prefix>` (HWP COM → PDF) + `fitz`(PyMuPDF) → PNG → Read 로
+육안. payload(template) → `server.convert_cli` .hwpx → render → PNG. `D:\tmp\render_tpl.py`
+가 이 흐름 묶음(template 인자). **각 변환·렌더는 COM 직렬**이라 `taskkill /F /IM Hwp.exe` 로
+이전 인스턴스 정리 후 진행(커넥터 떠 있어도 변환 중 아니면 무관). 6 종 전부 + jeongtong
+회귀(no-marker no-op) 렌더 확인 완료.
+
+### 40-5. 회귀 안전
+
+- `_apply_accent_header` 는 마커 없으면 *즉시 return 0* → jeongtong(폼)·pyeongga(무채색) 무영향
+  (jeongtong 회귀 렌더로 확인 — 헤더·음영·테두리 그대로).
+- 본문 렌더 무변경(template-agnostic) → content_parser golden 영향 0.
+- 6 종 헤더는 각자 `_header_<t>` 안에만 — dispatcher/본문/타 템플릿 격리.
+
+**원칙**: COM 으로 색을 직접 못 넣으면(set_char_shape 한계) *PUA 센티넬 + 저장 후 XML 후처리*
+가 표준 패턴. faceColor=`_append_borderfills`, textColor=`_clone_charpr` 재사용. 새 accent 헤더
+추가 시 마커만 박으면 색 후처리가 자동 처리(헤더 함수는 색 신경 안 씀).
