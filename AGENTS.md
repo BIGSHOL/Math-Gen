@@ -4939,3 +4939,29 @@ COM `MultiColumn` 은 작동 안 하니 재시도 말 것(실측 확정).
 **원칙(보강)**: 2단 본문 자체는 *머릿말+colPr=2* 로 가능(검증). 막힌 건 *머릿말 높이 ↔ 본문
 시작 위치* 한 점 — COM 으로 못 푼 것(MultiColumn)과 달리 *XML 레이아웃 튜닝* 영역이라 해결
 가능성 높음. 재개 시 위 미해결 1번(겹침)부터. POC: `D:\tmp\poc_header_2col.py`(임시).
+
+### 42-6. *해결* — 간단 머릿말 헤더로 2단 작동 (commit `decec15`, 6 템플릿)
+
+§42-5 의 "겹침"은 *머릿말 헤더가 너무 길어서*였다(리치 헤더가 우측 단을 침범). 결정 테스트
+(top 여백 100mm)로 *여백을 키워도 우측 단이 헤더 위로 시작*함을 확인 — 머릿말 헤더는 **단
+시작점 위에 들어갈 만큼 짧아야** 한다(대수회 폼이 되던 이유 = 한 줄 머릿말). 사용자 결정:
+**2단일 때만 간단 헤더**(1단은 리치 그대로).
+
+**구현**:
+- `template_headers.compact_header(s, meta)` — 제목(볼드 1줄) + 학교·학년·과목·시험일(작게 1줄).
+- `hwp_com_writer.write()`: `columns==2 and not form_mode` 면 `header_begin(0)` → `compact_header`
+  → `region_end`(머릿말). 1단은 `render_template_header`(리치) 그대로.
+- `_apply_body_columns(hwpx, gap_mm=8, top_mm=30)`: 섹션 colPr colCount=1→2 + 위 여백 30mm
+  (컴팩트 헤더 높이). `write_exam_to_hwp` 의 `columns==2 and not use_form` 에서 호출.
+- `convert_cli`: `columns==2` 면 `form_path=None`(폼 건너뜀) → **jeongtong 도 COM 컴팩트 경로로
+  2단 적용**(폼은 본문에 헤더 박혀 2단 불가).
+
+**검증**: jeongtong·modern 2단 렌더 — 컴팩트 헤더(전폭) + 본문 2단(1~7 좌단/8~14 우단) 깔끔,
+겹침 0. modern 1단 회귀 — 리치 헤더 그대로. 웹 UI 안내도 "2단 HWP 반영"으로 갱신.
+
+**남은 것(후속)**: ① 컴팩트 헤더가 *매 페이지 반복*(running header) — page-1-only 는 "첫 쪽
+다르게"(secPr) 필요. ② 컬럼 구분선(LineType) 미적용 + payload Pick 에 columnDivider 없음.
+③ top_mm 30 고정 — 헤더가 더 길면(학기 등 추가) 미세조정 필요.
+
+**원칙**: HWP 2단 = *짧은 머릿말 헤더 + 섹션 colPr=2*. 본문에 그린 헤더는 단과 양립 불가라
+2단 전용 컴팩트 헤더로 분기. 리치 헤더가 필요하면 floating 개체(미구현)뿐.
