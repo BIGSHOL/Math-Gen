@@ -5081,6 +5081,34 @@ hwpxlib(neolord0) OWPML 모델 소스로 권위 XML 확정** — §12-2/§35 골
 순서 확정**(GitHub `gh search code` + `gh api contents`). 얇은 선/미세 요소 검증은 *확대 렌더 +
 XML 주입 확인* 이중. enum 속성(LineType2/LineWidth)은 정확한 문자열이어야 Hancom 이 존중.
 
+### 42-10. 2단 쪽 여백 프리셋 반영 — 칼럼 폭 좌우여백 동적화 (commit `460405f`, 엔진)
+
+**동기**(내보내기 설정 전수 체크): 쪽 여백(좁게/보통/넓게)이 2단에선 무시되고 대수회 고정(좌우20)
+으로 덮여(§42-8) UI HwpNote("HWP 출력에 적용")가 거짓. 1단은 반영되는데 2단만 비대칭.
+
+**핵심**: 칼럼 폭 = `(A4 59528 − 좌우여백 − 단간격 2268)/2 − 500` = *좌우 여백만의 함수*. 고정 상수
+(`_COL_WIDTH_2COL`/`_DAERYUN_MARGIN`)를 헬퍼로 빼 3 사용처가 일관 반영:
+- `_col_width_2col(left_u, right_u)` + `_margins_2col_units(margins)`(좌우·하단 mm→units, 없으면
+  대수회 기본 5669 → 회귀 0). 상단/머릿말(top/header)은 컴팩트 헤더 높이 정렬 유지(§42-7 겹침 방지)
+  — 2단 머릿말이 상단을 차지하므로 margins.top 은 의미 약함.
+- **칼럼 폭 3 사용처**(§42-8 의 그 셋): `_box_width()`(write 시점 — `self._margins` 주입 필요),
+  `_apply_body_columns(margins)`(secPr `<hp:margin>` 생성), `_inject_bogi_form(margins)`(`<보기>`
+  5×5 박스 `_col_width_2col − _BOGI_OUT_MARGIN`).
+- `write_exam_to_hwp`: `writer._margins = margins` 주입 + 후처리 호출에 margins 전달. 1단 여백
+  (`_set_page_margins`, `if margins and columns != 2`)는 그대로 — 2단은 `_apply_body_columns` 전담.
+
+**검증**(다사중 2단): narrow(좌우12)→칼럼85mm / normal(15)→82mm / wide(22)→75mm — secPr margin·
+박스·표 모두 반영, 박스 칼럼 안(overflow 0), 헤더 겹침 0. margins 없음→대수회 20mm(회귀 0). 1단
+jeongtong wide→리치 헤더·박스 정상(게이트 `columns==2` 밖).
+
+**함정**: 렌더 회귀 테스트 시 *기존 payload(db_payload)에 이미 `style.margins` 가 있으면* "margins
+없음" 케이스를 만들려면 명시적으로 `pop("margins")` 해야 함 — 안 그러면 기존값(normal 15)이 남아
+진짜 회귀(대수회 20) 검증이 안 됨. 실측 중 한 번 헷갈림.
+
+**원칙**: 레이아웃 파생값(칼럼 폭)이 *한 입력(좌우 여백)의 함수*면 고정 상수를 헬퍼로 빼고 입력을
+흘려보내면 모든 사용처가 자동 일관. 상수는 폴백 기본값으로 유지(회귀 안전망). §42-8 박스 폭 인프라
+재사용 — 새 폭 계산 안 만들고 `_COL_WIDTH_2COL` 의 동적판 하나만 추가.
+
 ---
 
 ## 43. 폰트팩 HWP 반영 + 배점 폴백 (2026-06-24, Phase 1)
