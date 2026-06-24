@@ -5007,12 +5007,23 @@ page-1-only(①)·컬럼 구분선(②)은 폼 선례 없어 후속(secPr XML �
 top 을 흡수(이제 좌우/하/꼬릿까지 대수회 한 벌). 호출부는 raw `compact_header_height_mm`(+3 패드
 제거 — max 바닥값이 이미 겹침 방지).
 
-**(B) 박스/표 칼럼 폭** (overflow fix): `table_begin(line_width=42000)`(148mm 고정)이 2단 ~81mm
-칼럼을 넘어 다음 단/거터 침범이 원인. `HwpComWriter._box_width()` 신설 — `self._columns==2` 면
-`_COL_WIDTH_2COL`(=(A4 59528 − 좌우 5669×2 − 단간격 2268)/2 − 500 ≈ 22461 units = 79mm), 1단이면
-42000. `_write_equation_table`(줄기잎·OCR표 2곳) + `_write_condition_box`(`<보기>` 1×1 박스 1곳)
-의 `table_begin` 3곳에 `line_width=self._box_width()` 전달. 표는 WidthType=0(절대폭)이라 생성 시
-폭이 고정 — 이후 margin 패치와 무관하게 칼럼 안에 들어감.
+**(B) 박스/표 칼럼 폭** (overflow fix — *경로 2개*, CRITICAL 함정): 2단 박스가 단을 넘는데, 박스
+종류마다 *생성 경로가 다르다*:
+- **OCR 표·줄기잎·단순 박스** = COM `table_begin(line_width=42000)`(148mm) → `_box_width()` 신설로
+  `self._columns==2` 면 `_COL_WIDTH_2COL`(=(A4 59528 − 좌우 5669×2 − 단간격 2268)/2 − 500 ≈ 22461
+  units = 79mm) 전달(`_write_equation_table` 2곳 + `_write_condition_box` 1×1 1곳). WidthType=0
+  절대폭이라 생성 시 고정.
+- **`<보기>`/`<조건>` 라벨 박스** = ⚠️ **COM 아님!** `_inject_bogi_form` 이 `bogi_box_template.py`
+  의 *고정 폭 5×5 병합표(`<hp:sz width="29307"`=103mm)* 를 저장 후 XML 주입(레퍼런스 픽셀 동일
+  폼). 즉 `_box_width`(table_begin) fix 가 이 박스엔 *무관* — 처음에 "박스 fit" 으로 오판한 원인
+  (1×1 박스는 inject 단계에서 5×5 로 치환됨). **해결**: `_scale_bogi_box_width(tbl, target)` — 템플릿
+  수치 `width="N"`(`<hp:sz>`+`<hp:cellSz>`)을 29307 기준 ratio 일괄 곱(행별 합·colSpan 병합 보존,
+  margin/horzsize/widthRelTo 불변). `_inject_bogi_form(columns)` 가 `columns==2` 면 `_COL_WIDTH_2COL
+  − outMargin 566` = 77mm 로 스케일(footprint=표폭+outMargin 가 칼럼 안). 1단은 게이트로 29307 유지.
+
+**원칙(박스 경로)**: 2단/폭 관련 박스 함정은 *생성 경로를 먼저 확인* — `table_begin`(COM) vs
+`bogi_box_template`(XML 주입 5×5) vs 헤더 표(`_fit_header_tables`). 시각으로 "fit 됐다" 판단 금지,
+*생성 .hwpx 의 `<hp:tbl> <hp:sz width>` 를 units 로 측정*해 확인(다사중 #4 박스: 29307→21895).
 
 **(C) COM late-binding 근본 수정** (CRITICAL — flakiness 해소): 위 검증 중 `header_begin` 이
 `HHeaderFooter object has no attribute 'Type'` 로 *간헐* 실패(§39-0/§40-4 의 그 flakiness). 실측
