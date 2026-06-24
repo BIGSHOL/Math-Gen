@@ -4856,3 +4856,56 @@ Pick 확장(payload 에 싣기) + 엔진 소비 각각. 폰트=한글 폰트 매
 **원칙**: payload 시그니처가 `Pick<>` 로 좁혀져 있으면 *UI 에서 옵션을 만져도 엔진에 안 닿는다* —
 새 옵션 HWP 반영 시 (a) `buildHwpPayload` Pick 확장 + payload 필드 추가, (b) adapter 추림,
 (c) 엔진 소비 3 단계 모두 필요. 하나라도 빠지면 "UI 만 동작, 출력 무변화"(이번 감사의 핵심 발견).
+
+---
+
+## 42. 2단 본문 HWP — *시도→블록* 조사 기록 (2026-06-24, CRITICAL 함정)
+
+§41 의 미반영 #1(2단)을 구현 시도했으나 **HWP 단(column) 모델과 우리 헤더 아키텍처가
+근본 충돌**해 막혔다. 막다른 길 4 개 + 유일한 우회로를 기록 — *다시 시도하기 전 반드시
+읽을 것*(같은 조사 반복 방지, 실측 렌더 검증 완료).
+
+### 42-1. 배경 — columns 는 엔진까지 가지만 본문에서 무시
+
+`style.columns`(1|2)는 payload→adapter→`writer._columns` 까지 전달되나, 본문 작성 경로
+(`hwp_com_writer.write`/`_write_question`/`_write_block`)에서 *read 0건* — 단 분할 COM 호출
+전무(§41 매트릭스). 그래서 2단을 *추가* 하려 했다.
+
+### 42-2. 막다른 길 4 개 (전부 실측)
+
+1. **COM `MultiColumn` 액션 → `Execute` 항상 False.** `HParameterSet.HColDef` 존재
+   (Count/SameSz/SameGap/LineType), `CreateAction("MultiColumn")`+`CreateSet`+`ColInfo`
+   ItemArray(count 2 생성됨)까지 해도 Execute False — 적용 안 됨. 선택 영역(MoveSelDocEnd)
+   후에도 False. *COM 으로 단 설정 불가*(probe `_probe_cols*.py`).
+2. **섹션 colPr `colCount=1→2` XML 패치 → 헤더 깨짐.** 단은 `<hp:secPr>` 안 `<hp:colPr
+   type="NEWSPAPER" colCount=N sameGap=N>` *섹션 전역* 속성. 2 로 바꾸면 본문에 그린 헤더
+   (제목 배너·정보표)까지 단 흐름에 들어가 — 표는 전폭 유지되나 *col-2 문항이 페이지
+   최상단(헤더 위)에 겹쳐* 출력. 신문형 단은 col-1 의 전폭 헤더를 "col-1 콘텐츠"로 보고
+   col-2 를 페이지 top 부터 채우기 때문.
+3. **본문 첫 문단에 mid-document colPr ctrl 주입 → HWP 무시.** `</hp:tbl>` 뒤 본문 첫 run 에
+   `<hp:ctrl><hp:colPr colCount=2/></hp:ctrl>` 삽입해도 본문 1단 그대로. HWP 는 *섹션 첫
+   문단의 colPr 만* 인식, 중간 colPr 컨트롤은 단 구역 변경으로 처리 안 함(probe `_midcol`).
+4. **구역 나누기 = 새 쪽.** 헤더 구역(1단)+본문 구역(2단)으로 나누면 본문이 *page 2* 로
+   밀림. HWP 구역 나누기는 쪽 단위(연속 구역=Word 식이 없음) — 헤더·본문 같은 쪽 불가.
+
+### 42-3. 유일한 우회로 + 충돌
+
+코드베이스의 *작동하는 2단*(`hwp_form_writer` + 대수회 폼, `.testkit/*.hwpx`)은 전부
+**header 를 페이지 머릿말(running header)에 + 본문 섹션 colCount=2**. 머릿말은 단 흐름 밖
+전폭이라 1단 헤더 + 2단 본문이 같은 쪽에 공존. **단 머릿말은 매 쪽 반복** — 우리의 *풍부한
+page-1 전용 헤더*(제목 배너·정보표·accent 배너 §40)는 *본문에 그려진* 1쪽 콘텐츠라 머릿말로
+못 옮긴다(머릿말은 높이 제한 + 매쪽 반복). → *2단 본문 vs 풍부한 page-1 헤더* 양립 불가.
+
+### 42-4. 현재 상태 + 진짜 고치려면
+
+- **엔진 변경 전부 revert**(set_columns/write 배선 — 작동 안 함). 웹은 무변경(columns 는
+  이미 payload 에 있고 엔진이 무시). UI 는 §41-2 의 HwpNote "2단은 미리보기 전용" 로 이미
+  정직하게 안내 — *미구현이 사용자에게 거짓말 안 함*.
+- **진짜 2단 구현 옵션**(후속, 사용자 결정 필요): (A) page-1 헤더를 *간소화해 머릿말로*
+  이동 + 섹션 2단 — 헤더 디자인 희생(방금 만든 풍부한 헤더와 상충). (B) 헤더를 *전폭 floating
+  개체*(글자처럼취급 해제 + 자리차지)로 만들어 2단 위에 띄움 — 본문 표 헤더를 floating 으로
+  재구성하는 큰 작업, 미검증. (C) 2단 포기, 미리보기 전용 유지(현재).
+
+**원칙**: HWP 다단은 *섹션 전역 + 머릿말 헤더* 패턴만 안정. 본문에 그린 page-1 헤더와
+2단 본문은 HWP 모델상 양립 불가 — "맞춤" 류 옵션 구현 전 *엔진 모델의 제약*을 먼저 확인.
+COM `MultiColumn` 은 작동 안 하니 재시도 말 것(실측 확정).
