@@ -4994,3 +4994,43 @@ return 값은 write() L1110 에서 무시 → 1단 무영향). payload 무변경
 **원칙**: 머릿말 헤더 ↔ 2단 본문 겹침 방지의 정답은 *top·header 를 헤더 실제 높이로 정렬*(폼 패턴).
 고정 추정 금지 — 헤더 줄 수 가변이라 `compact_header_height_mm` 같은 *그려질 줄 수 기반 산정* 필요.
 page-1-only(①)·컬럼 구분선(②)은 폼 선례 없어 후속(secPr XML 신규 / payload Pick cascade).
+
+### 42-8. *해결* — 2단 대수회 여백 고정 + 박스/표 칼럼 폭 + COM late-binding 근본 수정 (commits `7d6eb6e`·`4976dec`, 엔진)
+
+사용자 보고(2026-06-24): 2단인데 (1) `<보기>`·조건 박스/표가 *단 폭을 넘어 overflow*, (2) 좌우
+여백 30mm 너무 넓음 → "상하좌우여백을 대수회폼으로 해".
+
+**(A) 대수회 여백 고정**: `_DAERYUN_MARGIN` 상수(좌우 5669=20mm·하 5669·꼬릿 2834=10mm·top/header
+4251=15mm). `_apply_body_columns` 가 secPr `<hp:margin>` *전체*를 이 한 벌로 교체(섹션당 1개라
+`re.sub(r'<hp:margin\b[^>]*/>', …)` 전치환 안전). top/header 는 폼의 `header==top` 정렬을 유지하되
+`max(대수회 top 4251, 컴팩트 헤더 실제 높이)` — 보통 정확히 15mm, 헤더 길면 grow. §42-7 의 동적
+top 을 흡수(이제 좌우/하/꼬릿까지 대수회 한 벌). 호출부는 raw `compact_header_height_mm`(+3 패드
+제거 — max 바닥값이 이미 겹침 방지).
+
+**(B) 박스/표 칼럼 폭** (overflow fix): `table_begin(line_width=42000)`(148mm 고정)이 2단 ~81mm
+칼럼을 넘어 다음 단/거터 침범이 원인. `HwpComWriter._box_width()` 신설 — `self._columns==2` 면
+`_COL_WIDTH_2COL`(=(A4 59528 − 좌우 5669×2 − 단간격 2268)/2 − 500 ≈ 22461 units = 79mm), 1단이면
+42000. `_write_equation_table`(줄기잎·OCR표 2곳) + `_write_condition_box`(`<보기>` 1×1 박스 1곳)
+의 `table_begin` 3곳에 `line_width=self._box_width()` 전달. 표는 WidthType=0(절대폭)이라 생성 시
+폭이 고정 — 이후 margin 패치와 무관하게 칼럼 안에 들어감.
+
+**(C) COM late-binding 근본 수정** (CRITICAL — flakiness 해소): 위 검증 중 `header_begin` 이
+`HHeaderFooter object has no attribute 'Type'` 로 *간헐* 실패(§39-0/§40-4 의 그 flakiness). 실측
+확정: `_dispatch_hwp` 의 `gencache.EnsureDispatch`(early-binding)가 이 HWP 버전 type library 에서
+`HParameterSet.HHeaderFooter` 의 `Type`/`Item`/`SetItem` 동적 멤버를 *노출 못 함*(gen_py 정리 후
+makepy 재생성해도 동일 — early-binding 래퍼 자체가 불완전). gen_py 캐시 존재 여부로 "됐다 안 됐다"
+하던 것. **해결**: `win32com.client.dynamic.Dispatch`(강제 late-binding). DISPID 런타임 해석이라
+동적 멤버 정상 + 캐시 손상 무관. 배포 `.exe`(frozen)도 이미 late-binding 으로 가동 중 → 프로덕션
+동작과 일치. 이 모듈은 win32com `constants` 미사용(grep 검증)이라 early-binding 의존 0 → 안전.
+⚠️ `win32com.client.Dispatch`(non-dynamic)는 gen_py 있으면 early 를 돌려줄 수 있어 `dynamic.Dispatch`
+가 필수. **gen_py 를 함부로 `rmtree` 하지 말 것** — 재생성이 불완전 래퍼를 만들어 더 악화(이번에
+디버그 중 실수로 정리했다가 late-binding 으로 근본 해결).
+
+**검증**(다사중 20문항 jeongtong 2단): margin `header=top=4251`(15mm)·`left=right=5669`(20mm)·
+`bottom=5669`·`footer=2834` = 대수회 정확 일치, `<보기>` 박스가 좌측 단 79mm 폭에 들어가고 우측
+단 미침범, 페이지 3. 회귀: 1단 jeongtong 리치 헤더·표 정상(late-binding + `_box_width` 분기 +
+`columns==2 and not use_form` 게이트).
+
+**원칙**: HWP COM 은 *late-binding(dynamic.Dispatch)* 이 정답 — early-binding gen_py 는 parameter-set
+동적 멤버 노출이 type library 버전 의존이라 flaky. 2단 박스/표는 `table_begin(line_width=칼럼폭)`
+으로 단 overflow 방지(절대폭이라 생성 시 확정). 여백은 검증 폼(대수회) 한 벌을 그대로 베끼는 게 정답.
