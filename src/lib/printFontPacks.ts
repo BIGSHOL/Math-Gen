@@ -26,6 +26,14 @@ export interface FontPack {
   serif: string;
   /** 헤더 등 sans 폰트 family stack. */
   sans: string;
+  /**
+   * HWP 내보내기용 글꼴면(face) 이름 — header.xml fontfaces 의 바탕/돋움 계열을 이 이름으로
+   * 치환(엔진 _apply_body_font). 빈 문자열이면 엔진 무변경(함초롬 유지). CSS family stack 과
+   * 달리 *단일 글꼴명* 이어야 하고, 문서를 여는 PC 에 설치돼 있어야 시각 반영(미설치 시 HWP
+   * fallback). serif=바탕 계열, sans=돋움 계열.
+   */
+  hwpSerif: string;
+  hwpSans: string;
 }
 
 export const FONT_PACKS: FontPack[] = [
@@ -35,6 +43,9 @@ export const FONT_PACKS: FontPack[] = [
     hint: "기본 (빠름)",
     serif: '"Batang", "BatangChe", serif',
     sans: '"Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+    // system = HWP 무변경(함초롬 유지) → 빈값으로 엔진 no-op.
+    hwpSerif: "",
+    hwpSans: "",
   },
   {
     id: "nanum",
@@ -42,6 +53,8 @@ export const FONT_PACKS: FontPack[] = [
     hint: "네이버 무료",
     serif: '"Nanum Myeongjo", "Batang", serif',
     sans: '"Nanum Gothic", "Malgun Gothic", sans-serif',
+    hwpSerif: "나눔명조",
+    hwpSans: "나눔고딕",
   },
   {
     id: "noto",
@@ -49,6 +62,8 @@ export const FONT_PACKS: FontPack[] = [
     hint: "Google 무료",
     serif: '"Noto Serif KR", "Batang", serif',
     sans: '"Noto Sans KR", "Malgun Gothic", sans-serif',
+    hwpSerif: "Noto Serif KR",
+    hwpSans: "Noto Sans KR",
   },
   {
     id: "gowun",
@@ -56,6 +71,8 @@ export const FONT_PACKS: FontPack[] = [
     hint: "부드러운 modern",
     serif: '"Gowun Batang", "Batang", serif',
     sans: '"Gowun Dodum", "Malgun Gothic", sans-serif',
+    hwpSerif: "고운바탕",
+    hwpSans: "고운돋움",
   },
   {
     id: "pretendard",
@@ -63,6 +80,8 @@ export const FONT_PACKS: FontPack[] = [
     hint: "Pretendard + 나눔명조",
     serif: '"Nanum Myeongjo", "Batang", serif',
     sans: 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+    hwpSerif: "나눔명조",
+    hwpSans: "Pretendard",
   },
 ];
 

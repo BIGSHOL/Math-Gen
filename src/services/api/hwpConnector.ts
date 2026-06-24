@@ -12,6 +12,7 @@ import type { ProblemReview, PrintOptions } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
 import type { GeneratedProblem } from "@app/types";
 import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
+import { getFontPack, type FontPackId } from "@app/lib/printFontPacks";
 
 /** 커넥터 base URL. dev override 가능 (VITE_HWP_CONNECTOR_URL). */
 const BASE =
@@ -91,6 +92,11 @@ export interface HwpPayloadStyle {
   margins?: { top: number; bottom: number; left: number; right: number };
   /** 2단 컬럼 사이 세로 구분선(<hp:colLine>). 1단이면 엔진이 무시. 없으면 false. */
   divider?: boolean;
+  /**
+   * 폰트팩 글꼴면(face) — 엔진이 header.xml fontfaces 의 바탕/돋움 계열을 이 이름으로 치환.
+   * serif=바탕 계열, sans=돋움 계열. system 팩(빈 이름)이면 생략 → 엔진 무변경(함초롬 유지).
+   */
+  font?: { serif: string; sans: string };
 }
 
 /** 여백 프리셋(mm) — wizardStore PrintOptions.marginPreset 와 매핑. */
@@ -101,6 +107,19 @@ const MARGIN_PRESETS: Record<
   narrow: { top: 10, bottom: 10, left: 12, right: 12 },
   normal: { top: 12, bottom: 12, left: 15, right: 15 },
   wide: { top: 18, bottom: 15, left: 22, right: 22 },
+};
+
+/**
+ * 폰트팩 → payload.style.font. HWP face 이름(hwpSerif/hwpSans)이 있을 때만 font 포함.
+ * system 팩(빈 이름)이면 빈 객체 → 엔진 무변경(함초롬 유지).
+ */
+const fontStyleFor = (
+  fontPack: FontPackId | undefined,
+): Pick<HwpPayloadStyle, "font"> => {
+  const fp = getFontPack(fontPack);
+  return fp.hwpSerif || fp.hwpSans
+    ? { font: { serif: fp.hwpSerif, sans: fp.hwpSans } }
+    : {};
 };
 
 export interface HwpPayload {
@@ -206,7 +225,7 @@ export const buildHwpPayload = (
   exportSource: string,
   printOptions: Pick<
     PrintOptions,
-    "template" | "color" | "columns" | "marginPreset" | "columnDivider"
+    "template" | "color" | "columns" | "marginPreset" | "columnDivider" | "fontPack"
   >,
 ): HwpPayload => ({
   schema: "v2",
@@ -235,6 +254,8 @@ export const buildHwpPayload = (
     margins: MARGIN_PRESETS[printOptions.marginPreset] ?? MARGIN_PRESETS.normal,
     // 2단 컬럼 구분선 — UI 토글(columnDivider). 1단이면 엔진이 무시.
     divider: printOptions.columns === 2 && printOptions.columnDivider,
+    // 폰트팩 글꼴면 — system(빈 이름)이면 생략 → 엔진 함초롬 유지.
+    ...fontStyleFor(printOptions.fontPack),
   },
   problems: problems.map((r, i) => {
     // §33: exportSource 는 현재 항상 "original". digitize 면 original===variant.
@@ -279,7 +300,14 @@ export const buildHwpPayload = (
           ...(s.labelType ? { labelType: s.labelType } : {}),
         }));
       }
-      if (typeof p.score === "number") wire.score = p.score;
+      // 배점: score 우선, 없으면 points 폴백(변형 문항은 points 만 가짐 — 미리보기 points??3 와 일치).
+      const sc =
+        typeof p.score === "number"
+          ? p.score
+          : typeof p.points === "number"
+            ? p.points
+            : undefined;
+      if (typeof sc === "number") wire.score = sc;
       if (p.labelType) wire.labelType = p.labelType;
     }
     return wire;

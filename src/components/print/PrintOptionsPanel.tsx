@@ -405,7 +405,10 @@ export const PrintOptionsPanel = ({
           <p className="mt-1.5 text-caption text-muted leading-tight">
             본문 (명조) + 헤더 (고딕) 쌍 — 모두 한글 무료 폰트
           </p>
-          <HwpNote>미리보기 전용 — HWP 내보내기는 한글 기본 글꼴로 출력됩니다.</HwpNote>
+          <HwpNote>
+            HWP에도 반영됩니다 — 단 고른 글꼴이 문서를 여는 PC에 설치돼 있어야 보이며, 미설치 시
+            한글 기본 글꼴로 표시됩니다. (시스템 팩은 항상 안전)
+          </HwpNote>
         </Section>
 
         {/* 3. 강조 색상 */}

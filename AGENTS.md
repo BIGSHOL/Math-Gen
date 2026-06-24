@@ -5080,3 +5080,65 @@ hwpxlib(neolord0) OWPML 모델 소스로 권위 XML 확정** — §12-2/§35 골
 **원칙**: 니치 OWPML XML 은 추측 말고 hwpxlib/hwplib(neolord0) **모델 소스에서 enum·요소·writer
 순서 확정**(GitHub `gh search code` + `gh api contents`). 얇은 선/미세 요소 검증은 *확대 렌더 +
 XML 주입 확인* 이중. enum 속성(LineType2/LineWidth)은 정확한 문자열이어야 Hancom 이 존중.
+
+---
+
+## 43. 폰트팩 HWP 반영 + 배점 폴백 (2026-06-24, Phase 1)
+
+§41 매트릭스의 미반영 항목 감사 후 사용자 방침("계단 올라가듯 조금씩, 섬세하게")에 따라 *저위험·
+즉시효과* 둘을 먼저. commits 엔진 `fda0ec4` + 웹.
+
+### 43-1. 폰트팩 — header.xml fontfaces face 치환 (COM 글꼴 불가 → XML 후처리)
+
+**동기**: 미리보기는 5종 폰트팩(system/nanum/noto/gowun/pretendard, `src/lib/printFontPacks.ts`)을
+CSS family stack 으로 쓰는데 HWP 는 함초롬 기본만 출력 → 시각 갭.
+
+**핵심 — COM 글꼴면 설정 불가**: `set_char_shape`/`set_char_size`(`hwp_com.py`)는 Height/Bold/Ratio/
+Size 만 설정하고 *FaceName/FaceNameUser/FontType 글꼴면을 안 넣는다*(§40 색과 동일한 COM 한계).
+→ **저장 후 header.xml XML 후처리가 유일 경로**.
+
+**왜 accent 보다 단순한가**: header.xml 글꼴 구조 = `<hh:fontfaces>`(7 lang × 3 글꼴) + 각 charPr 의
+`<hh:fontRef hangul=.. latin=..>` 가 글꼴 id 참조. **fontfaces 의 `face` 이름만 치환하면 그 id 를
+참조하는 모든 본문/헤더가 자동 전환** — accent(§40)처럼 일부 셀/run 을 PUA 마커로 골라 charPr 복제할
+필요 없음. 전체 글꼴 교체라 일괄 치환.
+
+**구현** (`core/hwp_com_writer.py` `_apply_body_font(hwpx, font)`):
+- `<hh:fontfaces>` 블록 안에서만 각 `<hh:font face="X">` 치환(타 face 속성 오염 방지).
+- face X 가 `_SANS_FACE_RE`(돋움|고딕|굴림|맑은|Gothic|Dodum|Gulim|Sans) 매치 → `font["sans"]`,
+  아니면(바탕/명조 계열) → `font["serif"]`. *기존 의도 보존*(바탕이던 본문→serif, 돋움이던 라벨→sans).
+- serif/sans 중 빈값이면 그 계열 유지. **form_mode 무관**(폼 .hwpx 도 header.xml 에 fontfaces).
+- `write_exam_to_hwp(font=None)` → font 있으면 호출. None(system 팩/구버전 payload)이면 no-op.
+
+**웹 배선 (5단계 cascade)**: `printFontPacks.ts` 각 팩에 `hwpSerif`/`hwpSans`(HWP face 이름 — 웹이
+source of truth, 엔진 글꼴 지식 0) → `hwpConnector.ts` `HwpPayloadStyle.font` + Pick 에 `fontPack`
++ `fontStyleFor()` 로 `style.font` 매핑(system 빈 이름이면 생략) → `adapter._font_pair`(빈값이면 None)
+→ `convert_cli` 전달 → `_apply_body_font`.
+
+**face 이름** (system="" no-op / nanum=나눔명조·나눔고딕 / noto=Noto Serif KR·Noto Sans KR /
+gowun=고운바탕·고운돋움 / pretendard=나눔명조·Pretendard). ⚠️ **HWP 는 시스템 글꼴 의존** — 글꼴
+미설치 PC 에선 fallback(이름은 박히되 시각 다름). 미리보기(웹폰트 CDN)와 본질적 차이. UI HwpNote
+에 "미설치 시 기본 글꼴" 명시. face 이름 정확성은 글꼴마다 다를 수 있어 *렌더 + XML 확인* 이중 검증.
+
+**검증**(다사중): nanum 2단 → fontfaces 가 나눔명조/나눔고딕 치환 + 나눔체 렌더 + 레이아웃 무손상.
+system(font 없음) → 함초롬 유지(회귀 0). 1단 폼 경로도 정상.
+
+### 43-2. 배점 폴백 (points → score)
+
+**버그**: 변형 문항은 `points` 만 갖고 `score` 없는데, `buildHwpPayload` wire 가 `score` 만 봐서
+배점 누락. 미리보기는 `points ?? 3` 폴백이라 불일치.
+
+**fix** (`hwpConnector.ts`): `wire.score = p.score ?? p.points`(number 일 때만). 엔진 무변경(이미 score
+소비). 폴백만 추가 → 회귀 0.
+
+### 43-3. 후속 계단 (미구현 로드맵)
+
+- **Phase 2 — showChapter**(단원명 본문, M): `topic` 이미 wire 전달(`hwpConnector.ts:260`)되나 엔진
+  미소비 — Question 모델에 `topic` 필드 없음 + `_write_question` 출력 로직 없음. 모델+adapter+writer 신규.
+- **Phase 3 — showDate/showDifficulty**(M~L): 둘 다 *미리보기에서도 죽은 코드*(템플릿 미사용,
+  DifficultyBadge 미연결) → 미리보기부터 살려야 함.
+- **정답·해설 페이지**(L): 엔진 모델 answer/solution 0 + writer 정답지 경로 0 → 4단 신규. 별도 phase.
+
+**원칙**: payload Pick 확장 cascade(§41-3)는 *웹 Pick + style 필드 + adapter 추림 + 엔진 소비* 전부
+있어야 동작 — 하나라도 빠지면 "UI 만 동작, 출력 무변화". 폰트는 거기에 *COM 불가 → XML 후처리* 가
+추가된 케이스(§40 색과 같은 패턴). 글꼴/색 등 *문서 전역 charPr 속성*은 COM 이 아니라 header.xml
+후처리가 표준.
