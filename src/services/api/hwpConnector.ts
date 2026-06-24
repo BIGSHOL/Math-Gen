@@ -54,6 +54,12 @@ export interface HwpPayloadProblem {
   score?: number;
   /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
   labelType?: string;
+  /**
+   * 정답·해설(§44) — showAnswers 일 때만 실음. 마크다운+LaTeX 문자열(엔진 content_parser
+   * 가 줄별 블록으로 파싱). answer="③ 5"/"$\frac{4}{3}$", solution=단계별 풀이.
+   */
+  answer?: string;
+  solution?: string;
 }
 
 /**
@@ -97,6 +103,12 @@ export interface HwpPayloadStyle {
    * serif=바탕 계열, sans=돋움 계열. system 팩(빈 이름)이면 생략 → 엔진 무변경(함초롬 유지).
    */
   font?: { serif: string; sans: string };
+  /**
+   * 정답·해설 페이지(§44) — 웹 showAnswers/quickAnswerOnly 토글. showAnswers 면 엔진이
+   * 문제 뒤 새 쪽에 '정답 및 해설' 추가. quickAnswerOnly 면 해설 생략(빠른 정답만).
+   */
+  showAnswers?: boolean;
+  quickAnswerOnly?: boolean;
 }
 
 /** 여백 프리셋(mm) — wizardStore PrintOptions.marginPreset 와 매핑. */
@@ -225,7 +237,14 @@ export const buildHwpPayload = (
   exportSource: string,
   printOptions: Pick<
     PrintOptions,
-    "template" | "color" | "columns" | "marginPreset" | "columnDivider" | "fontPack"
+    | "template"
+    | "color"
+    | "columns"
+    | "marginPreset"
+    | "columnDivider"
+    | "fontPack"
+    | "showAnswers"
+    | "quickAnswerOnly"
   >,
 ): HwpPayload => ({
   schema: "v2",
@@ -256,6 +275,9 @@ export const buildHwpPayload = (
     divider: printOptions.columns === 2 && printOptions.columnDivider,
     // 폰트팩 글꼴면 — system(빈 이름)이면 생략 → 엔진 함초롬 유지.
     ...fontStyleFor(printOptions.fontPack),
+    // 정답·해설 페이지(§44) — showAnswers 면 엔진이 문제 뒤 새 쪽에 추가, quickAnswerOnly 면 해설 생략.
+    showAnswers: printOptions.showAnswers,
+    quickAnswerOnly: printOptions.quickAnswerOnly,
   },
   problems: problems.map((r, i) => {
     // §33: exportSource 는 현재 항상 "original". digitize 면 original===variant.
@@ -280,6 +302,13 @@ export const buildHwpPayload = (
       text, // fallback — 커넥터가 contents 없을 때만 사용
       ...(p.topic ? { topic: p.topic } : {}),
     };
+    // 정답·해설(§44) — showAnswers 일 때만 실음(payload 비대화 방지). p 는 exportSource 로
+    // 이미 original/variant 선택됨(원본/변형 일관). 문자열 그대로 — 엔진이 줄별 블록 파싱.
+    if (printOptions.showAnswers) {
+      if (typeof p.answer === "string" && p.answer.trim()) wire.answer = p.answer;
+      if (typeof p.solution === "string" && p.solution.trim())
+        wire.solution = p.solution;
+    }
     // 옵션 B: 네이티브 블록 있으면 그대로 전달 → 커넥터가 markdown 재분해 없이
     // testchange 파이프라인(parse_ocr_response→build_document→writer)으로 변환.
     if (Array.isArray(p.blocks) && p.blocks.length > 0) {

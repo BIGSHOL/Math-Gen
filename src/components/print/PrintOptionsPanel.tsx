@@ -589,7 +589,8 @@ export const PrintOptionsPanel = ({
             )}
           </div>
           <HwpNote>
-            미리보기 전용 — HWP 내보내기에는 <strong>정답·해설 페이지가 포함되지 않습니다.</strong>
+            <strong>HWP에도 반영됩니다</strong> — 문제 뒤 새 쪽에 "정답 및 해설"이 추가됩니다(빠른
+            정답만 토글 포함).
           </HwpNote>
         </Section>
 

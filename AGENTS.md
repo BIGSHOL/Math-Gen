@@ -5170,3 +5170,91 @@ system(font 없음) → 함초롬 유지(회귀 0). 1단 폼 경로도 정상.
 있어야 동작 — 하나라도 빠지면 "UI 만 동작, 출력 무변화". 폰트는 거기에 *COM 불가 → XML 후처리* 가
 추가된 케이스(§40 색과 같은 패턴). 글꼴/색 등 *문서 전역 charPr 속성*은 COM 이 아니라 header.xml
 후처리가 표준.
+
+---
+
+## 44. 정답·해설 페이지 HWP 내보내기 (2026-06-24, §41 미반영 #최대가치)
+
+§41 매트릭스에서 *교사 가치 최대* 미반영이던 "정답·해설 페이지"(웹 `showAnswers`/`quickAnswerOnly`
+토글)를 HWP 출력에 반영. 엔진은 정답/해설을 *데이터 모델부터 0*(§43-3 "4단 신규")이라 5-layer
+cascade(§41-3) 전부 신규. 웹/엔진 양쪽 커밋.
+
+### 44-1. linchpin — 정답/해설은 *마크다운 문자열*, 엔진 forward-split 재사용
+
+`OCRProblem`/`GeneratedProblem`의 `answer`/`solution`은 *타입블록 아닌 마크다운+LaTeX 문자열*
+(`answer="③ 5"`/`"$\frac{4}{3}$"`, `solution`=단계별 풀이). 엔진 `content_parser._parse_content_block`
+이 TEXT 블록의 `$...$`·`\cmd`·혼합수식·줄바꿈을 **forward-split**(§35-2 에서 *웹 포팅 제외* = 엔진엔
+그대로 존재)한다. 즉 문자열을 `{type:"text", value:...}`로 감싸 `_parse_raw_blocks` 에 넘기면 수식이
+자동으로 equation 블록으로 쪼개져 정상 렌더 — **새 파서 불필요**. 문제 본문 `text` 폴백과 동일 경로.
+
+### 44-2. cascade 5단 (웹→엔진)
+
+| 단 | 파일 | 변경 |
+|---|---|---|
+| 웹 wire | `src/services/api/hwpConnector.ts` | `HwpPayloadProblem.answer?/solution?`(문자열) + `HwpPayloadStyle.showAnswers?/quickAnswerOnly?` + `buildHwpPayload` Pick 확장 + `showAnswers` 일 때만 추림(게이트) |
+| 웹 안내 | `PrintOptionsPanel.tsx` | HwpNote "미리보기 전용" → "HWP에도 반영" |
+| adapter | `server/adapter.py` | `_adapt_problem` answer/solution 문자열 passthrough + `adapt_payload` style `show_answers`/`quick_answer_only` |
+| CLI | `server/convert_cli.py` | `write_exam_to_hwp(show_answers, quick_answer_only)` |
+| 모델/파서 | `models/exam_document.py`, `core/content_parser.py` | `Question.answer/solution: list[list[ContentBlock]]`(줄별 런) + `_parse_markdown_lines`/`_parse_inline_run` |
+| writer | `core/hwp_com.py`, `core/hwp_com_writer.py` | `break_page()` + `_write_answer_page` |
+
+누락 시 "UI 만 동작, 출력 무변화"(§41-3). default(빈 리스트/False)라 구버전 payload·GUI 경로 회귀 0.
+
+### 44-3. `_write_answer_page` 설계 (웹 PrintAnswerKeyPage 미러)
+
+`write()` 문항 루프 직후 `if self._show_answers and any(q.answer or q.solution for q in all_q)`:
+1. `break_page()` — 문제 뒤 *새 쪽*. (late-binding `dynamic.Dispatch`라 `HAction.Run("BreakPage")` 정상, §42-8.)
+2. "정답 및 해설" 제목(가운데·볼드·note_pt+2).
+3. **빠른 정답** — 각 문항 `번호.`(볼드) + answer 인라인 + 간격(자연 wrap, 웹 flex-wrap 미러).
+4. (`not quick_answer_only`) **문항별 해설** — solution 있는 문항마다 `번호. 정답: …` + solution 줄들.
+
+`_write_block`·`s.text`·`s.equation`·`s.break_para`·`s.align_*`·`set_char_shape` 등 *기존 프리미티브
+조합만* — 신규 렌더 로직 0. **컬럼**: 본문과 같은 섹션이라 문서 단 설정 상속(2단→2단 흐름 = 웹
+2-col 해설 일치, 1단→1단). 머릿말/`_apply_body_columns` 무변경(2단 컴팩트 머릿말 정답쪽에도 반복).
+
+### 44-4. 줄 구조 = `list[list[ContentBlock]]` (줄별 런)
+
+writer 가 블록 사이 `break_para` 를 *명시적으로* 넣는 구조라, 해설의 줄바꿈을 보존하려면 줄 구조
+필요. `Question.answer`/`solution` 을 **줄별 ContentBlock 런 리스트**로 저장(answer 는 보통 1줄).
+`_parse_markdown_lines` 가 `\n` 으로 나눠 줄별 파싱. writer 는 줄마다 인라인 블록 + `break_para`.
+
+### 44-5. 마크다운 장식 strip + full-`$...$` fall-through 가드 (함정)
+
+- `_strip_md_decoration`: `**bold**`·`#`헤딩·`>`인용 마커 제거(평문화) + `$$display$$`→`$...$`(정답
+  페이지는 인라인 렌더). `[1단계: …]` 라벨은 평문 유지(가독). `_finalize_contents`(박스/배점/선택지
+  정규화)는 **미적용** — 문제 본문 전용이라 해설 오염 위험(§35-2 forward-split 만 재사용).
+- **full-`$...$` 가드(CRITICAL)**: 줄 전체가 단일 `$\cmd...$`(정답 `$\frac{4}{3}$`)면
+  `_parse_content_block` 의 `$` 경로가 `len==1` 이라 return 안 하고 `_split_latex_commands` 로 떨어져
+  *리터럴 `$` 누출*. step4/5 엔 단일수식 가드(`len==1 and type!=TEXT → return`) 있으나 `$` 경로엔
+  없음. 공유 함수(골든 테스트 대상) 안 건드리려고 *로컬* `_parse_inline_run`(줄 전체가 `$...$`면
+  통째 equation)으로 회피. → `$\frac{4}{3}$` 정상 분수 렌더.
+
+### 44-6. JSON 백슬래시 함정 (검증 중 발견 — 테스트 데이터 한정)
+
+렌더 검증에서 정답 `$\frac{4}{3}$`이 "rac43"으로 출력 → 추적 결과 *테스트 payload JSON 이
+`"$\frac…"`(단일 백슬래시)* 라 `json.load`가 `\f`를 **JSON formfeed 이스케이프**로 해석(`$\x0crac…`).
+**프로덕션 무관** — 웹 `JSON.stringify("$\frac…")`는 `"$\\frac…"`(이중)로 직렬화하므로 커넥터
+`json.loads`가 정상 수신. chr(92)로 클린 payload 재생성 후 분수/√ 정상 렌더 확인. 교훈: 엔진 직접
+테스트 시 LaTeX 백슬래시는 *heredoc/소스 이스케이프* 주의 — `chr(92)` 로 빌드.
+
+### 44-7. 검증 (렌더 하니스, `_db2col.json`+합성 정답/해설 20문항)
+
+| payload | 쪽 | 결과 |
+|---|---|---|
+| 2단 full | 5 | 제목+빠른정답+2단 해설, 분수/√ 정상 |
+| 1단 full | 7 | 전폭 해설, 쪽번호, 분수/√ 정상 |
+| quickOnly | 4 | 제목+빠른정답만(해설 0) |
+| showAnswers off | 3 | **정답 페이지 0**(회귀 클린) |
+
+골든 25/25(content_parser.ts 무변경 + Python 공유함수 무변경) + tsc exit 0.
+
+### 44-8. 알려진 한계 / 후속 (계단)
+
+- `**bold**` 단계 헤더는 평문 렌더(v1 strip). 진짜 bold 는 후속(`**…**`→bold split).
+- 빠른 정답은 inline 흐름(웹 flex-wrap). 대수회式 격자 표는 후속(`table_begin`/`_box_width`).
+- 정답 페이지 단 분리("항상 1단" 옵션) 후속(섹션 분리 secPr). 2단 긴 해설 수식은 칼럼 폭 overflow
+  가능성 — 1단 권장 또는 후속 단분리.
+- 소문항(`sub_questions`) 정답/해설은 top-level 만 렌더(웹 PrintAnswerKeyPage 와 동일).
+
+**원칙**: AI 출력 *문자열 필드*(정답/해설)를 HWP 에 렌더할 땐 *엔진 content_parser forward-split*
+재사용(§35 linchpin) — 웹에서 마크다운→블록 변환 X. 공유 파서 가드 추가는 *로컬 헬퍼*로(골든 보호).
