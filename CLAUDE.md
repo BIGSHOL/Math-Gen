@@ -5045,3 +5045,10 @@ makepy 재생성해도 동일 — early-binding 래퍼 자체가 불완전). gen
 **원칙**: HWP COM 은 *late-binding(dynamic.Dispatch)* 이 정답 — early-binding gen_py 는 parameter-set
 동적 멤버 노출이 type library 버전 의존이라 flaky. 2단 박스/표는 `table_begin(line_width=칼럼폭)`
 으로 단 overflow 방지(절대폭이라 생성 시 확정). 여백은 검증 폼(대수회) 한 벌을 그대로 베끼는 게 정답.
+
+**(D) 문항 번호 중복 "4. 4." 제거** (commit `11626d1`): 사용자 보고 — 일부 문항만 번호가
+두 번. 원인: OCR 이 인쇄된 번호를 본문 첫 텍스트 블록에 포함한 경우(다사중 #4: 본문 "4. 연립
+방정식…"), `_write_question` 이 번호 접두사("4. ")를 또 붙여 중복. #3·#5·#8 은 본문에 번호 없어
+정상 → "일부만". 해결: `_write_question(top_level)` 시작부에서 본문 첫 TEXT 블록이 *자기 문항
+번호 + `.`/`)` + 공백*으로 시작하면 strip(`^\s*N\s*[.)]\s+`, 보수적 — "4.5" 소수·타 번호 본문
+미발동). §38-1 의 `(1)(1)` 소문항판이 HWP 메인 번호로 재발한 것(§30-6 함정의 전염).
