@@ -5052,3 +5052,31 @@ makepy 재생성해도 동일 — early-binding 래퍼 자체가 불완전). gen
 정상 → "일부만". 해결: `_write_question(top_level)` 시작부에서 본문 첫 TEXT 블록이 *자기 문항
 번호 + `.`/`)` + 공백*으로 시작하면 strip(`^\s*N\s*[.)]\s+`, 보수적 — "4.5" 소수·타 번호 본문
 미발동). §38-1 의 `(1)(1)` 소문항판이 HWP 메인 번호로 재발한 것(§30-6 함정의 전염).
+
+### 42-9. 2단 컬럼 구분선 (구현) + page-1-only 헤더 (HWPX 불가 확정) (2026-06-24)
+
+§42-6 의 남은 디테일 ②(구분선)·①(page-1-only) 처리. 사용자 "둘 다" 요청. **추측 2회 실패 후
+hwpxlib(neolord0) OWPML 모델 소스로 권위 XML 확정** — §12-2/§35 골든 레퍼런스 원칙(추측 금지).
+
+**구분선 = 구현 (commits 엔진 `ab742d5` + 웹)**:
+- §42 에서 "선례 없음"이라던 colPr 구분선의 정확한 OWPML: `<hp:colPr ...><hp:colLine
+  type="SOLID" width="0.12 mm" color="#000000"/></hp:colPr>`. `type`=LineType2 enum(SOLID/DOT/
+  DASH…), `width`=LineWidth enum("0.1 mm"~"5.0 mm" — **자유 문자열 아님**, "0.12 mm" 처럼 정확히),
+  `color`=hex. ColPrWriter 순서: colSz 들 다음 colLine.
+- ⚠️ *함정*: 첫 시도 `type="SOLID" width="0.12 mm"` 는 enum 값이 *맞았는데* 안 보여 "무시됐다"
+  오판 → 실은 0.12mm 하어라인이 *전체뷰(1.4x)에서 안 보였을 뿐*. **중앙 3x 확대로 세로선 확인**.
+  얇은 선 검증은 반드시 확대 + 실제 `<hp:colLine>` XML 주입 여부 둘 다 확인.
+- 배선(5단계 cascade, §41-3): web `PrintOptions.columnDivider`(이미 있던 UI 토글) → `buildHwpPayload`
+  Pick 확장 + `HwpPayloadStyle.divider` + style(`columns===2 && columnDivider`) → adapter `style.divider`
+  → convert_cli → `write_exam_to_hwp(divider)` → `_apply_body_columns(divider)` colLine 주입.
+  1단·off 회귀 0(columns==2 게이트 + 기본 False).
+
+**page-1-only 헤더 = HWPX 불가 확정**:
+- `applyPageType` enum = **BOTH/EVEN/ODD 뿐**("FIRST" 무효 — 실측: FIRST 줘도 헤더 전 페이지 유지,
+  hwpxlib ApplyPageType.java 로 확정). `<hp:header>` 속성도 id/applyPageType 만 → "첫 쪽만 표시"
+  메커니즘 자체가 러닝 머릿말에 없음. `hideFirstHeader` 는 *반대*(첫 쪽 숨김). 본문 헤더는 2단과
+  겹침(§42-3). → **반복 컴팩트 머릿말(15mm)이 현실적 최선**. master page 경로는 미검증·복잡(보류).
+
+**원칙**: 니치 OWPML XML 은 추측 말고 hwpxlib/hwplib(neolord0) **모델 소스에서 enum·요소·writer
+순서 확정**(GitHub `gh search code` + `gh api contents`). 얇은 선/미세 요소 검증은 *확대 렌더 +
+XML 주입 확인* 이중. enum 속성(LineType2/LineWidth)은 정확한 문자열이어야 Hancom 이 존중.

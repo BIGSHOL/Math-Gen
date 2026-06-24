@@ -463,8 +463,8 @@ export const PrintOptionsPanel = ({
             </div>
           )}
           <HwpNote>
-            2단 본문은 <strong>HWP에도 반영</strong>됩니다 — 단 2단 출력 시 헤더는 간단 머릿말
-            (제목·학교·과목)로 표시됩니다(1단은 풍부한 헤더 그대로). 컬럼 구분선은 미리보기 전용.
+            2단 본문·컬럼 구분선 모두 <strong>HWP에도 반영</strong>됩니다 — 단 2단 출력 시 헤더는
+            간단 머릿말(제목·학교·과목)로 매 쪽 표시됩니다(1단은 풍부한 헤더 그대로).
           </HwpNote>
         </Section>
 

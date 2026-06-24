@@ -89,6 +89,8 @@ export interface HwpPayloadStyle {
   columns: 1 | 2;
   /** 쪽 여백(mm) — 내보내기 시 HWP 에 적용. 없으면 폼/기본 여백 유지. */
   margins?: { top: number; bottom: number; left: number; right: number };
+  /** 2단 컬럼 사이 세로 구분선(<hp:colLine>). 1단이면 엔진이 무시. 없으면 false. */
+  divider?: boolean;
 }
 
 /** 여백 프리셋(mm) — wizardStore PrintOptions.marginPreset 와 매핑. */
@@ -202,7 +204,10 @@ export const buildHwpPayload = (
   problems: ProblemReview[],
   meta: PrintMeta,
   exportSource: string,
-  printOptions: Pick<PrintOptions, "template" | "color" | "columns" | "marginPreset">,
+  printOptions: Pick<
+    PrintOptions,
+    "template" | "color" | "columns" | "marginPreset" | "columnDivider"
+  >,
 ): HwpPayload => ({
   schema: "v2",
   meta: {
@@ -228,6 +233,8 @@ export const buildHwpPayload = (
     accentColor: printOptions.color || "",
     columns: printOptions.columns,
     margins: MARGIN_PRESETS[printOptions.marginPreset] ?? MARGIN_PRESETS.normal,
+    // 2단 컬럼 구분선 — UI 토글(columnDivider). 1단이면 엔진이 무시.
+    divider: printOptions.columns === 2 && printOptions.columnDivider,
   },
   problems: problems.map((r, i) => {
     // §33: exportSource 는 현재 항상 "original". digitize 면 original===variant.
