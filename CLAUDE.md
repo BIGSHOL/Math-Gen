@@ -5338,3 +5338,28 @@ table_begin 이 무시).
 원칙: COM `table_begin` 표는 **항상 본문 텍스트 폭** — 2단 칼럼 맞춤은 *생성 시 line_width 가
 아니라 저장 후 XML 축소*(§42-8 bogi 와 동일 패턴). 텍스트 길이 의존 요소(구분선 대시 수)는
 *칼럼 폭 따라 적응*. 새 COM 표를 2단에 추가하면 `_fit_wide_tables_2col` 가 자동 칼럼폭 보정.
+
+### 44-13. 다른 컴퓨터/세션 핸드오프 (2026-06-24 상태)
+
+§44(정답·해설 페이지) 작업은 **레포 2개** 에 걸쳐 있다. 다른 컴퓨터에서 이어가려면 둘 다 clone:
+- **웹 `mathg-gen`** → `origin/main`(github BIGSHOL/Math-Gen). 정답/해설 데이터·payload·UI·이
+  문서(§44).
+- **엔진 `D:\시험지 한글화`** → **`testchange/master`**(github BIGSHOL/testchange). HWP 렌더·
+  COM writer. ⚠️ 엔진 `origin`(soseon203)엔 **push 금지** — testchange 만.
+
+**§44 커밋**: 웹 `89be7d3`(페이지)·`e7c70dd`(표·타이포·\text)·`2c4fbb4`·`(이 커밋)`; 엔진
+`1c5fce5`(페이지)·`79e2d88`(표·타이포·\text)·`ead251d`(2단 표 칼럼폭·구분선).
+
+**엔진 실행 환경**: Python 3.11(3.13 불가) + pywin32 + **한글(HWP) 설치 필수**(COM 렌더). 변환
+`python -m server.convert_cli --out X.hwpx --in payload.json`(엔진 루트에서). 렌더 검증
+`python scripts/render_to_png.py X.hwpx prefix`(COM 직렬 — 호출 사이 `taskkill /F /IM Hwp.exe`).
+dev API 키 미노출(§24-7)이라 AI 호출 검증은 Vercel preview. HWP 검증은 로컬 한글로.
+
+**문서 위치**: §40~44(HWP 통합) 전부 **웹 CLAUDE.md/AGENTS.md**(byte-identical, 이게 master).
+엔진 repo 엔 *요약 + §44 포인터* 섹션("## 정답·해설 페이지 + 빠른정답 표 …", 엔진 CLAUDE.md
++ AGENTS.md). 엔진 CLAUDE(Claude)·AGENTS(Codex)는 서로 *다른* 문서(byte-identical 아님 — 엔진
+repo 관례). 골든 회귀 `npx tsx scripts/contentParserGoldenHarness.mts`(웹, 25/25).
+
+**남은 폴리시**(우선순위 사용자 결정 대기): ① 격자 마지막 행 트레일링 빈 셀 → colSpan 병합,
+② 2단 긴 해설 수식 칼럼 overflow → 1단 권장 또는 정답페이지 "항상 1단" 옵션(섹션 분리 secPr),
+③ bold 단계 헤더(`**…**` → bold split). 모두 §44-8/12 에 기록.
