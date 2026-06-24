@@ -4961,7 +4961,36 @@ COM `MultiColumn` 은 작동 안 하니 재시도 말 것(실측 확정).
 
 **남은 것(후속)**: ① 컴팩트 헤더가 *매 페이지 반복*(running header) — page-1-only 는 "첫 쪽
 다르게"(secPr) 필요. ② 컬럼 구분선(LineType) 미적용 + payload Pick 에 columnDivider 없음.
-③ top_mm 30 고정 — 헤더가 더 길면(학기 등 추가) 미세조정 필요.
+③ top_mm 30 고정 — 헤더가 더 길면(학기 등 추가) 미세조정 필요. → **③ 해결 §42-7**.
 
 **원칙**: HWP 2단 = *짧은 머릿말 헤더 + 섹션 colPr=2*. 본문에 그린 헤더는 단과 양립 불가라
 2단 전용 컴팩트 헤더로 분기. 리치 헤더가 필요하면 floating 개체(미구현)뿐.
+
+### 42-7. *해결* — 2단 top 여백 동적화 (commit `88ea470`, 엔진)
+
+§42-6 의 남은 디테일 ③ 해결. 폼 조사(testchange `hwp_form_writer` + 대수회 `.testkit/_rawform.hwpx`)
+결과 *검증된 패턴 = `margin header == top == 머릿말 textHeight` 정렬* — 머릿말 밴드 끝 = 본문
+단 시작이라 빈 공간 0, 겹침 0. 폼은 머릿말 1×3 표 1행이라 높이 예측돼 `header=top=4251`(15mm)
+고정. 우리 COM 컴팩트헤더도 *제목(13pt 1줄) + 정보줄(9pt 1줄, subj 기본 "수학"이라 항상)* 로 줄
+수가 예측 가능 → DOM 측정 없이 줄 수×폰트로 추정.
+
+**근본 문제**: 과거 `_apply_body_columns` top 42mm 고정이 헤더 실측(~15mm)보다 ~27mm 과대 +
+머릿말이 매 페이지 반복(`header_begin(0)`)이라 그 여백이 secPr 전역으로 먹어 2단인데도 페이지
+불어남(다사중 20문항 4쪽).
+
+**구현 3 지점**:
+- `template_headers.compact_header_height_mm(meta)` 신설 — 줄 수×폰트(1pt≈0.3528mm, 줄간격
+  160%) 로 헤더 높이(mm) 추정. `compact_header` 가 이 값 반환(기존 None → float).
+- `_apply_body_columns(hwpx, gap_mm, top_mm)` — top_mm 기본 42→15. `<hp:margin>` 의 `top` 과
+  `header`(머릿말 밴드 높이) *둘 다* top_mm 으로 패치(폼 정렬 모방). 정규식 2개(top·header 각각).
+- `write_exam_to_hwp` 호출부 — `compact_header_height_mm(hdr_meta) + 3mm` 로 top 산정. write()
+  와 동일하게 title 없으면 `document.title` 폴백(그려질 줄 수와 일치).
+
+**검증**(실 시험지 다사중 20문항 jeongtong 2단): patched XML `header="4371" top="4371"`(15.4mm,
+폼 검증값 15mm과 동일), **페이지 4→3**, 헤더 겹침 0, 본문 단 시작이 헤더 바로 아래. 회귀:
+1단 jeongtong 리치 헤더 그대로(게이트 `columns == 2 and not use_form` 안에서만 변경 + compact_header
+return 값은 write() L1110 에서 무시 → 1단 무영향). payload 무변경(엔진 전용, 회귀 0).
+
+**원칙**: 머릿말 헤더 ↔ 2단 본문 겹침 방지의 정답은 *top·header 를 헤더 실제 높이로 정렬*(폼 패턴).
+고정 추정 금지 — 헤더 줄 수 가변이라 `compact_header_height_mm` 같은 *그려질 줄 수 기반 산정* 필요.
+page-1-only(①)·컬럼 구분선(②)은 폼 선례 없어 후속(secPr XML 신규 / payload Pick cascade).
