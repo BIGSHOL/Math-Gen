@@ -4806,3 +4806,53 @@ OCR(§Phase E)과 *동일* `content_feedback` 인프라로 내보내기 품질 �
 **원칙**: COM 으로 색을 직접 못 넣으면(set_char_shape 한계) *PUA 센티넬 + 저장 후 XML 후처리*
 가 표준 패턴. faceColor=`_append_borderfills`, textColor=`_clone_charpr` 재사용. 새 accent 헤더
 추가 시 마커만 박으면 색 후처리가 자동 처리(헤더 함수는 색 신경 안 씀).
+
+---
+
+## 41. 내보내기 설정 → HWP 반영 매트릭스 + UI 안내 (2026-06-24, 감사)
+
+사용자 질문 "내보내기 틀 설정이 HWP 에 전부 반영되나?" 에 대한 *전수 감사*(워크플로 3 갈래,
+file:line 검증) 결과 + 사용자 결정("되는 것만 반영, 안 되는 것은 멘트"). 다음 *내보내기 옵션
+구현 / payload 확장 / HWP 반영 범위* 작업 시 첫 번째로 읽을 섹션.
+
+### 41-1. 반영 매트릭스 (현재 상태)
+
+| 설정 | HWP 반영 | 근거 |
+|---|---|---|
+| **template** (6종) | ✅ | 헤더 분기 (§40) |
+| **시험지 정보** (제목·학교·학년·과목·시험일·시간·출제자·총점 + 템플릿전용) | ✅ *템플릿이 쓰는 것만* | meta → 헤더. 단 템플릿마다 사용 필드 다름(아래) |
+| **여백** (marginPreset) | ✅ | `_set_page_margins` |
+| **파일명** | ✅ | filename (§39-4) |
+| **배점 `[N점]`·보기·소문항** | ✅ | 본문(template-agnostic) |
+| **강조색** (color) | 🟡 글자·배너만, 테두리 검정 | `_apply_accent_header`; 테두리 COM 한계 (§40-3) |
+| **단 수 (1/2단)** | ❌ 본문 항상 1단 | `self._columns` 저장만, 본문 read 0 (단나누기 COM 호출 전무) |
+| **정답·해설 페이지** | ❌ | payload 에 정답지 플래그 없음 |
+| **세로 간격(spacing)·빠른정답·난이도·구분선·폰트팩·배치모드·날짜·단원명** | ❌ | `buildHwpPayload` 시그니처가 `Pick<PrintOptions,'template'\|'color'\|'columns'\|'marginPreset'>` 로 좁혀짐 — 전달 자체 불가 |
+| **labelType (서답형)** | ❌ 본문 렌더 | hwp_com_writer 가 read 안 함(정답/폼 동기화용) |
+| **도형/그림** | ❌ (의도) | adapter `_clean_contents` 가 text/equation/table 만 통과 → "※ 그림 자리" 노트 치환(D8) |
+
+**근본 원인 2 가지**: (1) `buildHwpPayload(... printOptions: Pick<..4개>)` 가 4 옵션만 받음 →
+나머지 PrintOptions 는 *payload 에 닿지도 못함*. (2) columns 는 전달되나 *엔진 본문이 안 읽음*.
+
+**템플릿별 meta 사용** (헤더가 실제 쓰는 것): jeongtong=학교/학년/과목/시험일/시간/출제자/총점
+(폼 토큰 8개 — 학기/학원명/개념 등은 *jeongtong 폼이 토큰 미사용*해 미반영), modern=학기/학교/
+학년/시험일/시간/총점, workbook=학원명/강사명/시험일/제목, jaseup=제목/목표/개념정리,
+yuhyung=유형명/전략, pyeongga=고정(제목·시간만 미리보기, 정보 미반영).
+
+### 41-2. 사용자 결정 + 이번 조치 (commit `de90563`)
+
+"안 되는 것은 *멘트 달아놓기*" — `PrintOptionsPanel` 에 `HwpNote`(amber ⓘ) 추가로 각 미반영/
+부분반영 옵션에 "미리보기 전용 — HWP 미반영" 안내. 단 수/폰트/세로배치/표시옵션/정답해설/강조색/
+시험지정보(per-template) 7 곳. 하단 chip "인쇄·PDF 같은 layout"(구현중 거짓) → "HWP 내보내기만
+지원" 으로 정정. **미반영 기능 구현은 후속** — 사용자: "하나씩 차근차근".
+
+### 41-3. 후속 구현 우선순위 (미반영 닫기)
+
+큰 것부터: (1) **2단 본문** — 엔진에 HWP 구역 단(MultiColumn/ColDef COM) 적용 + `buildHwpPayload`
+columns 이미 전달됨 → 엔진만. 중간 규모. (2) **정답지** — payload 에 showAnswers/quickAnswerOnly
+플래그 + 엔진이 정답 섹션 append. 중간. (3) **나머지(폰트/간격/토글)** — `buildHwpPayload` 의
+Pick 확장(payload 에 싣기) + 엔진 소비 각각. 폰트=한글 폰트 매핑, 간격=본문 문단 간격 주입.
+
+**원칙**: payload 시그니처가 `Pick<>` 로 좁혀져 있으면 *UI 에서 옵션을 만져도 엔진에 안 닿는다* —
+새 옵션 HWP 반영 시 (a) `buildHwpPayload` Pick 확장 + payload 필드 추가, (b) adapter 추림,
+(c) 엔진 소비 3 단계 모두 필요. 하나라도 빠지면 "UI 만 동작, 출력 무변화"(이번 감사의 핵심 발견).
