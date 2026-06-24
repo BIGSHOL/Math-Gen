@@ -5258,3 +5258,55 @@ writer 가 블록 사이 `break_para` 를 *명시적으로* 넣는 구조라, �
 
 **원칙**: AI 출력 *문자열 필드*(정답/해설)를 HWP 에 렌더할 땐 *엔진 content_parser forward-split*
 재사용(§35 linchpin) — 웹에서 마크다운→블록 변환 X. 공유 파서 가드 추가는 *로컬 헬퍼*로(골든 보호).
+
+### 44-9. 빠른 정답 = 표 (격자 + 전폭 행) — 사용자 정렬 보고
+
+흐름 배치(text + 공백 구분)는 번호·정답이 **줄바꿈에서 갈라져** 어설펐다(사용자 2026-06-24:
+"6."이 줄 끝, "√2"는 다음 줄). → **표**로 정렬. `_write_quick_answer_table`:
+- 분류: `narrow`(짧은 객관식, `_answer_glyph_width` ≤ 8) vs `wide`(서술형 `not q.choices` OR
+  긴/다줄 정답).
+- **격자 표**(narrow): 정답 폭에 따라 5/4/3 열. **2단은 칼럼 폭 절반이라 `min(cols, 3)` 캡**
+  (cramped 방지). `table_begin(rows, cols, line_width=_box_width())` — 본문 `_write_equation_table`
+  와 동일 COM 프리미티브(table_begin/next_cell/end). 셀=번호(볼드)+정답 인라인(수식은 셀 안
+  equation 객체 — `equation()` 이 셀(list≠0)에서 Close 생략).
+- **전폭 행**(wide): 1열 표, 각 정답이 한 행(서술형 "행 하나 차지"). 긴/다줄 정답도 여기로.
+- 해설: "해 설" 가운데 헤더 후 문항별 "번호. 정답: … / 풀이줄들".
+
+원칙: 빠른 정답 같은 **정렬 민감** 출력은 흐름(text+공백) 대신 **표**(`table_begin`) — 셀이
+줄바꿈 경계를 흡수해 번호·정답이 안 갈라진다. 전폭 merge 는 COM 불가 → 별도 1열 표로 분리.
+
+### 44-10. 해설 타이포그래피 = 본문 컨벤션 *후반부만* 적용 (사용자 "컨벤션 제대로 봐라")
+
+처음엔 정답/해설 블록에 `_finalize_contents`(본문 후처리)를 **전혀** 안 걸어, 본문이 따르는
+컨벤션(점 라벨 로만체·한글↔수식 공백 등)이 해설 수식엔 미적용이었다. 사용자 지적 후
+`_finalize_solution_blocks` 신설 — 본문 16단계 중 **타이포그래피 후반부(⑨~⑭,⑯)만**:
+- 적용: `_italicize_stat_operators`·`_romanize_point_names`·`_italicize_nongeo_single_letters`·
+  `_romanize_angle_letters`·`_romanize_context_units`·`_space_hangul_before_eq`·`_rstrip_last_text`.
+- **미적용**: OCR 아티팩트 병합(①~④)·빈그룹/온도/범위/배점strip(⑤~⑧) = 본문 전용(깨끗한
+  마크다운 해설엔 불필요/오염). 부정강조(⑮ `_emphasize_negation`)는 선택지/발문 전용이라 제외.
+- `_parse_markdown_lines` 가 줄별 `_parse_inline_run` 후 `_finalize_solution_blocks` 적용.
+
+원칙: 새 렌더 경로(해설)는 본문 컨벤션을 **부분 재사용** — 전부(OCR 병합) 적용하면 오염, 전혀
+안 하면 불일치. *display 영향 후반부만* 골라 적용.
+
+### 44-11. `\text{대문자}` → 정자 로만 (latex_to_hwpeq, 다사중 #7 직사각형 ABCD)
+
+**증상**(사용자 2026-06-24): 본문 "직사각형 **rm {ABCD}**를" — `\text{ABCD}`(도형 이름)이 HWP
+수식에서 **"rm {ABCD}" 리터럴**로 렌더("후보정 안 하냐").
+
+**root cause (2층)**:
+1. `convert()`: `\text{ABCD}` → `"ABCD"`(따옴표 리터럴, line 797). 그 뒤 `_apply_roman_labels`
+   (805)가 **따옴표 안 ABCD** 까지 `rm {}` 로 감싸 `"rm {ABCD}"` → HWP 가 따옴표 리터럴 그대로 렌더.
+2. 게다가 따옴표 리터럴 `"ABCD"` 자체가 HWP 에서 **이탤릭**(도형 이름 기움, §2-10 위반).
+
+**2단 수정** (`latex_to_hwpeq.py`):
+- `_apply_roman_labels`: `"..."` 리터럴 구간 미리 구해 **그 안 대문자는 skip**(이미 정자). 혼합
+  `\text{ABC2}` → `"ABC2"` 보호.
+- `_text_pattern.sub`: `\text{<순수 대문자 라틴>}` → **`rm {ABCD}`**(정자, 따옴표 아님). 단어·혼합
+  (`\text{Hello}`/`\text{ABC2}`)은 따옴표 유지. 키워드 충돌(GE/LE/NE/GG/LL)은 `rm {"LE"}` 보호.
+  단위(`\text{cm}`)는 `_unwrap_text_units` 가 먼저 처리.
+- 결과: `\text{ABCD}` → `rm {ABCD}` → HWP 정자 ABCD(직립). 본문·해설 도형 이름 모두 일치.
+
+원칙: HWP 수식 도형 라벨은 **`rm {…}` 만 직립** — `"…"` 따옴표 리터럴은 이탤릭. 따옴표 안은
+romanize 가 닿으면 `"rm {…}"` 리터럴로 깨지므로 항상 skip. `\text{대문자}`(도형 이름)는 따옴표
+대신 `rm {}`. (이 §44-9~11 은 모두 엔진 testchange 커밋 — 웹 무변경, 문서만 origin/main.)
