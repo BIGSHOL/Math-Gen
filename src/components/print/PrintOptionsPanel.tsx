@@ -364,12 +364,17 @@ export const PrintOptionsPanel = ({
               </div>
             )}
 
-            {/* 평가원 양식은 고정 헤더라 정보가 반영되지 않음 — 안내. */}
-            {printOptions.template === "pyeongga" && (
-              <p className="text-caption text-muted leading-tight">
-                <Icon name="info" size={11} color="#9CA3AF" /> 평가원 양식은 고정
-                헤더라 위 정보가 반영되지 않습니다.
-              </p>
+            {/* 템플릿별로 헤더가 쓰는 meta 가 달라 — 반영 범위를 명시(감사 §40). */}
+            {printOptions.template === "pyeongga" ? (
+              <HwpNote>
+                평가원 양식은 고정 헤더라 위 정보는 HWP 출력에 반영되지 않습니다 (제목·시간만 미리보기).
+              </HwpNote>
+            ) : (
+              <HwpNote>
+                고른 템플릿이 쓰는 항목만 HWP 헤더에 반영됩니다 — 정통은 학교/학년/과목/시험일/시간/출제자/총점,
+                모던은 학기/학교/학년/시험일/시간/총점, 워크북은 학원명/강사명/시험일, 자습은 목표/개념정리,
+                유형은 유형명/전략. (나머지 항목은 미리보기에만)
+              </HwpNote>
             )}
           </div>
         </details>
@@ -400,6 +405,7 @@ export const PrintOptionsPanel = ({
           <p className="mt-1.5 text-caption text-muted leading-tight">
             본문 (명조) + 헤더 (고딕) 쌍 — 모두 한글 무료 폰트
           </p>
+          <HwpNote>미리보기 전용 — HWP 내보내기는 한글 기본 글꼴로 출력됩니다.</HwpNote>
         </Section>
 
         {/* 3. 강조 색상 */}
@@ -425,6 +431,10 @@ export const PrintOptionsPanel = ({
               );
             })}
           </div>
+          <HwpNote>
+            모던·워크북·자습·유형 헤더에 반영 — HWP는 글자·배너 색만 적용되고 테두리는 검정으로 출력됩니다.
+            (정통·평가원은 무채색)
+          </HwpNote>
         </Section>
 
         {/* 4. 단 수 + 컬럼 구분선 */}
@@ -452,6 +462,9 @@ export const PrintOptionsPanel = ({
               />
             </div>
           )}
+          <HwpNote>
+            HWP 내보내기는 <strong>1단 본문</strong>으로 출력됩니다 — 2단·구분선은 미리보기 전용입니다.
+          </HwpNote>
         </Section>
 
         {/* 4.5 쪽 여백 — HWP 내보내기 시 적용(미리보기는 자체 여백). 좁게/보통/넓게. */}
@@ -523,6 +536,7 @@ export const PrintOptionsPanel = ({
               </p>
             </div>
           )}
+          <HwpNote>미리보기 전용 — HWP 내보내기는 문항 간격이 고정으로 출력됩니다.</HwpNote>
         </Section>
 
         {/* 6. 헤더/문항 옵션 토글 */}
@@ -548,6 +562,7 @@ export const PrintOptionsPanel = ({
               label={<span className="text-small">난이도 라벨</span>}
             />
           </div>
+          <HwpNote>미리보기 전용 — 위 표시 옵션은 HWP 본문에는 반영되지 않습니다.</HwpNote>
         </Section>
 
         {/* 7. 정답·해설 */}
@@ -569,6 +584,9 @@ export const PrintOptionsPanel = ({
               />
             )}
           </div>
+          <HwpNote>
+            미리보기 전용 — HWP 내보내기에는 <strong>정답·해설 페이지가 포함되지 않습니다.</strong>
+          </HwpNote>
         </Section>
 
         {/* 8. 초기화 */}
@@ -582,10 +600,11 @@ export const PrintOptionsPanel = ({
           </button>
         </Section>
 
-        {/* status chip */}
+        {/* status chip — 현재 실제 출력은 HWP 뿐(PDF/인쇄 구현중). 일부 옵션은
+            미리보기에만 적용됨을 상단 각 섹션의 ⓘ 안내로 명시. */}
         <div className="pt-2 border-t border-line">
           <Chip size="sm" tone="soft" icon="info">
-            인쇄·PDF 가 같은 layout 으로 출력됩니다
+            현재 HWP 내보내기만 지원 — ⓘ 표시 옵션은 미리보기 전용
           </Chip>
         </div>
       </div>
@@ -609,6 +628,18 @@ const Section = ({ title, hint, children }: SectionProps) => (
     )}
     {children}
   </section>
+);
+
+/**
+ * HWP 반영 한계 안내 — 현재 실제 출력은 HWP 뿐(PDF/인쇄 구현중)인데, 일부 옵션은
+ * 미리보기에만 적용되고 HWP 내보내기에는 반영되지 않는다. 사용자가 선택 시 헷갈리지
+ * 않도록 amber info 로 명시(감사 결과 §40 기반 — columns 2단·간격·폰트·정답지·표시토글 등).
+ */
+const HwpNote = ({ children }: { children: React.ReactNode }) => (
+  <p className="mt-1.5 text-caption text-text2 leading-tight flex items-start gap-1">
+    <Icon name="info" size={11} color="#F59E0B" weight="duotone" className="mt-px shrink-0" />
+    <span>{children}</span>
+  </p>
 );
 
 interface MetaTextProps {
