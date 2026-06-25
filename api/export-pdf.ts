@@ -20,6 +20,23 @@ const MAX_CSS_URLS = 16;
 const MAX_TITLE_CHARS = 120;
 const DEFAULT_TITLE = "mathgen-export";
 
+// 인쇄용 한글/수식 폰트 CDN — index.html 의 폰트 link 와 동일(단일 소스는 index.html, 여기는
+// 서버 PDF 전용 미러). same-origin 만 허용하는 network guard 때문에 인쇄 DOM 이 참조하는 웹폰트가
+// Puppeteer 에서 안 실려 한글이 fallback 되던 것(§45 PDF Phase 2) → 이 신뢰 호스트만 허용 + 주입.
+// Phosphor(unpkg) 아이콘은 인쇄 본문 미사용이라 제외.
+const FONT_ALLOWED_HOSTS = new Set([
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "cdn.jsdelivr.net",
+]);
+const FONT_CSS_LINKS = [
+  "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
+  "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap",
+  "https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap",
+  "https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;500;700;900&display=swap",
+  "https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap",
+];
+
 interface ExportPdfInput {
   html: string;
   cssUrls: string[];
@@ -142,12 +159,17 @@ const wrapHtml = (input: ExportPdfInput, origin: string): string => {
   const cssLinks = normalizeCssUrls(input.cssUrls, origin)
     .map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`)
     .join("\n");
+  // 인쇄 폰트 CDN 주입 — same-origin Vite CSS 만으론 한글/수식 웹폰트가 안 실린다(§45 Phase 2).
+  const fontLinks = FONT_CSS_LINKS.map(
+    (url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`,
+  ).join("\n");
 
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <title>${escapeHtml(safeTitle(input.title))}</title>
+${fontLinks}
 ${cssLinks}
 <style>
   body { margin: 0; padding: 0; }
@@ -179,6 +201,14 @@ const installNetworkGuard = async (
         origin &&
         parsed.origin === origin &&
         allowedResourceTypes.has(request.resourceType())
+      ) {
+        void request.continue();
+        return;
+      }
+      // 신뢰 폰트 CDN(§45) — stylesheet/font 만. 한글/수식 웹폰트 로딩용.
+      if (
+        FONT_ALLOWED_HOSTS.has(parsed.hostname) &&
+        (request.resourceType() === "stylesheet" || request.resourceType() === "font")
       ) {
         void request.continue();
         return;
@@ -229,7 +259,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       timeout: 30_000,
     });
     await page.waitForNetworkIdle({ idleTime: 500, timeout: 30_000 });
-    await page.evaluateHandle("document.fonts.ready");
+    // 폰트 로딩 완료까지 실제 대기 — evaluateHandle 은 promise 를 await 하지 않아(즉시 반환)
+    // 한글/수식 폰트가 덜 실린 채 PDF 가 찍히던 버그(§45 Phase 2). evaluate 로 promise 해소 대기.
+    await page.evaluate(() => document.fonts.ready);
 
     const pdfBytes = await page.pdf({
       format: "A4",

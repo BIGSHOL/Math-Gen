@@ -1,5 +1,7 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+// sanitizeFilename 은 무거운 deps 없는 src/lib/filename.ts 로 분리 — 여기선 re-export(호환).
+export { sanitizeFilename } from "./filename";
 
 /**
  * Step 5 PDF 생성 파이프라인. html2canvas 로 페이지별 캡처 → jsPDF 에
@@ -121,10 +123,3 @@ export async function exportPDF({
   onProgress?.({ current: pages.length, total: pages.length, phase: "done" });
 }
 
-/**
- * filename 의 OS 금지 문자 sanitize. 한글은 그대로 둠 (jsPDF.save() 가 unicode
- * filename 지원).
- */
-export function sanitizeFilename(input: string): string {
-  return input.replace(/[\\/:*?"<>|]/g, "_").trim() || "변형시험지";
-}

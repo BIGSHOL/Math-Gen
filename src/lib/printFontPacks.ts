@@ -41,8 +41,11 @@ export const FONT_PACKS: FontPack[] = [
     id: "system",
     label: "시스템",
     hint: "기본 (빠름)",
-    serif: '"Batang", "BatangChe", serif',
-    sans: '"Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+    // generic(serif/sans-serif) 앞에 Noto KR fallback — 서버 PDF(serverless Chromium)는 Batang/
+    // Malgun 등 시스템 한글 폰트가 없어 한글이 깨지던 것(§45 Phase 2). Noto 는 index.html 이 이미
+    // preload 하므로 웹에선 Batang 우선(시스템 폰트 있으면 그대로) → 무해. PDF 에선 Noto 로 렌더.
+    serif: '"Batang", "BatangChe", "Noto Serif KR", serif',
+    sans: '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif',
     // system = HWP 무변경(함초롬 유지) → 빈값으로 엔진 no-op.
     hwpSerif: "",
     hwpSans: "",

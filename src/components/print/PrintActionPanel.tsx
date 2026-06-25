@@ -170,7 +170,7 @@ export const PrintActionPanel = ({
     setExportKind("pdf");
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
-      const { sanitizeFilename } = await import("@app/lib/pdfExporter");
+      const { sanitizeFilename } = await import("@app/lib/filename");
       const { currentAccessToken } = await import("@app/services/api/supabase");
       const html = printableRootRef.current.outerHTML;
       const cssUrls = collectStylesheetUrls();
@@ -241,7 +241,7 @@ export const PrintActionPanel = ({
 
       const payload = buildHwpPayload(problems, meta, exportSource, printOptions);
       const ext = health.engine === "hwp" ? "hwp" : "hwpx";
-      const { sanitizeFilename } = await import("@app/lib/pdfExporter");
+      const { sanitizeFilename } = await import("@app/lib/filename");
       // 내보내기 파일명은 *파일명 입력값* 이 단일 소스(Step5Export 가 원본 업로드명으로
       // 자동 입력 → 사용자가 수정 가능). PDF 경로와 동일 우선순위. 비어 있을 때만 원본
       // 업로드명 → 기본값 폴백. 확장자만 .hwp/.hwpx, 동일 이름은 브라우저가 (1)(2) 자동.
@@ -463,10 +463,22 @@ export const PrintActionPanel = ({
             Phase 1: 브라우저 인쇄(window.print) 활성 — 미리보기와 동일 벡터 렌더(깨짐 0).
             Phase 2(준비 중): 서버 1-클릭 'PDF 다운로드'(Puppeteer). DOCX 는 후속. */}
         <div className="space-y-2">
+          {/* 서버 1-클릭 PDF 다운로드 (Puppeteer) — HWP 처럼 한 번 클릭 → .pdf 다운로드.
+              미리보기와 동일 벡터 렌더(Chromium). 로그인 필요(currentAccessToken). */}
           <Btn
             kind="accent"
-            icon="printer"
+            icon="file-pdf"
             iconRight="download-simple"
+            full
+            onClick={() => void handleServerPDF()}
+            disabled={isExporting || problemCount === 0}
+          >
+            PDF 다운로드
+          </Btn>
+          {/* 브라우저 인쇄(window.print) — OS 대화상자 → "PDF로 저장". 서버·로그인 불필요. */}
+          <Btn
+            kind="secondary"
+            icon="printer"
             full
             onClick={() => void handlePrint()}
             disabled={isExporting || problemCount === 0}
@@ -474,12 +486,9 @@ export const PrintActionPanel = ({
             인쇄 · PDF로 저장
           </Btn>
           <p className="text-caption text-text2 leading-relaxed">
-            <Icon name="info" size={12} weight="duotone" color="#9CA3AF" /> 인쇄 대화상자에서
-            대상을 <strong>"PDF로 저장"</strong>으로 고르면 미리보기와 똑같이 출력됩니다.
+            <Icon name="info" size={12} weight="duotone" color="#9CA3AF" /> 'PDF 다운로드'는 로그인 후
+            바로 .pdf 저장. '인쇄'는 브라우저 대화상자에서 <strong>"PDF로 저장"</strong> 선택.
           </p>
-          <Btn kind="ghost" icon="file-pdf" full disabled title="준비 중인 기능입니다">
-            PDF 바로 다운로드 (준비 중)
-          </Btn>
           <Btn kind="ghost" icon="file-doc" full disabled>
             DOCX (준비 중)
           </Btn>
