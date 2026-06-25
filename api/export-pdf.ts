@@ -271,11 +271,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const pdfBuffer = Buffer.from(pdfBytes);
+    // Content-Disposition 은 HTTP 헤더라 ASCII(latin1)만 허용 — 한글 파일명을 그대로 넣으면
+    // "Invalid character in header content" throw. RFC 5987: ASCII 폴백(filename) +
+    // UTF-8 percent-encoding(filename*). 모던 브라우저는 filename* 로 한글 파일명 그대로 받음.
+    const baseName = safeDownloadName(input.title);
+    const fullName = `${baseName}.pdf`;
+    const asciiName = `${baseName.replace(/[^\x20-\x7E]/g, "").trim() || DEFAULT_TITLE}.pdf`;
+    const encodedName = encodeURIComponent(fullName).replace(
+      /['()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Length", String(pdfBuffer.length));
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${safeDownloadName(input.title)}.pdf"`,
+      `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
     );
     return res.send(pdfBuffer);
   } catch (err) {
