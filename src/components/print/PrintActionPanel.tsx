@@ -459,18 +459,29 @@ export const PrintActionPanel = ({
           저장 완료 (보관함으로)
         </Btn>
 
-        {/* 액션 버튼 — MVP 락다운 (사용자 결정 2026-06-02): 다운로드/저장은 모두
-            준비 중. "구현중" 으로 비활성. (handleServerPDF/handlePDF/handlePrint
-            로직은 유지 — 추후 활성화 시 onClick 만 복구.) */}
+        {/* PDF/인쇄 — §45 PDF 활성화 (2026-06-02 MVP 락다운 해제, PDF 한정).
+            Phase 1: 브라우저 인쇄(window.print) 활성 — 미리보기와 동일 벡터 렌더(깨짐 0).
+            Phase 2(준비 중): 서버 1-클릭 'PDF 다운로드'(Puppeteer). DOCX 는 후속. */}
         <div className="space-y-2">
-          <Btn kind="accent" icon="file-pdf" full disabled title="준비 중인 기능입니다">
-            PDF 다운로드 (구현중)
+          <Btn
+            kind="accent"
+            icon="printer"
+            iconRight="download-simple"
+            full
+            onClick={() => void handlePrint()}
+            disabled={isExporting || problemCount === 0}
+          >
+            인쇄 · PDF로 저장
           </Btn>
-          <Btn kind="secondary" icon="printer" full disabled title="준비 중인 기능입니다">
-            인쇄 · PDF 저장 (구현중)
+          <p className="text-caption text-text2 leading-relaxed">
+            <Icon name="info" size={12} weight="duotone" color="#9CA3AF" /> 인쇄 대화상자에서
+            대상을 <strong>"PDF로 저장"</strong>으로 고르면 미리보기와 똑같이 출력됩니다.
+          </p>
+          <Btn kind="ghost" icon="file-pdf" full disabled title="준비 중인 기능입니다">
+            PDF 바로 다운로드 (준비 중)
           </Btn>
           <Btn kind="ghost" icon="file-doc" full disabled>
-            DOCX (구현중)
+            DOCX (준비 중)
           </Btn>
         </div>
 
