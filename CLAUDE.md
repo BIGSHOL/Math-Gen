@@ -5360,6 +5360,25 @@ dev API 키 미노출(§24-7)이라 AI 호출 검증은 Vercel preview. HWP 검�
 + AGENTS.md). 엔진 CLAUDE(Claude)·AGENTS(Codex)는 서로 *다른* 문서(byte-identical 아님 — 엔진
 repo 관례). 골든 회귀 `npx tsx scripts/contentParserGoldenHarness.mts`(웹, 25/25).
 
-**남은 폴리시**(우선순위 사용자 결정 대기): ① 격자 마지막 행 트레일링 빈 셀 → colSpan 병합,
-② 2단 긴 해설 수식 칼럼 overflow → 1단 권장 또는 정답페이지 "항상 1단" 옵션(섹션 분리 secPr),
-③ bold 단계 헤더(`**…**` → bold split). 모두 §44-8/12 에 기록.
+**남은 폴리시**: §44-14 에서 ①(트레일링 셀)·③(bold 헤더) 처리, ②(overflow)는 검증상 문제 없음
+확인. 잔여: 정답페이지 "항상 1단" 옵션(현재 불필요 — overflow 미발생).
+
+### 44-14. 정답 페이지 폴리시 — 트레일링 빈 셀·bold 단계 헤더 (2026-06-24, stress test)
+
+긴 해설 수식·도형 이름·bold 헤더·긴 답이 섞인 stress test 로 §44-13 잔여 폴리시 3건 검증·처리:
+
+- **① 트레일링 빈 셀**: 격자 열 수를 *고정(5/4/3)* 대신 **빈 셀 최소화**로 선택 — `[2..maxcols]`
+  중 `(c - n%c)%c` 최소(동률이면 열 많은 쪽). n 이 범위 약수를 가지면 빈 셀 **0**(16→1단 4×4·
+  2단 2×8). 소수(17 등)만 1 잔여. colSpan XML surgery 불요. (`_write_quick_answer_table`)
+- **③ bold 단계 헤더**: `**[1단계: …]**` 를 strip 하던 것 → `_parse_inline_run` 이 `**…**` 를
+  bold TEXT 블록으로 분리(`_write_block` 의 `emphasis_run(bold)` 가 렌더). `_strip_md_decoration`
+  은 더 이상 `**` 제거 안 함(`$$`→`$`·`#`·`>` 만). bold 는 `_finalize_solution_blocks` 통과해도 보존.
+- **② 2단 긴 해설 수식 overflow**: stress test(근의 공식 분수·코사인법칙 `BC²=AB²+AC²-…`)로
+  **문제 없음 확인** — 긴 수식이 칼럼서 자연 wrap + display 분수가 칼럼폭에 맞춰 렌더. 도형 이름
+  (삼각형 ABC·BC²)도 정자(§44-11 이 해설에도 적용 — latex_to_hwpeq 는 본문·해설 공통 경로).
+
+검증: 1단(4×4 격자·bold 헤더)·2단(2×8 격자·bold 헤더) 렌더 + 골든 25/25.
+
+원칙: 격자 빈 셀은 *colSpan 병합(XML surgery)* 보다 **열 수를 약수로 선택**(빈 셀 최소화)이 단순·
+안전. bold/underline 같은 인라인 강조는 strip 대신 *전용 블록 속성*(`bold`/`underline`) + writer
+`emphasis_run` 으로 — 이미 있는 인프라 재사용.
