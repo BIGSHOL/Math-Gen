@@ -5382,3 +5382,98 @@ repo 관례). 골든 회귀 `npx tsx scripts/contentParserGoldenHarness.mts`(웹
 원칙: 격자 빈 셀은 *colSpan 병합(XML surgery)* 보다 **열 수를 약수로 선택**(빈 셀 최소화)이 단순·
 안전. bold/underline 같은 인라인 강조는 strip 대신 *전용 블록 속성*(`bold`/`underline`) + writer
 `emphasis_run` 으로 — 이미 있는 인프라 재사용.
+
+---
+
+## 45. 내보내기 옵션 추가 cascade — 강조색 테두리 · 세로 간격 · 단원명 (2026-06-25)
+
+§41 매트릭스의 미반영 항목 3종을 *순서대로* HWP 출력에 반영. 모두 §41-3 의 5-layer cascade
+(웹 Pick + style + adapter 추림 + 엔진 소비) 패턴. 강조색 테두리는 엔진 전용(헤더 후처리),
+세로 간격·단원명은 full cascade. 다음 *내보내기 옵션 / accent / spacing / 단원명* 작업 시 첫 섹션.
+
+**커밋**: 강조색 테두리 — 엔진 `8303327` / 웹 `8cf00e4`. 세로 간격+단원명 — 엔진 `a51867e` / 웹 `da4af36`.
+
+### 45-1. 강조색 테두리 — ACCENT_BORDER / ACCENT_RULE 센티넬 (엔진 전용)
+
+**동기**: §40-3 의 "accent 테두리는 COM 한계로 검정 근사" 를 해소. 웹 헤더는 accent 테두리를
+*선택적*으로 씀 — 자습 개념정리 박스(gold 테두리 + 5px gold 좌측 바, `JaseupTemplate` L234-235),
+모던 헤더 3px accent 하단선(`ModernTemplate` L116) — 시험정보표는 회색(ink30) 유지.
+
+**핵심 — `_accent_bf_def` 는 이미 4면 테두리를 `color="%s"` 로 emit**(§40-2 조사). 단지 4면 모두
+`face_hex`(배경색)와 같은 값을 받아 *테두리=배경*(배너 솔리드)이라 안 보였을 뿐. → border color
+를 face 와 분리하면 됨.
+
+**구현** (`core/hwp_com_writer.py` + `core/template_headers.py`):
+- `_accent_bf_def(key, border_hex, face_hex, *, sides="LRTB", border_mm="0.12 mm")` 로 일반화 —
+  `sides`(L/R/T/B 조합)면만 SOLID border_hex, 나머지 NONE. 배너(border==face 4면)는 *동작 동일*
+  유지(회귀 0). `fill_id` 캐시 키도 `(border, face, sides, mm)` 튜플로 확장.
+- 신규 센티넬 2개(`template_headers.py`): `ACCENT_BORDER = chr(0xE013)`(4면 accent + 흰 배경,
+  0.4mm), `ACCENT_RULE = chr(0xE014)`(하단선만 accent + 흰 배경, 0.6mm). `_ACCENT_MARKS` 에 추가
+  (any-marker 가드 + 최종 strip 양쪽).
+- `_apply_accent_header` 셀 루프에 두 분기 추가 — ACCENT_BORDER→`fill_id(accent,"#FFFFFF","LRTB",
+  "0.4 mm")`, ACCENT_RULE→`fill_id(accent,"#FFFFFF","B","0.6 mm")`. 런 글자색 루프는 무관(두
+  마커는 텍스트색 마커 아님 → 기본색 유지). 마커는 PUA 라 충돌 0, 처리 후 strip(tofu 방지).
+- 적용: 자습 개념정리 박스 셀에 `ACCENT_BORDER` prepend(라벨의 `ACCENT_TEXT_MARK` 와 공존 — 셀
+  테두리=gold, 라벨=gold 글자, conceptNote=기본색). 모던은 날짜줄과 학생표 사이에 1×1 표 +
+  `ACCENT_RULE` 셀(작은 글씨 공백)로 navy 하단 rule.
+
+**렌더 검증**: jaseup gold 박스 테두리 ✓, modern navy 하단 rule ✓. 회귀 — jeongtong(마커 0 →
+no-op, 검정 테두리 그대로)·workbook/yuhyung(ACCENT_WHITE_INK 검정 배너, border==face 동일).
+
+**원칙**: COM 으로 테두리 색 직접 설정 불가(§40 색 한계와 동일) → *저장 후 borderFill XML 후처리*
+가 유일. border≠fill 분리 + sides 파라미터로 박스/rule 모두 한 메커니즘. 새 accent 박스 추가 시
+센티넬만 박으면 됨(헤더 함수는 색 신경 안 씀). 배너(채운 셀)는 border==face 라 기존과 동일.
+
+### 45-2. 세로 간격(spacing) — 문항 간 빈 줄 높이 환산 (full cascade)
+
+**동기**: 웹 `spacing`(BodyContainer flex gap, px, 5 preset 4/16/32/56/88)이 미리보기 전용이라
+HWP 는 고정 간격(§41 매트릭스). 문항 간 세로 간격을 HWP 에도.
+
+**핵심 — COM 문단 간격 API 없음**(§조사). HWP 빈 단락 높이 ≈ 글자크기 × 줄간격(~1.6)을 이용 —
+`_write_question` 의 트레일링 "문제 간 빈 줄"(break_para)을 *그 빈 단락에 sized 공백 1개*로 대체해
+높이를 제어. px→pt 환산 계수 `_SPACING_PX_TO_PT = 0.5`(px→pt ~0.75 / 줄간격 1.6 ≈ 0.47, 렌더 보정).
+
+**구현** (`hwp_com_writer.py`):
+- `_inter_question_gap()` — `self._spacing` 있으면 `set_char_size(round(sp*0.5))` + `text(" ")` +
+  `break_para()` + 기본크기 복귀(빈 단락 높이 = 그 공백 크기). None 이면 기존 `break_para()`(회귀 0).
+- `_write_question` 트레일링 break 를 `if top_level: _inter_question_gap() else: break_para()` 로
+  (소문항 사이는 기본 간격 유지). 간격 로직이 `_write_question` 안에 있어 `write()`/`_write_page`
+  두 경로 모두 자동 반영.
+- cascade: `write_exam_to_hwp(spacing)` → `writer._spacing` / `convert_cli` `spacing=style.get(...)` /
+  `adapter` `"spacing"`(양수일 때만) / 웹 `hwpConnector` Pick+`HwpPayloadStyle.spacing`+style.
+
+**렌더 검증**(jeongtong 5문항): spacing 0(기본 tight)/32(보통)/88(최대 — 4문항만, 큰 간격) progression
+명확. count 모드는 미리보기 전용(HWP 없음)이라 HWP 는 `spacing` 값 사용(HwpNote 명시).
+
+### 45-3. 단원명(showChapter) — 문항 위 라벨 (full cascade)
+
+**동기**: 웹 `showChapter` 가 4 템플릿 미리보기에 렌더되나(topic 라벨) HWP 미반영. topic 은 이미
+문항별 wire(`hwpConnector` L319 `...(p.topic ? {topic} : {})`)에 포함 — 엔진 소비만 없었음.
+
+**구현**:
+- `Question.topic: str` 필드(`models/exam_document.py`) + `_parse_question` 가 `q_data.get("topic")`
+  파싱(`content_parser.py`). `adapter._adapt_problem` 가 topic 항상 passthrough(엔진이 플래그로 결정).
+- `_write_question` 시작부(top_level)에서 `self._show_chapter and question.topic` 면 작은(9pt) 라벨
+  + break_para(번호 위 별도 줄). 기본색·소형 — v1(accent 색은 후속).
+- cascade: `write_exam_to_hwp(show_chapter)` → `writer._show_chapter` / `convert_cli`
+  `show_chapter=bool(style.get("show_chapter"))` / `adapter` `"show_chapter": bool(st.get("showChapter"))`
+  / 웹 `hwpConnector` Pick+`HwpPayloadStyle.showChapter`+style.
+
+**렌더 검증**: showChapter on → "Ⅰ. 지수와 로그" 등 라벨이 각 문항 번호 위에 ✓. off → topic 이
+payload 에 있어도 미렌더(플래그 게이팅 clean).
+
+### 45-4. 표시 토글 — 난이도·시험일은 보류 (사용자 결정)
+
+`showDifficulty`(난이도)·`showDate`(시험일) 토글은 *웹 미리보기에서도 죽은 코드*(DifficultyBadge
+미연결, 템플릿 미사용) — HWP 반영하려면 미리보기 렌더부터 되살려야 함. 사용자 결정(2026-06-25):
+**단원명만** 반영, 난이도·시험일은 보류(미리보기·데이터부터 별도 작업). HwpNote 도 그대로 정직 유지
+("날짜·난이도 라벨은 미리보기 전용").
+
+### 45-5. 회귀 안전 + 원칙
+
+- 엔진 신규 파라미터 전부 default(None/False) → 구버전 payload·GUI 경로 회귀 0. 골든 25/25(TS
+  content_parser 무변경 — 본 작업은 Python content_parser·writer 만).
+- §41-3 cascade 5단(웹 Pick + style 필드 + adapter 추림 + 엔진 소비) 전부 있어야 동작 — 하나라도
+  빠지면 "UI 만 동작, 출력 무변화". 강조색 테두리는 거기에 *COM 불가 → XML 후처리*(§40 색 패턴)가 추가.
+- **원칙**: 문서 전역 속성(글자색·테두리색)은 COM 이 아니라 저장 후 header.xml/section XML 후처리가
+  표준(§40·§43). 문단 간격(COM API 없음)은 *sized 빈 단락*으로 우회. 새 accent 박스는 센티넬만 박으면 됨.
