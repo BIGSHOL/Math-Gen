@@ -540,7 +540,10 @@ export const PrintOptionsPanel = ({
               </p>
             </div>
           )}
-          <HwpNote>미리보기 전용 — HWP 내보내기는 문항 간격이 고정으로 출력됩니다.</HwpNote>
+          <HwpNote>
+            <strong>여백 지정(세로 간격)은 HWP에도 반영</strong>됩니다 — 문항 사이 빈 줄 높이로 환산.
+            (문항 수 지정 모드는 미리보기 전용 — HWP 는 현재 세로 간격 값을 사용)
+          </HwpNote>
         </Section>
 
         {/* 6. 헤더/문항 옵션 토글 */}
@@ -566,7 +569,10 @@ export const PrintOptionsPanel = ({
               label={<span className="text-small">난이도 라벨</span>}
             />
           </div>
-          <HwpNote>미리보기 전용 — 위 표시 옵션은 HWP 본문에는 반영되지 않습니다.</HwpNote>
+          <HwpNote>
+            <strong>문항 단원명은 HWP 본문에도 반영</strong>됩니다 (각 문항 위 작은 라벨). 날짜·난이도
+            라벨은 미리보기 전용입니다.
+          </HwpNote>
         </Section>
 
         {/* 7. 정답·해설 */}

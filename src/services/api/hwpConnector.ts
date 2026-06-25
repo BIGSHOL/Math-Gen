@@ -109,6 +109,16 @@ export interface HwpPayloadStyle {
    */
   showAnswers?: boolean;
   quickAnswerOnly?: boolean;
+  /**
+   * 문항 간 세로 간격(px, §45) — 웹 spacing 프리셋(4/16/32/56/88). 엔진이 빈 줄 높이로 환산.
+   * 없으면 엔진 기본 빈 줄(회귀 0). "문항 수 지정"(count) 모드는 미리보기 전용이라 HWP 는 이 값 사용.
+   */
+  spacing?: number;
+  /**
+   * 단원명 표시(웹 showChapter 토글, §45) — true 면 엔진이 각 문항 위에 topic(단원명) 라벨.
+   * topic 은 문항별 wire 에 이미 포함. 없으면 false(회귀 0).
+   */
+  showChapter?: boolean;
 }
 
 /** 여백 프리셋(mm) — wizardStore PrintOptions.marginPreset 와 매핑. */
@@ -245,6 +255,8 @@ export const buildHwpPayload = (
     | "fontPack"
     | "showAnswers"
     | "quickAnswerOnly"
+    | "spacing"
+    | "showChapter"
   >,
 ): HwpPayload => ({
   schema: "v2",
@@ -278,6 +290,10 @@ export const buildHwpPayload = (
     // 정답·해설 페이지(§44) — showAnswers 면 엔진이 문제 뒤 새 쪽에 추가, quickAnswerOnly 면 해설 생략.
     showAnswers: printOptions.showAnswers,
     quickAnswerOnly: printOptions.quickAnswerOnly,
+    // 문항 간 세로 간격(§45) — 웹 spacing(px). 엔진이 빈 줄 높이로 환산(count 모드는 미리보기 전용).
+    spacing: printOptions.spacing,
+    // 단원명 라벨(§45) — showChapter 면 엔진이 각 문항 위에 topic 라벨. topic 은 문항별 wire 에 포함.
+    showChapter: printOptions.showChapter,
   },
   problems: problems.map((r, i) => {
     // §33: exportSource 는 현재 항상 "original". digitize 면 original===variant.
