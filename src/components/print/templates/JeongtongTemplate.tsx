@@ -15,27 +15,14 @@ import type { PrintTemplateProps } from "../types";
 // 단 *도형은 그대로 렌더*(미리보기/PDF 는 완성 시험지). HWP 는 도형을 못 그려 "그림 자리"가
 // 되지만, 그 차이는 PrintActionPanel 의 HWP 내보내기 안내 경고로 커버(쪽 나눔·간격·도형
 // 차이 + 직접 붙여넣기 안내). 정확 미리보기(COM PDF)는 다운로드와 시간 동일·읽기전용이라 제거.
-// 배점 [N점] 을 *발문 끝*(첫 보기/박스 직전)에 둔다 — v.question 끝에 붙이면 보기 박스
-// 뒤(마지막 보기 ㅁ 뒤)로 빠진다(사용자 보고 #9, 2026-06-26). blocksToMarkdown 구조상
-// 발문은 첫 "\n\n" 앞 청크이므로 그 경계 직전에 삽입. 보기·박스 없으면 맨 끝(=발문 끝).
-const placeScoreAtStem = (q: string, points: number): string => {
-  const tag = ` [${points}점]`;
-  const i = q.indexOf("\n\n");
-  return i >= 0 ? q.slice(0, i).trimEnd() + tag + q.slice(i) : q.trimEnd() + tag;
-};
-
 const toHwpPreview = (
   v: ProblemReview["variant"],
   num: number,
-  points: number,
 ): ProblemReview["variant"] => ({
   ...v,
   // 본문 선두 자기 번호 strip 후 **num.** 부착 — "4. 4." 중복 방지(§42-8d 웹 판).
-  // 배점은 발문 끝에(보기 박스 뒤 아님).
-  question: `**${num}.** ${placeScoreAtStem(
-    stripLeadingProblemNumber(v.question ?? "", v.number),
-    points,
-  )}`,
+  // 배점은 ProblemBody.repositionScore 가 발문 끝에 통일(6 템플릿 공통, §45).
+  question: `**${num}.** ${stripLeadingProblemNumber(v.question ?? "", v.number)}`,
 });
 
 const tdLabel = (w?: number): CSSProperties => ({
@@ -73,9 +60,8 @@ export function JeongtongTemplate({
 
   const renderItem = (p: ProblemReview, i: number) => {
     const num = startingNumber + i;
-    const points = p.variant.points ?? 3;
-    // HWP 출력과 동일하게: 번호+발문 인라인, [배점] 발문 끝, 그림은 "그림 자리" 안내.
-    const hwpProblem = toHwpPreview(p.variant, num, points);
+    // HWP 출력과 동일하게: 번호+발문 인라인, [배점]은 ProblemBody 가 발문 끝에, 그림은 "그림 자리".
+    const hwpProblem = toHwpPreview(p.variant, num);
     return (
       <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid" }}>
         <ProblemBody problem={hwpProblem} fontSize={fs} compact />

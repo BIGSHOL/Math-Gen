@@ -17,6 +17,7 @@ import {
   extractChoices,
   stripChoicesLine,
   stripLeadingProblemNumber,
+  repositionScore,
 } from "@app/lib/problemAdapter";
 
 export interface ProblemBodyProps {
@@ -108,9 +109,14 @@ export const ProblemBody = ({
   const effectiveChoices = hasChoicesArr ? problem.choices : (extractedChoices ?? undefined);
   // 본문 선두의 자기 번호("4. ")를 제거 — 템플릿의 QuestionNumber 가 번호를 따로 그리므로
   // 안 지우면 "4. 4." 중복(§42-8d 의 웹 판; 다사중 #4 사용자 보고 2026-06-26).
-  const questionBody = stripLeadingProblemNumber(
-    extractedChoices ? stripChoicesLine(problem.question) : problem.question,
-    problem.number,
+  // + 배점 [N점] 을 발문 끝으로 통일 — 보기 박스 끝에 남던 것 교정(§45, #9). 6 템플릿 공통이라
+  // 여기서 1회 처리(템플릿은 배점 별도 렌더 X). 점수는 score(없으면 points, 없으면 본문 추출).
+  const questionBody = repositionScore(
+    stripLeadingProblemNumber(
+      extractedChoices ? stripChoicesLine(problem.question) : problem.question,
+      problem.number,
+    ),
+    problem.score ?? problem.points,
   );
 
   // 서술형(보기 없음) + 도형 없음 + 소문항((1)(2)…) 있으면 소문항마다 풀이공간.

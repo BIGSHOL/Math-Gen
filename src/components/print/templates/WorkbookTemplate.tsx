@@ -5,7 +5,7 @@ import type { ProblemReview } from "@app/stores/wizardStore";
 import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
-import { QuestionNumber, PointsLabel } from "./ProblemMeta";
+import { QuestionNumber } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
 import type { PrintTemplateProps } from "../types";
 
@@ -26,7 +26,6 @@ export function WorkbookTemplate({
 
   const renderItem = (p: ProblemReview, i: number) => {
     const num = startingNumber + i;
-    const points = p.variant.points ?? 3;
     return (
       <div
         key={p.id}
@@ -60,9 +59,8 @@ export function WorkbookTemplate({
                 {p.variant.topic.toUpperCase()}
               </span>
             )}
-            <span style={{ flex: 1 }} />
-            <PointsLabel points={points} />
           </div>
+          {/* 배점은 ProblemBody.repositionScore 가 발문 끝에(§45) — 번호 행 표시 X. */}
           <ProblemBody problem={p.variant} fontSize={fs} />
         </div>
         {/* 풀이공간 — 1단에서만 (카드 flex:1 → grid stretch → 자연 확장) */}

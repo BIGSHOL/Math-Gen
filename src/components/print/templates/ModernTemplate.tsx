@@ -28,7 +28,6 @@ export function ModernTemplate({
 
   const renderItem = (p: ProblemReview, i: number) => {
     const num = startingNumber + i;
-    const points = p.variant.points ?? 3;
     return (
       <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid", paddingBottom: 4 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
@@ -47,20 +46,7 @@ export function ModernTemplate({
               {p.variant.topic}
             </span>
           )}
-          <span style={{ flex: 1 }} />
-          <span
-            style={{
-              fontFamily: "var(--paper-font-sans)",
-              fontSize: 11,
-              fontWeight: 700,
-              color: accent,
-              padding: "2px 8px",
-              border: `1px solid ${accent}`,
-              borderRadius: 999,
-            }}
-          >
-            {points}점
-          </span>
+          {/* 배점은 ProblemBody.repositionScore 가 발문 끝에 통일(§45) — 번호 행 pill 제거. */}
         </div>
         <div style={{ paddingLeft: 28 }}>
           <ProblemBody problem={p.variant} fontSize={fs} />

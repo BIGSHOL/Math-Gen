@@ -6,7 +6,7 @@ import type { ProblemReview } from "@app/stores/wizardStore";
 import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
-import { QuestionNumber, PointsLabel } from "./ProblemMeta";
+import { QuestionNumber } from "./ProblemMeta";
 import { ProblemBody } from "./ProblemBody";
 import type { PrintTemplateProps } from "../types";
 
@@ -25,13 +25,11 @@ export function PyeonggaTemplate({
 
   const renderItem = (p: ProblemReview, i: number) => {
     const num = startingNumber + i;
-    const points = p.variant.points ?? 3;
     return (
       <div key={p.id} data-measure-idx={i} style={{ breakInside: "avoid", paddingBottom: 4 }}>
+        {/* 배점은 ProblemBody.repositionScore 가 발문 끝에 통일(§45) — 번호 행엔 표시 X. */}
         <div style={{ display: "flex", alignItems: "baseline", marginBottom: 6 }}>
           <QuestionNumber template="pyeongga" num={num} accent={PAPER_COLORS.ink} />
-          <span style={{ flex: 1 }} />
-          <PointsLabel points={points} />
         </div>
         <ProblemBody problem={p.variant} fontSize={fs} />
       </div>
