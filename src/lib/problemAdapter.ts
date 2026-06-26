@@ -167,6 +167,16 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
 };
 
 /**
+ * 부정 선택문의 부정어(않은/않는/아닌/틀린)를 볼드+밑줄 강조 — 엔진 _emphasize_negation 웹 판(§45).
+ * '것' 직전일 때만(_NEG_SELECT_RE: (않은|않는|아닌|틀린)(?=\s*것)) — 부정 선택 발문("옳지 않은
+ * 것은?"). 학생이 부정 조건을 놓치지 않게. MarkdownRenderer 의 rehype-raw 가 <u><strong> 렌더.
+ * 발문 본문에만(해설·선택지 제외 — 엔진 _finalize_contents 와 동일 범위). 렌더 시점 처리라
+ * contentParser/golden 무영향(§35 의 '의도적 제외'를 더 가벼운 render-time 으로 대체).
+ */
+export const emphasizeNegation = (text: string): string =>
+  text ? text.replace(/(않은|않는|아닌|틀린)(?=\s*것)/g, "<u><strong>$1</strong></u>") : text;
+
+/**
  * 서술형/서답형 라벨 혼재 시 '서답형'으로 통일 — 엔진 _normalize_essay_label_type 웹 판(§45).
  * 한 시험지에 [서술형 N]/[서답형 N] 이 2종 이상이면 OCR 오인(같은 시험지는 한 용어로 일관)
  * → 교육과정 구성형 용어 '서답형'으로 일괄(사용자 결정 2026-06-09). 1종(일관)이면 진짜 서술형
