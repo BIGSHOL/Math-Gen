@@ -7,6 +7,7 @@ import { bodyFontSize } from "@app/lib/printGeometry";
 import { PAPER_COLORS, A4_DIM } from "../tokens";
 import { BodyContainer } from "./BodyContainer";
 import { ProblemBody } from "./ProblemBody";
+import { stripLeadingProblemNumber } from "@app/lib/problemAdapter";
 import type { PrintTemplateProps } from "../types";
 
 // HWP 본문 표현에 최대한 맞춘 미리보기(사용자 결정 2026-06-23): 번호(볼드)+발문 인라인,
@@ -20,7 +21,8 @@ const toHwpPreview = (
   points: number,
 ): ProblemReview["variant"] => ({
   ...v,
-  question: `**${num}.** ${v.question ?? ""} [${points}점]`,
+  // 본문 선두 자기 번호 strip 후 **num.** 부착 — "4. 4." 중복 방지(§42-8d 웹 판).
+  question: `**${num}.** ${stripLeadingProblemNumber(v.question ?? "", v.number)} [${points}점]`,
 });
 
 const tdLabel = (w?: number): CSSProperties => ({

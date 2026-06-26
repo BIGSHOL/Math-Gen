@@ -13,7 +13,11 @@ import MarkdownRenderer, {
 import type { GeneratedProblem } from "@app/types";
 import { resolveChoiceCols } from "@app/lib/printLayout";
 import { renderDiagram } from "@app/lib/diagram";
-import { extractChoices, stripChoicesLine } from "@app/lib/problemAdapter";
+import {
+  extractChoices,
+  stripChoicesLine,
+  stripLeadingProblemNumber,
+} from "@app/lib/problemAdapter";
 
 export interface ProblemBodyProps {
   /** 문항. design_handoff 의 prop name (`problem`) 그대로 통일. */
@@ -102,9 +106,12 @@ export const ProblemBody = ({
   const hasChoicesArr = !!problem.choices && problem.choices.length > 0;
   const extractedChoices = hasChoicesArr ? null : extractChoices(problem.question);
   const effectiveChoices = hasChoicesArr ? problem.choices : (extractedChoices ?? undefined);
-  const questionBody = extractedChoices
-    ? stripChoicesLine(problem.question)
-    : problem.question;
+  // 본문 선두의 자기 번호("4. ")를 제거 — 템플릿의 QuestionNumber 가 번호를 따로 그리므로
+  // 안 지우면 "4. 4." 중복(§42-8d 의 웹 판; 다사중 #4 사용자 보고 2026-06-26).
+  const questionBody = stripLeadingProblemNumber(
+    extractedChoices ? stripChoicesLine(problem.question) : problem.question,
+    problem.number,
+  );
 
   // 서술형(보기 없음) + 도형 없음 + 소문항((1)(2)…) 있으면 소문항마다 풀이공간.
   // 도형 있으면 [그림N] placeholder 인덱싱이 복잡해져 split 안 함(전체 + 슬롯 여백).

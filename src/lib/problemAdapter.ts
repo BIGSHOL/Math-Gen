@@ -69,6 +69,17 @@ export const stripChoicesLine = (text: string): string => {
 };
 
 /**
+ * 본문 선두의 *자기 문항번호*("4. " 등)를 제거 — OCR 이 인쇄된 번호를 본문에 포함한 문항에서
+ * 렌더러(QuestionNumber/toHwpPreview)가 번호를 또 붙여 "4. 4." 로 중복되던 것(§42-8d 의 웹/PDF
+ * 판 — 엔진 _write_question 은 이미 strip). 자기 번호 + 마침표/괄호 + 공백일 때만(보수적 —
+ * "4.5" 소수·다른 번호로 시작하는 정상 본문은 미발동). num 미지정/비양수면 그대로 둔다.
+ */
+export const stripLeadingProblemNumber = (text: string, num?: number): string => {
+  if (!text || typeof num !== "number" || !Number.isInteger(num) || num <= 0) return text;
+  return text.replace(new RegExp("^\\s*" + num + "\\s*[.)]\\s+"), "");
+};
+
+/**
  * OCRProblem → GeneratedProblem 변환.
  *
  * **필드 매핑**:
