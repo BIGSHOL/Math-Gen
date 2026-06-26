@@ -187,6 +187,12 @@ export const PrintActionPanel = ({
         body: JSON.stringify({ html, cssUrls, title: safeName }),
       });
       if (!res.ok) {
+        // 404 = /api 서버리스 함수 부재(dev/비-Vercel). 혼란스러운 raw 404 대신 명확 안내.
+        if (res.status === 404) {
+          throw new Error(
+            "서버 PDF 기능은 배포 환경에서만 동작합니다. 개발 중에는 '인쇄 · PDF로 저장'을 사용하세요.",
+          );
+        }
         const errBody = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(errBody.error || `HTTP ${res.status}`);
       }
@@ -464,16 +470,22 @@ export const PrintActionPanel = ({
             Phase 2(준비 중): 서버 1-클릭 'PDF 다운로드'(Puppeteer). DOCX 는 후속. */}
         <div className="space-y-2">
           {/* 서버 1-클릭 PDF 다운로드 (Puppeteer) — HWP 처럼 한 번 클릭 → .pdf 다운로드.
-              미리보기와 동일 벡터 렌더(Chromium). 로그인 필요(currentAccessToken). */}
+              미리보기와 동일 벡터 렌더(Chromium). 로그인 필요(currentAccessToken).
+              dev(Vite)는 /api 서버리스 함수가 없어 404 → 개발 중엔 비활성(인쇄로 안내, §23-4). */}
           <Btn
             kind="accent"
             icon="file-pdf"
             iconRight="download-simple"
             full
             onClick={() => void handleServerPDF()}
-            disabled={isExporting || problemCount === 0}
+            disabled={isExporting || problemCount === 0 || import.meta.env.DEV}
+            title={
+              import.meta.env.DEV
+                ? "서버 PDF는 배포 환경에서만 동작합니다 — 개발 중엔 아래 '인쇄 · PDF로 저장'을 사용하세요"
+                : undefined
+            }
           >
-            PDF 다운로드
+            PDF 다운로드{import.meta.env.DEV ? " (배포 전용)" : ""}
           </Btn>
           {/* 브라우저 인쇄(window.print) — OS 대화상자 → "PDF로 저장". 서버·로그인 불필요. */}
           <Btn
