@@ -8,7 +8,7 @@ import {
   type PaginatedAnswerPage,
 } from "@app/lib/printLayout";
 import { usePrintLayout } from "@app/hooks/usePrintLayout";
-import { buildDigitizeReviews } from "@app/lib/problemAdapter";
+import { buildDigitizeReviews, unifyEssayLabels } from "@app/lib/problemAdapter";
 import type { PackedPage } from "@app/lib/printPack";
 import { usePreviewScale, A4_HEIGHT_PX, A4_WIDTH_PX } from "@app/hooks/usePreviewScale";
 import { A4Page } from "@app/components/print/A4Page";
@@ -78,9 +78,12 @@ export const Step5Export = () => {
   // 즉시 digitize 경로 — 부활 시(disabled 제거) 자동으로 rawProblems 경로 복귀.
   const problems = useMemo(
     () =>
-      exportSource !== "original" && ENABLED_EXPORT_SOURCES.includes(exportSource)
-        ? rawProblems
-        : buildDigitizeReviews(pages),
+      // §45 ③: 서술형/서답형 라벨 혼재 시 서답형 통일(문서 레벨) — 도출 직후 1회.
+      unifyEssayLabels(
+        exportSource !== "original" && ENABLED_EXPORT_SOURCES.includes(exportSource)
+          ? rawProblems
+          : buildDigitizeReviews(pages),
+      ),
     [exportSource, pages, rawProblems],
   );
 

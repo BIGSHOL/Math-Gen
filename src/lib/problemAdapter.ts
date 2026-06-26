@@ -167,6 +167,35 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
 };
 
 /**
+ * 서술형/서답형 라벨 혼재 시 '서답형'으로 통일 — 엔진 _normalize_essay_label_type 웹 판(§45).
+ * 한 시험지에 [서술형 N]/[서답형 N] 이 2종 이상이면 OCR 오인(같은 시험지는 한 용어로 일관)
+ * → 교육과정 구성형 용어 '서답형'으로 일괄(사용자 결정 2026-06-09). 1종(일관)이면 진짜 서술형
+ * 시험지일 수 있어 보존. 문서(전체 문항) 레벨이라 리스트 단위 패스(Step5Export 도출 직후).
+ */
+export const unifyEssayLabels = (problems: ProblemReview[]): ProblemReview[] => {
+  const found = new Set<string>();
+  const scan = (t?: string): void => {
+    if (!t) return;
+    for (const m of t.matchAll(/\[\s*(서술형|서답형)\s*\d*\s*\]/g)) found.add(m[1]);
+  };
+  for (const p of problems) {
+    scan(p.original?.question);
+    scan(p.variant?.question);
+  }
+  if (found.size < 2) return problems; // 일관(또는 라벨 없음) → 유지
+  const fixText = (t: string): string =>
+    t.replace(/\[\s*(?:서술형|서답형)(\s*\d*\s*)\]/g, (_m, n: string) => `[서답형${n}]`);
+  const fixLabel = (lt?: string): string | undefined =>
+    lt === "서술형" || lt === "서답형" ? "서답형" : lt;
+  const fixGen = (g: GeneratedProblem): GeneratedProblem => ({
+    ...g,
+    question: typeof g.question === "string" ? fixText(g.question) : g.question,
+    labelType: fixLabel(g.labelType),
+  });
+  return problems.map((p) => ({ ...p, original: fixGen(p.original), variant: fixGen(p.variant) }));
+};
+
+/**
  * 변형 가능(eligible) OCR 문항 필터 — **단일 source of truth**.
  *
  * `useVariantGen` 시드 / `Step3Options` 카운트 / `Step5Export` digitize live 도출이
