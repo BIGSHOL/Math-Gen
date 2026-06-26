@@ -5477,3 +5477,63 @@ payload 에 있어도 미렌더(플래그 게이팅 clean).
   빠지면 "UI 만 동작, 출력 무변화". 강조색 테두리는 거기에 *COM 불가 → XML 후처리*(§40 색 패턴)가 추가.
 - **원칙**: 문서 전역 속성(글자색·테두리색)은 COM 이 아니라 저장 후 header.xml/section XML 후처리가
   표준(§40·§43). 문단 간격(COM API 없음)은 *sized 빈 단락*으로 우회. 새 accent 박스는 센티넬만 박으면 됨.
+
+---
+
+## 46. PDF 내보내기 활성화 + 웹 렌더 후보정 parity (2026-06-26)
+
+PDF 내보내기 3 경로를 켜고(2026-06-02 MVP 락다운 해제, PDF 한정), 엔진(HWP) content_parser 가
+하는 후보정 중 웹 렌더(미리보기/PDF/인쇄 — 모두 같은 React 렌더)에 빠진 것들을 parity 감사로
+찾아 메웠다. 다음 *PDF 내보내기 / 웹↔HWP 렌더 일치 / 후보정* 작업 시 첫 섹션.
+
+### 46-1. PDF 3 경로 — window.print(즉시) / 서버 Puppeteer(1-클릭) / 클라 html2canvas(폐기)
+
+3 경로 모두 코드 완성·비활성(락다운)이었음. 핵심: 웹 미리보기·PDF·인쇄가 *같은 printable-root
+React 렌더*라 PDF 는 HWP 보다 쉬움(브라우저가 KaTeX·도형·폰트 네이티브 렌더).
+- **window.print()** (handlePrint, PrintActionPanel) — 버튼 활성화만(폰트 대기 이미 포함). 벡터
+  완벽, 서버·로그인 0. OS 대화상자 → "PDF로 저장". 커밋 `6185fb6`.
+- **서버 Puppeteer** (/api/export-pdf, handleServerPDF) — HWP 처럼 1-클릭 다운로드. `fab54fc`
+  + 후속 수정 3종(§46-2). dev(Vite)는 /api 함수 없어 404 → `import.meta.env.DEV` 면 버튼 비활성
+  ("배포 전용", `e2e6297`).
+- **클라 html2canvas** (pdfExporter) — KaTeX 깨짐(§19-5) → 폐기(버튼 비노출). `sanitizeFilename`
+  은 `src/lib/filename.ts` 로 분리(1MB jspdf 청크 의존 제거 — 서버 PDF·HWP 경로 경량화).
+
+### 46-2. 서버 PDF 함정 3종 (전부 page.pdf 성공 후 / 폰트)
+1. **Content-Disposition 한글 파일명** → "Invalid character in header content". HTTP 헤더는
+   ASCII(latin1) 전용. RFC 5987: `filename="ascii"; filename*=UTF-8''<percent-encoded>`. `a37251c`.
+2. **한글 빈 글리프** — 인쇄 DOM(.printable-root)이 화면 매체 display:none → setContent/
+   fonts.ready 시점 글리프가 레이아웃 안 돼 요청조차 안 됨 → fonts.ready 즉시 resolve → page.pdf
+   페인트 때 비로소 요청되나 안 기다려 빈 글리프(숫자·기호만 렌더, "[3점]"의 점 사라짐). 해결:
+   `page.emulateMediaType("print")` 를 setContent 전에 + `document.fonts.load(한글 폰트군, 샘플)`
+   강제 + fonts.ready 재대기. `b6f0d68`.
+3. **폰트 CDN 차단** — same-origin guard 가 Google Fonts/jsdelivr 막음. 신뢰 폰트 호스트
+   allowlist(googleapis/gstatic/jsdelivr, stylesheet+font) + 인쇄 폰트 link 주입 + system 팩에
+   Noto KR fallback(serverless 엔 Batang/Malgun 없음). `fab54fc`.
+   ※ 검증 한계: Vercel SSO + 앱 로그인 게이트로 헤드리스 PDF 불가 → preview/production 사용자 검증.
+   ※ 함정 공통: page.pdf() 는 print 매체 자동 에뮬 + webfont 를 *기다리지 않음* → 폰트는 명시적
+   강제 로드 필요. evaluateHandle("document.fonts.ready") 는 await 안 함(즉시 반환) — evaluate 로.
+
+### 46-3. 후보정 parity 감사 (워크플로) — 엔진 has / 웹 lacks
+
+§35 가 엔진 content_parser 의 `_finalize_contents`(display 정규화)는 포팅했으나 *`_parse_question`
+레벨*(번호 strip·배점 위치·라벨 통일·부정강조)은 누락. 다중 에이전트 감사(map 엔진·웹 → diff →
+verify, false-positive 0)로 확정 3 gap + 기존 "4. 4." 1건. **모두 render-time(problemAdapter/
+ProblemBody/Step5Export) 처리 → contentParser/golden 무영향**(golden 25/25 유지).
+
+| gap | 증상 | 수정(웹, problemAdapter 헬퍼) | 커밋 |
+|---|---|---|---|
+| 번호 "4. 4." | OCR 가 인쇄 번호를 본문에 포함 + 렌더러가 또 붙임 | `stripLeadingProblemNumber`(자기번호만 보수적, `^\s*N[.)]\s+`) — ProblemBody + jeongtong toHwpPreview | `75d7afe` |
+| 배점 위치 | [N점]이 보기 박스 끝(ㅁ 뒤). 엔진은 발문 끝. + `points??3` latent(ocrToGenerated 가 score 만 설정→points 항상 undefined→항상 3) | `repositionScore` — 본문영역(첫 ①/(1) 전) [N점] 제거 + score(필드 우선, 없으면 추출) 발문 끝 1회(소문항 배점 보존). ProblemBody 6템플릿 공통 1곳. 템플릿별 배점 렌더(toHwpPreview score·PointsLabel·modern pill) 전부 제거 | `4a0cf6f` |
+| 서술형/서답형 | 한 시험지 라벨 혼재(OCR 오인) | `unifyEssayLabels`(2종+ 면 서답형 통일, 1종이면 보존=진짜 서술형) — Step5Export 문서레벨 1회 | `883f076` |
+| 부정어 강조 | "옳지 않은 것은?" 평문 | `emphasizeNegation`(않은/않는/아닌/틀린 + '것' → `<u><strong>`) — ProblemBody questionBody, rehype-raw 렌더 | `e9acacf` |
+
+### 46-4. 원칙
+- **웹 미리보기·PDF·인쇄 = 동일 React 렌더(printable-root)**. HWP 만 별도 엔진. 후보정 누락은
+  거의 `_parse_question` 레벨(§35 가 `_finalize_contents` 만 포팅) → render-time(problemAdapter
+  헬퍼 + ProblemBody/Step5Export)에서 메우면 contentParser golden 무영향. 새 parity gap 도 같은 위치.
+- 배점·번호 같은 *문항 구조* 후보정은 6 템플릿 공통 `ProblemBody` 1곳에 — 템플릿별 중복 제거(score
+  렌더가 jeongtong/pyeongga/modern/workbook 제각각이던 것 통일).
+- 부정강조 등 *display 마크업*은 rehype-raw(MarkdownRenderer, rehype-sanitize 없음)로 `<u><strong>`
+  직접 — 마크다운 밑줄 부재 우회. §35 의 부정강조 '의도적 제외'를 더 가벼운 render-time 으로 대체.
+- §35 golden 은 contentParser.ts 만 검증 → render-time 후보정(problemAdapter/ProblemBody)은 golden
+  무관. 단 contentParser 를 건드리면 baseline 재생성 필수(§35-5).
