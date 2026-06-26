@@ -253,15 +253,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const page = await browser.newPage();
     await installNetworkGuard(page, origin);
 
+    // 인쇄 매체로 먼저 전환 — 인쇄 DOM(.printable-root)이 화면 매체에선 display:none 이라,
+    // 이걸 먼저 print 로 바꿔야 콘텐츠가 레이아웃돼 한글 글리프가 요청된다(§45 Phase 2).
+    await page.emulateMediaType("print");
+
     const fullHtml = wrapHtml(input, origin);
     await page.setContent(fullHtml, {
       waitUntil: "load",
       timeout: 30_000,
     });
-    await page.waitForNetworkIdle({ idleTime: 500, timeout: 30_000 });
-    // 폰트 로딩 완료까지 실제 대기 — evaluateHandle 은 promise 를 await 하지 않아(즉시 반환)
-    // 한글/수식 폰트가 덜 실린 채 PDF 가 찍히던 버그(§45 Phase 2). evaluate 로 promise 해소 대기.
-    await page.evaluate(() => document.fonts.ready);
+    await page.waitForNetworkIdle({ idleTime: 500, timeout: 20_000 }).catch(() => undefined);
+    // 한글 웹폰트 강제 로드 — fonts.ready 만으론 부족했던 근본 원인: 인쇄 DOM 이 hidden 이라
+    // 글리프가 레이아웃 전까지 요청 안 됨 → fonts.ready 가 '대기할 폰트 없음'으로 즉시 resolve
+    // → page.pdf 페인트 때 비로소 요청되나 안 기다려 한글이 빈 글리프로 찍히던 것(사용자 보고).
+    // document.fonts.load() 는 가시성/레이아웃과 무관하게 폰트를 직접 요청하므로 이를 우회한다.
+    await page.evaluate(async () => {
+      try {
+        await document.fonts.ready;
+      } catch {
+        /* ignore */
+      }
+      const families = [
+        "Noto Serif KR",
+        "Noto Sans KR",
+        "Nanum Myeongjo",
+        "Nanum Gothic",
+        "Gowun Batang",
+        "Gowun Dodum",
+        "Pretendard",
+        "JetBrains Mono",
+      ];
+      const sample = "가힣국문수학9A";
+      await Promise.all(
+        families
+          .flatMap((f) => [
+            document.fonts.load(`400 16px "${f}"`, sample),
+            document.fonts.load(`700 16px "${f}"`, sample),
+          ])
+          .map((p) => p.catch(() => undefined)),
+      );
+      try {
+        await document.fonts.ready;
+      } catch {
+        /* ignore */
+      }
+    });
+    // serverless 폰트 디버그용(폰트명만, PII 없음) — 로딩 실패 시 원인 추적.
+    try {
+      const loaded = await page.evaluate(() =>
+        Array.from(document.fonts)
+          .filter((f) => f.status === "loaded")
+          .map((f) => f.family),
+      );
+      // eslint-disable-next-line no-console
+      console.log("[api/export-pdf] loaded fonts:", JSON.stringify([...new Set(loaded)]));
+    } catch {
+      /* ignore */
+    }
 
     const pdfBytes = await page.pdf({
       format: "A4",
