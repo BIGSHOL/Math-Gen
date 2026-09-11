@@ -74,14 +74,21 @@ const check = (name: string, ok: boolean, detail = "") => {
 // ── 포팅4 — 라벨없는 박스 trailing question 분리 (dbe8143) ──
 {
   const out = normalizeContents([
-    T("<상자> 다음 과정을 보자"),
+    T("<상자>"),
+    T("다음 과정을 보자. 결과는 "),
     E("\\boxed{7}"),
+    T("이다."),
     T("위의 과정에서 옳은 것을 나열한 것은?"),
   ]);
   // 마지막 질문 블록이 박스 밖으로 분리 → 그 블록은 boxMember 아님
   const last = out[out.length - 1] as { boxMember?: boolean; value?: string };
   const splitOut = !last.boxMember && /나열한 것은\?/.test(last.value || "");
   check("P4 라벨없는 박스 trailing question 분리", splitOut, `last boxMember=${last.boxMember} :: ${joined(out)}`);
+}
+{
+  // 최신 엔진의 산문 박스 규칙: 종결되지 않은 한 문장은 수식 앞에서 끊지 않는다.
+  const out = normalizeContents([T('<상자> 일의 자리 수가 '), E('2'), T('인 세 자리 자연수이다.')]);
+  check('P5 산문 박스의 인라인 수식 연속 보존', out.every(b => b.boxMember), joined(out));
 }
 
 console.log("");

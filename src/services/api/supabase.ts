@@ -22,7 +22,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const URL = import.meta.env.VITE_SUPABASE_URL;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-/** Feature flag — false 면 client null + 모든 API 함수 no-op. */
+/** 인증 활성화 여부. testchange 모드에서는 아래 authClient만 공유한다. */
 export const SUPABASE_ENABLED: boolean =
   import.meta.env.VITE_SUPABASE_ENABLED === "true" && Boolean(URL) && Boolean(ANON_KEY);
 
@@ -30,7 +30,7 @@ export const SUPABASE_ENABLED: boolean =
  * Singleton client. SUPABASE_ENABLED=false 면 null — 모든 호출 측에서
  * `if (!supabase) return;` 가드 후 사용.
  */
-export const supabase: SupabaseClient | null = SUPABASE_ENABLED
+export const authClient: SupabaseClient | null = SUPABASE_ENABLED
   ? createClient(URL!, ANON_KEY!, {
       auth: {
         // Phase G — Auth 도입. 세션을 localStorage 에 보관해 리로드 후에도
@@ -40,6 +40,9 @@ export const supabase: SupabaseClient | null = SUPABASE_ENABLED
       },
     })
   : null;
+
+/** testchange에는 MathGen 전용 테이블이 없다. 인증은 공유하고 작업 저장은 로컬로 분리한다. */
+export const supabase = import.meta.env.VITE_TESTCHANGE_ENABLED === 'true' ? null : authClient;
 
 /**
  * Dev 단계의 *모든 row 의 user_id 값*. RLS 정책이 anon 일 때 이 UUID 와 비교.
@@ -53,8 +56,8 @@ export const DEV_USER_ID = "00000000-0000-0000-0000-000000000000";
  * Phase G (Auth) 이후 활성 — 로그인 사용자는 본인 UUID 가 반환된다.
  */
 export const currentUserId = async (): Promise<string> => {
-  if (!supabase) return DEV_USER_ID;
-  const { data } = await supabase.auth.getUser();
+  if (!authClient) return DEV_USER_ID;
+  const { data } = await authClient.auth.getUser();
   return data.user?.id ?? DEV_USER_ID;
 };
 
@@ -63,8 +66,8 @@ export const currentUserId = async (): Promise<string> => {
  * tenant_id 해석에 사용. 로그인 안 됐으면 null (anon 으로 진행).
  */
 export const currentAccessToken = async (): Promise<string | null> => {
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
+  if (!authClient) return null;
+  const { data } = await authClient.auth.getSession();
   return data.session?.access_token ?? null;
 };
 
@@ -75,6 +78,6 @@ export const currentAccessToken = async (): Promise<string | null> => {
 if (import.meta.env.DEV) {
   // eslint-disable-next-line no-console
   console.info(
-    `[api/supabase] SUPABASE_ENABLED=${SUPABASE_ENABLED}, client=${supabase ? "created" : "null"}, url=${URL?.slice(0, 40) ?? "(unset)"}`,
+    `[api/supabase] SUPABASE_ENABLED=${SUPABASE_ENABLED}, auth=${authClient ? "created" : "null"}, storage=${supabase ? "supabase" : "local"}`,
   );
 }

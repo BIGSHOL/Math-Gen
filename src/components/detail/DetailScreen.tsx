@@ -90,6 +90,10 @@ export const DetailScreen = () => {
       suspendWizardSync(() =>
         useWizardStore.getState().hydrateFromTest(finalSnapshot),
       );
+      if (test && finalSnapshot.testId !== selectedTestId) {
+        useLibraryStore.getState().upsertTest({ ...test, id: finalSnapshot.testId,
+          title: `${test.title} · 편집본`, statusText: '이 브라우저에 저장' });
+      }
       startWizard(finalSnapshot.testId);
     } catch (err) {
       console.warn("[DetailScreen] 이어서 작업 실패:", err);

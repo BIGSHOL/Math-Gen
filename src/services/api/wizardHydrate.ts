@@ -10,6 +10,10 @@ import { loadDetailData } from "@app/hooks/useDetailData";
 import { getTestRow } from "@app/services/api/tests";
 import { pageRowToWizard } from "@app/services/api/mappers";
 import { restoreThumbnail } from "@app/lib/imageRestore";
+import { isTestchangeId } from '../../types/testchange';
+import { loadTestchangeExam, TESTCHANGE_ENABLED } from './testchange';
+import { testchangeExamToTest, testchangeToDetail } from '../../lib/testchangeAdapter';
+import { loadLocalWork, saveLocalTest, saveLocalSnapshot } from './localWork';
 
 /**
  * "이어서 작업" — 저장된 시험지(Supabase)를 위자드 스냅샷으로 변환.
@@ -71,6 +75,21 @@ export const decideResumeStep = (
 export const hydrateWizardFromTest = async (
   testId: string,
 ): Promise<WizardHydrateSnapshot | null> => {
+  if (isTestchangeId(testId)) {
+    const data = await loadTestchangeExam(testId);
+    const detail = testchangeToDetail(data);
+    if (!detail.problems.length) return null;
+    const source = testchangeExamToTest(data.exam);
+    const copyId = crypto.randomUUID();
+    await saveLocalTest({ ...source, id: copyId, title: `${source.title} · 편집본`, statusText: '이 브라우저에 저장' });
+    const snapshot: WizardHydrateSnapshot = { testId: copyId, step: 6, goal: 'digitize',
+      pages: detail.pages.map(row => pageRowToWizard(row, detail.problemsByPage.get(row.id) ?? [])),
+      problems: detail.reviews, selectedGrade: source.grade as GradeKey,
+      examCategory: data.exam.round === '기말' ? 'FINAL' : 'MIDTERM', uploadedFileName: `${source.title}.pdf` };
+    await saveLocalSnapshot(snapshot);
+    return snapshot;
+  }
+  if (TESTCHANGE_ENABLED) return (await loadLocalWork(testId))?.snapshot ?? null;
   const [detail, testRow] = await Promise.all([
     loadDetailData(testId, { withSignedUrls: false }),
     getTestRow(testId),

@@ -332,6 +332,8 @@ export interface OCRProblem {
   subQuestions?: SubQuestion[];
   /** 배점 (없으면 undefined). HWP wire payload 로 전달돼 정답지/배점 표기에 사용. */
   score?: number;
+  /** 원본 배점 표기(예: "3.0"). 값 계산에는 score, 출력에는 이 표기를 우선한다. */
+  printedScore?: string;
   /** 문항 유형 라벨 ("서답형"/"서술형"/"단답형"/…). 없으면 undefined. */
   labelType?: string;
   topic?: string;
@@ -468,6 +470,17 @@ export interface ProblemReview {
  * 에 넘기는 스냅샷. `initialState` 위에 얹혀 위자드 state 를 복원한다.
  */
 export interface WizardHydrateSnapshot {
+  goal?: ConversionGoal;
+  printOptions?: PrintOptions;
+  printMeta?: PrintMeta;
+  filename?: string;
+  format?: ExportFormat;
+  exportSource?: ExportSource;
+  bundle?: WizardState['bundle'];
+  difficulty?: DifficultyShift;
+  extras?: WizardState['extras'];
+  skipSolutions?: boolean;
+  furthestStep?: WizardStepIndex;
   testId: string;
   step: WizardStepIndex;
   pages: WizardPage[];
@@ -829,7 +842,7 @@ export const useWizardStore = create<WizardState>()(
         if (ocr.length > 0) reached = 2; // OCR 결과 있음
         if (ocr.some((it) => it.solution)) reached = 3; // 해설 있음
         if (snapshot.problems.length > 0) reached = 6; // 변형/검토 → 내보내기까지
-        const furthest = Math.max(snapshot.step as number, reached) as WizardStepIndex;
+        const furthest = Math.max(snapshot.step, snapshot.furthestStep ?? 0, reached) as WizardStepIndex;
         set({
           ...initialState,
           ...snapshot,

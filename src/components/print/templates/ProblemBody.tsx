@@ -119,7 +119,7 @@ export const ProblemBody = ({
         extractedChoices ? stripChoicesLine(problem.question) : problem.question,
         problem.number,
       ),
-      problem.score ?? problem.points,
+      problem.printedScore ?? problem.score ?? problem.points,
     ),
   );
 

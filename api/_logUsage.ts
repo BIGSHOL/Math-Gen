@@ -40,6 +40,7 @@ export interface LogAiUsageInput {
  * ai_usage row insert. fire-and-forget — caller 가 await X.
  */
 export const logAiUsage = (input: LogAiUsageInput): void => {
+  if (process.env.VITE_TESTCHANGE_ENABLED === 'true') return;
   const client = getServiceClient();
   if (!client) return;
   const costUsd = computeCost(input.model, input.usage);
@@ -85,6 +86,7 @@ export interface LogErrorInput {
  * fingerprint+user_id+kind 매칭 시 count++ + last_seen_at = now.
  */
 export const logError = (input: LogErrorInput): void => {
+  if (process.env.VITE_TESTCHANGE_ENABLED === 'true') return;
   const client = getServiceClient();
   if (!client) return;
   void client

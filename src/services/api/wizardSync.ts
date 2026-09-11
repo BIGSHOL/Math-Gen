@@ -7,6 +7,9 @@ import { insertVariantBatch } from "./variantHistory";
 import { updateTest } from "./tests";
 import type { PageInsert, OcrProblemInsert, ReviewInsert } from "./mappers";
 import { buildVariantLabel } from "@app/lib/conversionLabels";
+import { TESTCHANGE_ENABLED } from './testchange';
+import { saveLocalWizard } from './localWork';
+import { showToast } from '../../stores/toastStore';
 
 /**
  * wizardStore → Supabase background sync.
@@ -52,6 +55,18 @@ export const installWizardSync = (): void => {
     if (suspended) return; // hydrateFromTest 등 — 의도적으로 sync 건너뜀
     const testId = state.testId;
     if (!testId) return;
+    if (TESTCHANGE_ENABLED) {
+      if (state.pages !== prev.pages || state.problems !== prev.problems || state.step !== prev.step ||
+        state.printOptions !== prev.printOptions || state.goal !== prev.goal ||
+        state.printMeta !== prev.printMeta || state.filename !== prev.filename ||
+        state.format !== prev.format || state.exportSource !== prev.exportSource ||
+        state.bundle !== prev.bundle || state.difficulty !== prev.difficulty || state.extras !== prev.extras ||
+        state.skipSolutions !== prev.skipSolutions || state.selectedGrade !== prev.selectedGrade ||
+        state.examCategory !== prev.examCategory || state.uploadedFileName !== prev.uploadedFileName) {
+        void saveLocalWizard(state).catch(() => showToast({ kind: 'error', message: '편집본을 이 브라우저에 저장하지 못했습니다.' }));
+      }
+      return;
+    }
     // ── pages 변경 감지 ────────────────────────────────────────────────────
     if (state.pages !== prev.pages) {
       for (const newPage of state.pages) {

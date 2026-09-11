@@ -48,6 +48,8 @@ export const resolveAuth = async (
     const { data, error } = await client.auth.getUser(jwt);
     if (error || !data.user) return EMPTY_CONTEXT;
     const userId = data.user.id;
+    // testchange의 기존 인증을 그대로 사용한다. MathGen 전용 profiles는 없는 스키마다.
+    if (process.env.VITE_TESTCHANGE_ENABLED === 'true') return { userId, tenantId: null };
 
     // profiles join — tenant_id 조회 (없어도 OK, null 그대로)
     const { data: profile } = await client

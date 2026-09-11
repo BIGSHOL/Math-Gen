@@ -3,6 +3,7 @@ import net from "net";
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { localApiPlugin } from './scripts/localApiPlugin';
 
 /**
  * 빈 TCP port 찾기 — `start` 부터 `max` 까지 순차 검사, 첫 빈 port 반환.
@@ -153,6 +154,7 @@ const SHELL_ENV_KEYS = [
   "VITE_SUPABASE_URL",
   "VITE_SUPABASE_ANON_KEY",
   "VITE_SUPABASE_ENABLED",
+  "VITE_TESTCHANGE_ENABLED",
 ] as const;
 
 type ShellEnvKey = (typeof SHELL_ENV_KEYS)[number];
@@ -228,6 +230,15 @@ const stubBrowserUnsafeAnthropicSdk = (stubs: Record<string, string>) => ({
 export default defineConfig(async ({ command }) => {
   const fileEnv = readEnvLocal();
   const env = readAllowedShellEnv();
+  // 서버 전용 환경변수는 define/env 객체에 포함하지 않는다.
+  if (command === 'serve') {
+    for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'VITE_TESTCHANGE_ENABLED', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY']) {
+      if (!process.env[key] && fileEnv[key]) process.env[key] = fileEnv[key];
+    }
+    if (!process.env.VITE_SUPABASE_URL && fileEnv.VITE_SUPABASE_URL) {
+      process.env.VITE_SUPABASE_URL = fileEnv.VITE_SUPABASE_URL;
+    }
+  }
   const cliPort = readCliPort(process.argv);
   // 3000 부터 검사해 첫 빈 port 사용. 다른 프로젝트가 3000 점유 중이면 자동으로
   // 3001, 3002... 로. CLI --port 가 있으면 Vite 의 명시값을 그대로 존중한다.
@@ -278,7 +289,7 @@ export default defineConfig(async ({ command }) => {
       // 정리하면 다시 켤 수 있음.
       hmr: false,
     },
-    plugins: [stubBrowserUnsafeAnthropicSdk(stubs), react()],
+    plugins: [localApiPlugin(), stubBrowserUnsafeAnthropicSdk(stubs), react()],
     define: {
       // AI provider keys — Phase 5a-6: **dev (vercel dev / npm run dev) 에서만**
       // 클라이언트 번들에 inject. production 빌드에서는 *제거* — 모든 AI 호출이
@@ -301,6 +312,7 @@ export default defineConfig(async ({ command }) => {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(SUPABASE_URL),
       "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(SUPABASE_ANON_KEY),
       "import.meta.env.VITE_SUPABASE_ENABLED": JSON.stringify(SUPABASE_ENABLED),
+      "import.meta.env.VITE_TESTCHANGE_ENABLED": JSON.stringify(env.VITE_TESTCHANGE_ENABLED || fileEnv.VITE_TESTCHANGE_ENABLED || 'false'),
     },
     resolve: {
       alias: {

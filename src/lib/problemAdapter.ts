@@ -81,8 +81,8 @@ export const stripLeadingProblemNumber = (text: string, num?: number): string =>
 
 // 보기 ① 또는 소문항 (1)/(가) 줄 시작 — 본문(발문+박스) 영역의 경계.
 const CHOICE_OR_SUB_LINE = /^\s*(?:[①-⑳]|\(\s*(?:\d{1,2}|[가-힣])\s*\)\s)/;
-const SCORE_TAG_G = /\s*\[\s*\d+\s*점\s*\]\s*/g;
-const SCORE_TAG_ONE = /\[\s*(\d+)\s*점\s*\]/;
+const SCORE_TAG_G = /\s*\[\s*\d+(?:\.\d+)?\s*점\s*\]\s*/g;
+const SCORE_TAG_ONE = /\[\s*(\d+(?:\.\d+)?)\s*점\s*\]/;
 
 /**
  * 배점 [N점] 을 *발문 끝*(첫 보기/박스 직전)으로 통일 — 엔진 _parse_question 의 배점 캡처·재배치
@@ -91,21 +91,21 @@ const SCORE_TAG_ONE = /\[\s*(\d+)\s*점\s*\]/;
  * 없으면 본문에서 추출)를 발문 끝에 1회 삽입. *소문항((1)(2)) 줄의 배점은 보존*(그 줄부터 본문
  * 영역 밖). 점수 없으면 제거만(추가 X). HWP 출력(6 템플릿 발문 끝 통일)과 일치.
  */
-export const repositionScore = (question: string, scoreField?: number): string => {
+export const repositionScore = (question: string, scoreField?: number | string): string => {
   if (!question) return question;
   const lines = question.split("\n");
   let bodyEnd = lines.findIndex((l) => CHOICE_OR_SUB_LINE.test(l));
   if (bodyEnd < 0) bodyEnd = lines.length;
-  let extracted: number | undefined;
+  let extracted: string | undefined;
   for (let i = 0; i < bodyEnd; i++) {
     const m = lines[i].match(SCORE_TAG_ONE);
-    if (m && extracted === undefined) extracted = Number.parseInt(m[1], 10);
+    if (m && extracted === undefined) extracted = m[1];
     lines[i] = lines[i].replace(SCORE_TAG_G, " ").replace(/[ \t]+$/, "");
   }
   const score =
-    typeof scoreField === "number" && scoreField > 0 ? scoreField : extracted;
+    scoreField != null && /^\d+(?:\.\d+)?$/.test(String(scoreField).trim()) && Number(scoreField) > 0 ? String(scoreField).trim() : extracted;
   const body = lines.join("\n");
-  if (!(typeof score === "number" && score > 0)) return body;
+  if (!score || !(Number(score) > 0)) return body;
   const tag = ` [${score}점]`;
   const fb = body.indexOf("\n\n");
   return fb >= 0 ? body.slice(0, fb).trimEnd() + tag + body.slice(fb) : body.trimEnd() + tag;
@@ -162,6 +162,7 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
     // D3: 소문항 carry — HWP wire 가 testchange sub_questions 로 렌더.
     subQuestions: it.subQuestions,
     score: it.score,
+    printedScore: it.printedScore,
     labelType: it.labelType,
   };
 };

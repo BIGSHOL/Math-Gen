@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Btn, Chip, Eyebrow, Icon } from "@app/components/ui";
 import type { TestPaper, TopicSlice } from "@app/types";
 import { formatVariantLabel } from "@app/lib/conversionLabels";
+import { isTestchangeId } from '../../types/testchange';
+import { TestchangeHwpExport } from './TestchangeHwpExport';
 
 /** 변형 이력 기본 노출 개수 — 그 이상은 "더보기" 로 펼침 (사용자 결정 2026-06-04). */
 const VARIANT_PREVIEW_COUNT = 5;
@@ -42,7 +44,7 @@ const buildInfo = (test: TestPaper): InfoRow[] => [
   { key: "과목", value: test.subject, icon: "function" },
   { key: "문항", value: `${test.problemCount}개`, icon: "list-numbers" },
   { key: "업로드", value: test.time, icon: "calendar" },
-  { key: "변환 방식", value: "OCR + 유사", icon: "magic-wand" },
+  { key: "변환 방식", value: isTestchangeId(test.id) ? "기출 자료" : "OCR 변환", icon: "magic-wand" },
   { key: "제작자", value: "—", icon: "user" },
 ];
 
@@ -170,6 +172,7 @@ export const DetailMetaSidebar = ({
         </button>
       </div>
       <div className="flex flex-col gap-2 mb-7">
+        {isTestchangeId(test.id) && <TestchangeHwpExport testId={test.id} />}
         {/* 변형 만들기 — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */}
         <div>
           <Btn

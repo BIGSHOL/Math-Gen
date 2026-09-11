@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { User } from "@supabase/supabase-js";
-import { supabase } from "@app/services/api/supabase";
+import { authClient as supabase } from "@app/services/api/supabase";
 import { useAppStore } from "./appStore";
 import { useLibraryStore } from "./libraryStore";
 import { useWizardStore } from "./wizardStore";
@@ -124,7 +124,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       prevUserId = nextId;
       set({ user, status: "ready" });
       // Phase A — profile row 조회 (role / tenant_id). user null 이면 profile null.
-      if (!user) {
+      if (!user || import.meta.env.VITE_TESTCHANGE_ENABLED === 'true') {
         set({ profile: null });
         return;
       }

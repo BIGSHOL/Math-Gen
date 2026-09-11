@@ -87,6 +87,7 @@ export interface GeneratedProblem {
   subQuestions?: import("@app/types/ocrBlocks").SubQuestion[];
   /** 배점 (HWP 정답지·배점 표기). */
   score?: number;
+  printedScore?: string;
   /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
   labelType?: string;
 }

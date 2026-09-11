@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Btn, Chip, Divider } from "@app/components/ui";
 import { ModalShell } from "@app/components/modal";
-import { supabase } from "@app/services/api/supabase";
+import { authClient as supabase } from "@app/services/api/supabase";
 import { useAuthStore } from "@app/stores/authStore";
 import { PasswordChangeModal } from "./PasswordChangeModal";
 

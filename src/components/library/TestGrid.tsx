@@ -1,5 +1,6 @@
 import type { TestPaper } from "@app/types";
 import { TestCard } from "./TestCard";
+import { isTestchangeId } from '../../types/testchange';
 
 export interface TestGridProps {
   tests: TestPaper[];
@@ -29,7 +30,7 @@ export const TestGrid = ({ tests, onSelect, onDelete }: TestGridProps) => (
         key={t.id}
         test={t}
         onClick={() => onSelect(t.id)}
-        onDelete={onDelete ? () => onDelete(t.id) : undefined}
+        onDelete={onDelete && !isTestchangeId(t.id) ? () => onDelete(t.id) : undefined}
       />
     ))}
   </div>

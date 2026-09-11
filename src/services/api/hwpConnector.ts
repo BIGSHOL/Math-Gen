@@ -13,6 +13,7 @@ import type { PrintMeta } from "@app/components/print/types";
 import type { GeneratedProblem } from "@app/types";
 import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
 import { getFontPack, type FontPackId } from "@app/lib/printFontPacks";
+import type { EngineQuestion } from '../../types/testchange';
 
 /** 커넥터 base URL. dev override 가능 (VITE_HWP_CONNECTOR_URL). */
 const BASE =
@@ -49,9 +50,9 @@ export interface HwpPayloadProblem {
    * D3: 소문항 (1)(2) — 커넥터 adapter._adapt_native_problem 가 재귀 passthrough →
    * content_parser sub_questions → writer 가 소문항별 번호·배점·답란 렌더. 없으면 생략.
    */
-  subQuestions?: SubQuestion[];
+  subQuestions?: Array<Omit<SubQuestion, 'score'> & { score?: number | string }>;
   /** 배점. */
-  score?: number;
+  score?: number | string;
   /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
   labelType?: string;
   /**
@@ -341,7 +342,7 @@ export const buildHwpPayload = (
           ...(Array.isArray(s.choices) && s.choices.length > 0
             ? { choices: s.choices }
             : {}),
-          ...(typeof s.score === "number" ? { score: s.score } : {}),
+          ...(typeof s.score === "number" ? { score: s.printedScore ?? s.score } : {}),
           ...(s.labelType ? { labelType: s.labelType } : {}),
         }));
       }
@@ -352,7 +353,7 @@ export const buildHwpPayload = (
           : typeof p.points === "number"
             ? p.points
             : undefined;
-      if (typeof sc === "number") wire.score = sc;
+      if (typeof sc === "number") wire.score = p.printedScore ?? sc;
       if (p.labelType) wire.labelType = p.labelType;
     }
     return wire;
@@ -387,7 +388,7 @@ export class HwpConnectorError extends Error {
 
 /** POST /convert-json → .hwp/.hwpx Blob. 실패 시 HwpConnectorError. */
 export const convertToHwp = async (
-  payload: HwpPayload,
+  payload: HwpPayload | { header: string; filename: string; questions: EngineQuestion[] },
   token: string,
 ): Promise<Blob> => {
   const headers: Record<string, string> = { "Content-Type": "application/json" };

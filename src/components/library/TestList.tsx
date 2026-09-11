@@ -1,5 +1,6 @@
 import { Card, Chip, Icon, type ChipTone } from "@app/components/ui";
 import type { TestPaper, TestStatus } from "@app/types";
+import { isTestchangeId } from '../../types/testchange';
 
 const STATUS_CHIP_TONE: Record<TestStatus, ChipTone> = {
   ok: "ok",
@@ -57,7 +58,7 @@ export const TestList = ({ tests, onSelect, onDelete }: TestListProps) => (
           {t.statusText}
         </Chip>
         <span className="text-small text-muted">{t.time}</span>
-        {onDelete ? (
+        {onDelete && !isTestchangeId(t.id) ? (
           <button
             type="button"
             onClick={(e) => {

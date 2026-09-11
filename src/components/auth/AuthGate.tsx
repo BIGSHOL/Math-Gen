@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import { Icon, Logo } from "@app/components/ui";
-import { supabase } from "@app/services/api/supabase";
+import { authClient as supabase } from "@app/services/api/supabase";
 import { useAuthStore } from "@app/stores/authStore";
 import { AuthScreen } from "./AuthScreen";
 import { NewPasswordScreen } from "./NewPasswordScreen";

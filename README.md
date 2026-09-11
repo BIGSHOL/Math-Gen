@@ -1,22 +1,64 @@
 # MathGen 변환 — 시험지 변환 도구
 
 한국 중·고등학교 수학 시험지 PDF를 업로드하면 AI가 OCR로 문제·도형을 추출하고,
-단계별 해설과 정답까지 자동 생성하는 6단계 마법사 (wizard).
+단계별 해설과 정답까지 생성하는 7단계 변환 위자드.
+
+## testchange 연결 (2026-09-11)
+
+기존 React/Vite 변환 화면에 `시험지 한글화(testchange)`의 Supabase 기출 자료와
+로컬 HWP 엔진을 연결했다. 확인 시점의 원본 자료는 시험지 412편, 문항 9,110개다.
+
+- 같은 Supabase 프로젝트(`pqylrbowrfliicxzurex`)의 이메일 인증을 사용한다.
+- `exams`/`questions`는 로그인 후 `/api/testchange`를 통해 조회한다.
+  서버의 service-role 키는 브라우저에 전달하지 않는다.
+- 원본 자료는 유지하며, **이어서 작업**은 편집본을 만든다. 편집본과 출력 설정은
+  계정별 IndexedDB에 저장되므로 같은 브라우저에서 다시 열 수 있다.
+  다른 PC와 동기화되지 않으며 브라우저 사이트 데이터를 지우면 삭제된다.
+- **원본 서식으로 한글 저장**은 원본 typed-block, 소문항, 도형 spec/SVG와 인쇄 배점을
+  testchange 도우미에 전달한다. 웹 미리보기의 도형은 그림 자리 안내로 표시된다.
+  한글이 설치된 PC에서 도우미를 실행해야 원본 `.hwp`를 저장할 수 있다.
+- 최신 엔진의 점 이름/수직선 표기, 수식 백슬래시, 짧은 값 나열, 질문 괄호 간격,
+  소문항 중복 박스, 산문 박스 경계, 소수 배점 보존을 웹에도 반영했다.
+
+연결 설정은 git에서 제외된 `.env.local`에 둔다. 기존 엔진 `config.json`과
+공개 키가 담긴 로컬 파일로 설정을 동기화할 수 있다.
+
+```powershell
+node scripts/syncTestchange.mjs "D:\시험지 한글화" "D:\keys\testchange-anon.txt"
+npm run dev
+```
+
+필요한 값은 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`,
+`VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_ENABLED=true`, `VITE_TESTCHANGE_ENABLED=true`다.
+Vite 개발 서버는 로컬 주소에서 인증된 API 호출을 처리한다. 운영 환경에서는
+같은 서버 환경변수와 `api/` 함수 실행 환경이 필요하다.
+
+회귀 검증(추가 패키지 설치 불필요):
+
+```powershell
+node scripts/runHarness.mjs scripts/testchangeHarness.mts scripts/contentParserGoldenHarness.mts scripts/contentParserPortHarness.mts scripts/ocrJsonRecoveryHarness.mts
+```
+
+검증 결과: 이메일 로그인, 기출 목록·문항 상세, 출력 미리보기, 편집본과 출력 설정
+재열기, 21문항 원본 HWP 생성 확인. 기존 의존성 `npm audit --omit=dev`는
+DOMPurify·protobufjs의 moderate 2건과 PDF.js의 high 1건을 보고했다.
+PDF.js 수정 버전은 major 업데이트가 필요하므로 별도 호환성 검증 대상이다.
 
 ## 주요 기능
 
-### 6단계 위자드 (`/`)
+### 7단계 위자드 (`/`)
 0. **업로드** — PDF → 페이지별 hi-res 이미지 + IndexedDB 캐시. 자동 회전 감지.
-1. **OCR 검수** — Gemini 3 Flash → 폴백 3.5 Flash 로 페이지별 multi-problem
+1. **검수** — 페이지와 문제 영역을 확인하고 조정.
+2. **OCR** — Gemini 3 Flash → 폴백 3.5 Flash 로 페이지별 multi-problem
    추출. 도형 페이지는 자동으로 GPT-5.5 → 폴백 Gemini 3.1 Pro 로 2차 정밀
    재추출. 카드별 인라인 편집.
-2. **해설·정답 생성** — Claude Sonnet 4.6 으로 단계별 풀이 + 짧은 정답 자동
+3. **해설·정답 생성** — Claude Sonnet 4.6 으로 단계별 풀이 + 짧은 정답 자동
    생성. 항목별 재생성·편집.
-3. **변환 옵션** — 변형 생성 목표·난이도·동봉 자료 (placeholder).
-4. **문항별 검토** — 원본 vs 변형 좌우 비교 (placeholder).
-5. **내보내기** — 저장 완료 플로우 우선. PDF / DOCX / Online 버튼은 아직
-   사용자용으로 비활성화되어 있으며, 서버 PDF API는 인증·입력 검증을 거쳐
-   재활성화할 수 있는 상태.
+4. **변환 옵션** — 변환 목표·난이도·동봉 자료 선택.
+5. **문항별 검토** — 문항과 정답을 확인하고 수정.
+6. **내보내기** — HWP 도우미, 인쇄·PDF로 저장, 보관함 저장.
+   현재 출력 대상은 원본이며 변형 출력과 DOCX는 준비 중이다.
+   PDF 다운로드는 배포 환경의 인증된 서버 API를 사용한다.
 
 ### 보조 화면
 - **모델 비교 벤치** (`?bench`) — 같은 페이지를 여러 모델로 동시 OCR 해서

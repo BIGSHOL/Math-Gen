@@ -136,7 +136,7 @@ export const blocksToMarkdown = (
 ): string => {
   // content_parser 정규화 (병합·쉼표분리·확통로만·박스경계) — 웹 미리보기를 HWP 출력에
   // 맞춘다. 저장 블록·wire 는 네이티브 그대로(커넥터가 단독 재정규화 — 이중정규화 0).
-  const norm: NBlock[] = normalizeContents(contents ?? []);
+  const norm: NBlock[] = normalizeContents(contents ?? [], subQuestions);
   // 선택지 force_geo = 본문(정규화 후) 기하 문맥 (대륜중 #1 — 점 좌표 선택지 로만+이탤릭).
   const geo = hasGeometryContext(norm);
 
@@ -220,7 +220,7 @@ export const blocksToMarkdown = (
     // 좌표쌍 "(1, 2)" 는 `\(\d+\)` 가 콤마에서 끊겨 매칭 안 되므로 안전.
     const bodyNoMarker = body.replace(/^\s*\(\d+\)\s*/, "");
     const scoreTag =
-      typeof sub.score === "number" && sub.score > 0 ? ` [${sub.score}점]` : "";
+      typeof sub.score === "number" && sub.score > 0 ? ` [${sub.printedScore ?? sub.score}점]` : "";
     const line = `(${sub.number}) ${bodyNoMarker}${scoreTag}`.trim();
     if (line) out.push(line);
   }

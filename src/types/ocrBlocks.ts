@@ -67,6 +67,7 @@ export interface SubQuestion {
   choices?: ChoiceGroup[];
   /** 소문항 배점 (없으면 undefined). */
   score?: number;
+  printedScore?: string;
   /** 소문항 유형 라벨 — 대개 없음/undefined. */
   labelType?: string;
 }

@@ -30,7 +30,7 @@
  * `<보기>` prefix + `boxMember` run 으로 렌더한다.
  */
 
-import type { BlockType, ChoiceGroup, ContentBlock } from "../../types/ocrBlocks.js";
+import type { BlockType, ChoiceGroup, ContentBlock, SubQuestion } from "../../types/ocrBlocks.js";
 
 /** 정규화 산물 — ContentBlock + 박스 멤버 플래그(blocksToMarkdown 그룹핑용). */
 export interface NBlock {
@@ -72,6 +72,9 @@ const VAR_ITEM_RE = /^[A-Za-z](?:[_^]\{?[A-Za-z0-9]+\}?)?$/;
 const BARE_UPPER_EQ_RE = /^[A-Z]{1,4}'*(?:_\{?[A-Za-z0-9]+\}?)?'*$/;
 const UPPER_LETTERS_RE = /^[A-Z]+/;
 const POINT_COORD_RE = /^([A-Z](?:_\{?[A-Za-z0-9+\-]+\}?)?)\s*((?:\\left)?\(.*)$/su;
+const NUM_PAREN_RE = /^(?:\\left)?\(\s*[+\-]?\d+(?:\.\d+)?\s*(?:\\right)?\)$/;
+const SEGMENT_BAR_RE = /\\overline\s*\{\s*(?:\\math(?:rm|it)\s*\{\s*)?[A-Z]'*[A-Z]/;
+const CIRCLE_NAME_RE = /(?:원|중심)\s*(?:\\math(?:rm|it)\{)?[A-Z]'?(?![a-zA-Z])/;
 const POINT_TOKEN = "[A-Z]'*(?:_\\{?[A-Za-z0-9+\\-]+\\}?)?'*";
 const POINT_NAME_SEQ_RE = new RegExp(`^(?:${POINT_TOKEN}\\s*){2,}$`);
 
@@ -82,6 +85,7 @@ const GEOMETRY_KEYWORDS = [
   "선분", "직선", "반직선", "호", "부채꼴",
   "반원", "지름", "반지름",
   "△", "∠", "∆",
+  "올려본 각", "내려본 각",
 ];
 // 비기하 디코이(_NONGEO_DECOY) — "점"·"호" 부분문자열 오판 차단.
 const NONGEO_DECOY = [
@@ -197,7 +201,7 @@ const isOperatorOnly = (text: string): boolean => {
 export const hasGeometryContext = (blocks: NBlock[]): boolean => {
   let text = blocks.map((b) => String(b.value ?? "")).join(" ");
   for (const decoy of NONGEO_DECOY) text = text.split(decoy).join("");
-  return GEOMETRY_KEYWORDS.some((k) => text.includes(k));
+  return GEOMETRY_KEYWORDS.some((k) => text.includes(k)) || SEGMENT_BAR_RE.test(text) || CIRCLE_NAME_RE.test(text);
 };
 
 /** 산술 term(_is_list_term) — 변수·숫자·첨자+사칙연산만, 영숫자 1+ 포함. */
@@ -289,7 +293,8 @@ const normalizeBoxCircles = (text: string): string => text.replace(BOX_CIRCLE_RE
  */
 const lightParseBlock = (b: ContentBlock): NBlock[] => {
   let type = b.type;
-  let value = typeof b.value === "string" ? b.value : "";
+  // Gemini 과잉 이스케이프 복원. cases 줄바꿈(뒤가 공백)은 유지.
+  let value = typeof b.value === "string" ? b.value.replace(/\\{2,}(?=[A-Za-z])/g, '\\') : "";
   if (type === "text" && value) {
     value = normalizeBoxCircles(value);
     // 선두 박스 마커(<보기>/<조건>/<상자>)를 자기 text 블록으로 분리(_split_box_marker_prefix)
@@ -662,7 +667,7 @@ const romanizePointNames = (blocks: NBlock[], forceGeo = false): NBlock[] => {
         continue;
       }
       const mc = hasGeo && v && !v.includes("\\math") ? POINT_COORD_RE.exec(v) : null;
-      if (mc && mc[2].includes(",")) {
+      if (mc && (mc[2].includes(",") || NUM_PAREN_RE.test(mc[2].trim()))) {
         out.push(
           mk("equation", `\\mathrm{${mc[1]}}\\mathit{${mc[2]}}`, { boxMember: b.boxMember }),
         );
@@ -750,7 +755,7 @@ const rstripLastText = (blocks: NBlock[]): NBlock[] => {
 
 /** 발문 본문 후처리 파이프라인(_finalize_contents) — 순서 보존 CRITICAL. */
 const finalizeContents = (input: NBlock[]): NBlock[] => {
-  let blocks = input;
+  let blocks = inlineShortDisplayEq(input);
   blocks = splitTrailingDomain(blocks);
   blocks = splitCommaEquations(blocks);
   blocks = mergeOperatorSplitEquations(blocks);
@@ -765,7 +770,30 @@ const finalizeContents = (input: NBlock[]): NBlock[] => {
   blocks = romanizeAngleLetters(blocks);
   blocks = romanizeContextUnits(blocks);
   blocks = spaceHangulBeforeEq(blocks);
+  blocks = spaceQuestionParen(blocks);
   blocks = rstripLastText(blocks);
+  return blocks;
+};
+
+/** testchange: 짧은 값 나열만 인라인으로 복원. 관계식·독립식은 display 유지. */
+const inlineShortDisplayEq = (blocks: NBlock[]): NBlock[] => {
+  for (let i = 1; i + 1 < blocks.length; i++) {
+    const b = blocks[i], prev = blocks[i - 1], next = blocks[i + 1];
+    if (b.type !== 'equation_block' || !b.value.includes(',')) continue;
+    if (b.value.replace(/\\[a-zA-Z]+|[{}^_\s]/g, '').length > 18) continue;
+    if (/[=<>]|\\(?:leq|geq|neq|le|ge|ne)(?![a-zA-Z])/.test(b.value)) continue;
+    if (prev.type === 'text' && prev.value.trim() && !/[.?!。？]\s*$|(?:다|오|시오|것은|값은|때)\s*[,]?\s*$/.test(prev.value)
+      && next.type === 'text' && /^(?:의|이|가|을|를|은|는|와|과|로|에|도)(?![a-zA-Z])/.test(next.value.trimStart())) b.type = 'equation';
+  }
+  return blocks;
+};
+
+const spaceQuestionParen = (blocks: NBlock[]): NBlock[] => {
+  for (const b of blocks) if (b.type === 'text') b.value = b.value.replace(/([?？])\(/g, '$1 (');
+  for (let i = 0; i + 1 < blocks.length; i++) {
+    const b = blocks[i], next = blocks[i + 1];
+    if (b.type === 'text' && next.type === 'text' && /[?？]$/.test(b.value) && next.value.startsWith('(')) b.value += ' ';
+  }
   return blocks;
 };
 
@@ -920,6 +948,10 @@ const rawBoxEnd = (raws: ContentBlock[]): number | null => {
       if ((rstrip(rest).endsWith(",") || rstrip(rest).endsWith("，")) && nxt.type === "equation") {
         return null;
       }
+      // 산문 박스의 한 문장이 수식 블록으로 나뉜 경우 끝까지 같은 박스로 보존(testchange).
+      const endsSentence = (value: string) => /[.?!。．？！]\s*$/.test(value);
+      if (nxt.type === 'equation' && !endsSentence(rest) &&
+        !raws.slice(i, -1).some(b => b.type === 'text' && endsSentence(b.value || ''))) return null;
       return i + 1;
     }
     // rest 가 항목 라벨 하나뿐/비어도 박스 뒤 질문 발문이 이어지면 분리(대곡고 #10).
@@ -943,8 +975,9 @@ const tagBoxRun = (blocks: NBlock[]): void => {
  * 문항 본문 정규화(_parse_question 의 contents 처리) — 박스경계 분리 + finalize.
  * 입력은 mathgen 네이티브 블록, 출력은 boxMember 태깅된 NBlock[].
  */
-export const normalizeContents = (blocks: ContentBlock[]): NBlock[] => {
+export const normalizeContents = (blocks: ContentBlock[], subQuestions: SubQuestion[] = []): NBlock[] => {
   let raw = (blocks ?? []).filter((b) => b && typeof b.type === "string");
+  raw = dropSubquestionDuplicateBoxes(raw, subQuestions);
   raw = dropDuplicateBoxFragments(raw);
   // 발문 종결 뒤 같은 블록 중간 박스 머리(`…고른 것은? <보기> ㄱ.`)를 마커 앞에서 쪼갠다
   // (testchange 8126286 — mid-block 마커 박스 미형성). dropDuplicate 직후, 박스경계 검출 전.
@@ -963,6 +996,24 @@ export const normalizeContents = (blocks: ContentBlock[]): NBlock[] => {
   const whole = finalizeContents(raw.flatMap(lightParseBlock));
   tagBoxRun(whole);
   return whole;
+};
+
+/** testchange: 소문항 문장으로 시작하는 잘못 복구된 박스만 제거(한글 12자 접두 일치). */
+const dropSubquestionDuplicateBoxes = (raw: ContentBlock[], subs: SubQuestion[]): ContentBlock[] => {
+  const ko = (value: string) => value.replace(/[^가-힣]/g, '');
+  const keys = subs.map(s => ko(s.contents.filter(b => b.type === 'text').map(b => b.value).join(''))).filter(k => k.length >= 12);
+  if (!keys.length) return raw;
+  return raw.flatMap(b => {
+    if (b.type !== 'text' || !BOX_MARK_LEAD_RE.test(b.value)) return [b];
+    const body = b.value.replace(BOX_MARK_LEAD_RE, '');
+    const key = keys.find(k => ko(body).startsWith(k));
+    if (!key) return [b];
+    let count = 0, end = 0;
+    for (; end < body.length; end++) if (/[가-힣]/.test(body[end]) && ++count === key.length) { end++; break; }
+    const rest = body.slice(end);
+    return ko(rest.replace(/\[\s*(?:총|합)?\s*\d+(?:\.\d+)?\s*점\s*\]/g, ''))
+      ? [{ ...b, value: rest.replace(/^[ .,\)\]·]+/, '') }] : [];
+  });
 };
 
 /**

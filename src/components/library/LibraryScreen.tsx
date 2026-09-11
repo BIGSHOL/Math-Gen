@@ -30,6 +30,7 @@ import { fetchAnalysesByTestIds } from "@app/services/api/examAnalyses";
 import { useAppStore } from "@app/stores/appStore";
 import { useExamAnalysisStore } from "@app/stores/examAnalysisStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
+import { TESTCHANGE_ENABLED } from '../../services/api/testchange';
 import { LibrarySidebar } from "./LibrarySidebar";
 import { StatsStrip } from "./StatsStrip";
 import { TestGrid } from "./TestGrid";
@@ -71,6 +72,7 @@ const TOP_NAV = [
 export const LibraryScreen = () => {
   const tests = useLibraryStore((s) => s.tests);
   const hydrated = useLibraryStore((s) => s.hydrated);
+  const loadError = useLibraryStore((s) => s.error);
   const hydrate = useLibraryStore((s) => s.hydrate);
   const removeTest = useLibraryStore((s) => s.removeTest);
   const openTest = useAppStore((s) => s.openTest);
@@ -187,7 +189,9 @@ export const LibraryScreen = () => {
     const name = t?.title ?? "이 시험지";
     if (
       window.confirm(
-        `"${name}" 을(를) 삭제합니다.\n변형 이력 · 분석 결과 · 페이지 이미지가 모두 영구 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`,
+        TESTCHANGE_ENABLED
+          ? `이 브라우저에 저장된 "${name}" 편집본을 삭제합니다.\n계속하시겠습니까?`
+          : `"${name}" 을(를) 삭제합니다.\n변형 이력 · 분석 결과 · 페이지 이미지가 모두 영구 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`,
       )
     ) {
       removeTest(id);
@@ -379,7 +383,14 @@ export const LibraryScreen = () => {
               </span>
             </div>
 
-            {sortedTests.length === 0 ? (
+            {loadError ? (
+              <div role="alert" className="rounded-r3 border border-line bg-surface p-6 text-center">
+                <p className="text-danger mb-3">{loadError}</p>
+                <Btn kind="secondary" onClick={() => { useLibraryStore.getState().reset(); }}>다시 불러오기</Btn>
+              </div>
+            ) : !hydrated ? (
+              <p className="py-12 text-center text-muted" role="status">시험지 불러오는 중…</p>
+            ) : sortedTests.length === 0 ? (
               <div className="rounded-r3 border border-dashed border-line bg-surface px-6 py-12 text-center">
                 <Icon
                   name="folder-open"
