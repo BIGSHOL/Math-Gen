@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/ai-:action",
+      "destination": "/api/ai?route=ai-:action"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

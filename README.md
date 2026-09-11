@@ -61,6 +61,7 @@ MathJax 확장 없이 Python 엔진이 지원하는 라벨만 작도한다.
 서버 환경변수: `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`.
 로컬은 Python 3.11 이상이 필요하고 `PYTHON_BIN`으로 실행 파일을 지정할 수 있다.
 Vercel은 `api/figure-render.py`에서 같은 엔진을 실행한다. AI 키는 개발 환경에서도 브라우저에 전달하지 않는다.
+기존 `/api/ai-*` 주소는 `api/ai.ts` 한 함수로 라우팅해 Hobby 함수 개수 제한 안에서 실행한다.
 
 ```powershell
 python scripts/figure/test_engine.py

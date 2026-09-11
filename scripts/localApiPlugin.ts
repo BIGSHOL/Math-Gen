@@ -41,7 +41,10 @@ export const localApiPlugin = (): Plugin => ({
           try { request.body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
           catch { response.status(400).json({ error: '요청 JSON이 올바르지 않습니다.' }); return; }
         }
-        const api = await server.ssrLoadModule(route === "figure-render" ? "/scripts/figure/localRender.ts" : `/api/${route}.ts`);
+        if (route.startsWith("ai-")) request.query.route = route;
+        const modulePath = route === "figure-render" ? "/scripts/figure/localRender.ts"
+          : route.startsWith("ai-") ? "/api/ai.ts" : `/api/${route}.ts`;
+        const api = await server.ssrLoadModule(modulePath);
         await api.default(request, response);
       } catch {
         if (!res.headersSent) response.status(500).json({ error: '로컬 데이터 연결에 실패했습니다.' });
