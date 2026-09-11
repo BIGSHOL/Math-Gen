@@ -8,7 +8,7 @@ import { generateVariant } from "@app/services/ai/variants";
 import type { OCRModel } from "@app/services/ai/ocr";
 import { GEMINI_3_FLASH, GEMINI_3_1_PRO } from "@app/services/ai/gemini";
 import { GPT_5_5 } from "@app/services/ai/openai";
-import { SONNET_MODEL } from "@app/services/ai/client";
+import { DEEPSEEK_MODEL } from "@app/services/ai/deepseek";
 import { useWizardStore, type OCRProblem } from "@app/stores/wizardStore";
 import type {
   ConversionGoal,
@@ -50,9 +50,9 @@ const RETRY_MODEL_OPTIONS: Array<{
   blurb: string;
 }> = [
   {
-    id: SONNET_MODEL,
-    label: "수식 (Sonnet)",
-    blurb: "Claude Sonnet 4.6 · 수식 강함 · variant default",
+    id: DEEPSEEK_MODEL,
+    label: "수식 (DeepSeek)",
+    blurb: "DeepSeek V4 Pro · 해설·변형 기본 모델",
   },
   {
     id: GEMINI_3_1_PRO,
@@ -123,7 +123,7 @@ export const VariantTestScreen = () => {
   const [goal, setGoal] = useState<ConversionGoal>("similar");
   const [difficulty, setDifficulty] = useState<DifficultyShift>("same");
   const [grade, setGrade] = useState<GradeKey | null>(storeGrade);
-  const [model, setModel] = useState<OCRModel>(SONNET_MODEL);
+  const [model, setModel] = useState<OCRModel>(DEEPSEEK_MODEL);
   const [results, setResults] = useState<ResultEntry[]>([]);
   const [running, setRunning] = useState(false);
 

@@ -4,12 +4,26 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
     "api/*.ts": {
       "maxDuration": 60
+    },
+    "api/figure-render.py": {
+      "maxDuration": 30,
+      "includeFiles": "{vendor/figure-engine/**,scripts/figure/**}",
+      "excludeFiles": "{node_modules/**,.checks.local/**}"
+    },
+    "api/ai-figure.ts": {
+      "maxDuration": 120
     }
   }
 }

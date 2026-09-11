@@ -1061,7 +1061,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               </div>
             );
           },
-          img: ({ node, src: rawSrc, alt, title }) => {
+          img: ({ node, src: rawSrc, alt, title, className }) => {
             const src = typeof rawSrc === "string" ? rawSrc : "";
             if (!src) {
               return <span className="text-muted text-sm">[{alt || "이미지"}]</span>;
@@ -1089,8 +1089,15 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             }
             const { width, align } = parseImageTitle(title ?? undefined);
             const style: React.CSSProperties = {};
+            const isFigureCrop = className?.includes("diagram-inline-img");
             if (width) style.width = width;
             if (!width) style.maxWidth = "100%";
+            if (isFigureCrop && !width) {
+              style.width = "min(320px, 100%)";
+              style.height = "auto";
+              style.maxHeight = 360;
+              style.objectFit = "contain";
+            }
 
             if (align === "left") {
               return (

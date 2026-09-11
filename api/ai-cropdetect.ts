@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       tenantId: auth.tenantId,
       endpoint: "ai-cropdetect",
       provider: "gemini",
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.8-flash",
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       latencyMs: Date.now() - t0,
       error: null,

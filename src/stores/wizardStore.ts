@@ -280,6 +280,11 @@ export interface OCRImage {
   source?: "ai-crop" | "user-crop" | "ai-gen";
   /** user-crop 시 inline 보관 (base64 PNG, ~50KB). 옛 ai-crop 도 일부 보관 가능. */
   dataUrl?: string;
+  /** Original second crop, retained even when the engine succeeds. */
+  originalDataUrl?: string;
+  engineSvg?: string;
+  engineSpec?: object;
+  engineModel?: string;
   /** ai-gen 시 Supabase Storage 영구 URL (page-images bucket). DALL-E URL 만료 회피. */
   url?: string;
   /** ai-gen 시 사용된 prompt (한국어 또는 영어). 재생성 가능. */
@@ -344,6 +349,7 @@ export interface OCRProblem {
    * 위치 기반 배치(figureLayout Stage 1c)용. 없으면 세로 스택 fallback (회귀 0).
    */
   figures?: FigureBox[];
+  figureWarnings?: string[];
   /** Confidence band — drives the OCRItem warning border. */
   status: "ok" | "warn" | "pending";
   /** True after the user has reviewed / edited this item. */

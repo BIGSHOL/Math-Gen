@@ -14,11 +14,10 @@
  * 강점이고 `OCR_PAGE_SCHEMA` 의 `images[].box` 와 동일 포맷이다.
  */
 
-import { getGeminiClient, GEMINI_3_5_FLASH } from "./gemini.js";
+import { getGeminiClient, GEMINI_3_8_FLASH, geminiSampling } from "./gemini.js";
 import { parseDataUrl } from "./sanitize.js";
 import { parseJsonOrThrow, friendlyGeminiError } from "./ocr.js";
 import { stripCodeFences } from "./generate.js";
-import { anthropic, SONNET_MODEL } from "./client.js";
 
 /** 0–1000 정규화 bbox `[yMin, xMin, yMax, xMax]` (OCR_PAGE_SCHEMA `images[].box` 동일). */
 export type CropBox = readonly [number, number, number, number];
@@ -243,14 +242,14 @@ const detectWithGemini = async (
   const mimeMatch = pageBase64.match(/^data:([^;]+);base64,/);
   const mimeType = mimeMatch?.[1] ?? "image/png";
   const response = await ai.models.generateContent({
-    model: GEMINI_3_5_FLASH,
+    model: GEMINI_3_8_FLASH,
     contents: [
       { role: "user", parts: [{ inlineData: { mimeType, data } }, { text: CROP_DETECT_PROMPT }] },
     ],
     config: {
       // MIME-only — responseSchema 제거(D13, testchange _detect_with_gemini 동일).
       responseMimeType: "application/json",
-      temperature: 0.1,
+      ...geminiSampling(GEMINI_3_8_FLASH),
       maxOutputTokens: 65536,
       abortSignal: signal,
     },
@@ -264,44 +263,9 @@ const detectWithGemini = async (
   return parseCropItems(rawJson);
 };
 
-/** Claude(Sonnet) 폴백 크롭 검출 (testchange _detect_with_claude — 평문, image-first, temp 0). */
-const detectWithClaude = async (
-  pageBase64: string,
-  signal?: AbortSignal,
-): Promise<DetectedCrop[]> => {
-  const { mediaType, data } = parseDataUrl(pageBase64);
-  const stream = anthropic.messages.stream(
-    {
-      model: SONNET_MODEL,
-      max_tokens: 8192,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data } },
-            { type: "text", text: CROP_DETECT_PROMPT },
-          ],
-        },
-      ],
-    },
-    signal ? { signal } : undefined,
-  );
-  const msg = await stream.finalMessage();
-  let text = "";
-  for (const b of msg.content ?? []) {
-    if ((b as { type?: string }).type === "text") {
-      text = (b as { text?: string }).text ?? "";
-      break;
-    }
-  }
-  if (!text) throw new Error("Claude 빈 응답 (크롭 검출).");
-  return parseCropItems(text);
-};
-
 /**
  * 페이지 이미지에서 문항별 크롭 박스 검출 — testchange `detect_crops` 미러 (D13):
- * Gemini 3.5 Flash(일시 오류 3-retry) → 실패 시 Claude(Sonnet) 폴백.
+ * Gemini 3.8 Flash (일시 오류 재시도 후 실패 안내).
  */
 const detectCropBoxesDirect = async (
   pageBase64: string,
@@ -319,25 +283,7 @@ const detectCropBoxesDirect = async (
       await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
   }
-  // Gemini 실패 → Claude 폴백.
-  try {
-    const items = padCropItems(await detectWithClaude(pageBase64, signal));
-    if (import.meta.env?.DEV && geminiErr)
-      // eslint-disable-next-line no-console
-      console.warn("[cropDetect] Gemini 크롭 실패 → Claude 폴백:", geminiErr.message);
-    return items;
-  } catch (claudeErr) {
-    if ((claudeErr as Error).name === "AbortError") throw claudeErr;
-    const raw = geminiErr
-      ? `[cropDetect] Gemini: ${geminiErr.message} / Claude 폴백: ${(claudeErr as Error).message}`
-      : (claudeErr as Error).message ?? String(claudeErr);
-    const friendly = raw.startsWith("[cropDetect]")
-      ? raw
-      : friendlyGeminiError(raw, GEMINI_3_5_FLASH);
-    const wrapped = new Error(friendly);
-    (wrapped as Error & { cause?: unknown }).cause = raw;
-    throw wrapped;
-  }
+  throw new Error(friendlyGeminiError(geminiErr?.message ?? "그림 검출 실패", GEMINI_3_8_FLASH));
 };
 
 /**

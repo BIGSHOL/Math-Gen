@@ -15,7 +15,7 @@ import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
  *
  * Input: AnalyzeExamInput (pageImages base64 + grade + examCategory + hasEssay +
  *   examScope?)
- * Output: { result: BasicAnalysisResult, modelUsed: "claude-sonnet-4-6" } —
+ * Output: { result: BasicAnalysisResult, modelUsed: "gemini-3.8-flash" } —
  *   _usage 는 server 에서 ai_usage 로 기록 후 strip.
  *
  * **Prompt caching 보존**: examAnalysisPrompts.ts 의 system prefix 에
@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-exam-analysis",
-      provider: "anthropic",
+      provider: "gemini",
       model: output.modelUsed,
       usage: normalized,
       latencyMs,
@@ -73,8 +73,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-exam-analysis",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      provider: "gemini",
+      model: "gemini-3.8-flash",
       usage: {
         inputTokens: 0,
         outputTokens: 0,

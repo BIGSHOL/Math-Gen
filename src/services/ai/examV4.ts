@@ -1,3 +1,4 @@
+import { DEEPSEEK_MODEL, deepseekText } from "./deepseek.js";
 /**
  * V4 학원 블로그 서비스 (Phase N+5 — 비활성).
  *
@@ -8,7 +9,6 @@
  * record.commentary 에 머지 저장 (CommentaryResult 가 v4_* 필드 포함).
  */
 
-import { anthropic, SONNET_MODEL } from "./client.js";
 import { SYSTEM_BLOCKS } from "./generate.js";
 import { SYSTEM_PROMPT_V4, buildV4UserPrompt } from "./examV4Prompts.js";
 import type {
@@ -192,27 +192,12 @@ const analyzeV4Direct = async (
     },
   ];
 
-  const response = await anthropic.messages.create(
-    {
-      model: SONNET_MODEL,
-      max_tokens: 16384,
-      temperature: 0.5,
-      system: systemBlocks,
-      messages: [{ role: "user", content: userContent }],
-    },
-    input.signal ? { signal: input.signal } : undefined,
-  );
-
-  const text = response.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("");
-
-  if (!text) throw new Error("V4 응답이 비어있습니다");
-
+  const completion = await deepseekText(systemBlocks.map(b => b.text).join("\n\n"), userContent, { schema: { type: "object" }, signal: input.signal });
+  const text = completion.text;
+  const response = { usage: { input_tokens: completion.usage.inputTokens, output_tokens: completion.usage.outputTokens,
+    cache_read_input_tokens: completion.usage.cacheReadTokens, cache_creation_input_tokens: completion.usage.cacheCreationTokens } };
   const raw = parseV4Json(text);
   const result = parseV4Response(raw, input.academyName ?? null);
-
   const usage = (
     response as {
       usage?: {
@@ -230,7 +215,7 @@ const analyzeV4Direct = async (
     );
   }
 
-  return { result, modelUsed: SONNET_MODEL, _usage: usage };
+  return { result, modelUsed: DEEPSEEK_MODEL, _usage: usage };
 };
 
 // ════════════════════════════════════════════════════════════════════

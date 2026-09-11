@@ -1,3 +1,5 @@
+import { deepseekText } from "./deepseek.js";
+import { getGeminiClient, GEMINI_3_8_FLASH, geminiSampling } from "./gemini.js";
 import type { GeneratedProblem, SelectionState } from "../../types/index.js";
 import { anthropic, DEFAULT_MODEL } from "./client.js";
 import { PROBLEM_SCHEMA } from "./schema.js";
@@ -146,27 +148,27 @@ const parseProblemJson = (rawJson: string): SchemaShapedProblem => {
   }
 };
 
-export const generateMathProblem = async (
+export const generateMathProblemDirect = async (
   selection: SelectionState,
 ): Promise<GeneratedProblem> => {
   const userContent = buildUserContent(selection);
 
-  const response = await anthropic.messages.create({
-    model: DEFAULT_MODEL,
-    max_tokens: 16000,
-    // Low temperature for consistent single-problem generation.
-    temperature: 0.1,
-    system: SYSTEM_BLOCKS,
-    messages: [{ role: "user", content: userContent }],
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: PROBLEM_SCHEMA as unknown as Record<string, unknown>,
-      },
-    },
-  });
-
-  const rawJson = stripCodeFences(extractJsonText(response));
+  const system = SYSTEM_BLOCKS.map(b => b.text).join("\n\n");
+  let rawJson: string;
+  if (userContent.some(b => b.type === "image")) {
+    const response = await getGeminiClient().models.generateContent({
+      model: GEMINI_3_8_FLASH,
+      contents: [{ role: "user", parts: userContent.map(b => b.type === "image"
+        ? { inlineData: { data: b.source.data, mimeType: b.source.media_type } }
+        : { text: b.text }) }],
+      config: { ...geminiSampling(GEMINI_3_8_FLASH), systemInstruction: system + "\nOutput JSON following this schema: " + JSON.stringify(PROBLEM_SCHEMA), responseMimeType: "application/json", maxOutputTokens: 16000 },
+    });
+    if (response.candidates?.[0]?.finishReason === "MAX_TOKENS") throw new Error("문제 생성 응답이 토큰 한도로 잘렸습니다.");
+    rawJson = stripCodeFences(response.text ?? "");
+  } else {
+    const response = await deepseekText(system, userContent.filter(b => b.type === "text").map(b => b.text).join("\n"), { schema: PROBLEM_SCHEMA });
+    rawJson = stripCodeFences(response.text);
+  }
   const parsed = parseProblemJson(rawJson);
 
   return {
@@ -178,4 +180,17 @@ export const generateMathProblem = async (
     difficulty: parsed.difficulty,
     diagramSVG: sanitizeSvg(parsed.diagramSVG),
   };
+};
+
+/** Browser requests always cross the authenticated server boundary. */
+export const generateMathProblem = async (selection: SelectionState): Promise<GeneratedProblem> => {
+  if (typeof window === "undefined") return generateMathProblemDirect(selection);
+  const { currentAccessToken } = await import("../api/supabase.js");
+  const token = await currentAccessToken();
+  const response = await fetch("/api/ai-generate", { method: "POST", headers: {
+    "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }, body: JSON.stringify(selection) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result;
 };

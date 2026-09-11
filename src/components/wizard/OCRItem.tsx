@@ -135,7 +135,7 @@ const useCroppedImages = (
           box: i.box,
           source: i.source,
           url: i.url,
-          hasDataUrl: !!i.dataUrl,
+          dataUrl: i.dataUrl,
           storagePath: i.storagePath,
         })) ?? [],
       ),
@@ -154,7 +154,7 @@ const useCroppedImages = (
         const im = images[idx];
         const source: DisplayCrop["source"] = im.source ?? "ai-crop";
         try {
-          if (source === "user-crop" && im.dataUrl) {
+          if (im.dataUrl) {
             out.push({ src: im.dataUrl, label: im.label, source, originalImage: im });
           } else if (source === "ai-gen" && im.url) {
             out.push({ src: im.url, label: im.label, source, originalImage: im });
@@ -343,6 +343,7 @@ export const OCRItem = ({
         isWarn && "border-warn ring-1 ring-warn/10",
       )}
     >
+      {item.figureWarnings?.map((warning, i) => <p key={i} className="text-caption text-warn mb-2">{warning}</p>)}
       <div className="flex items-center gap-2 mb-2.5">
         {editing ? (
           <input
@@ -484,6 +485,16 @@ export const OCRItem = ({
           />
         </div>
       )}
+
+      {!editing && item.images?.map((im, index) => im.originalDataUrl && im.engineSvg ? (
+        <details key={index} className="mt-2 text-caption text-muted">
+          <summary className="cursor-pointer">그림 {index + 1} · Opus 5 재작도 · 원본 비교</summary>
+          <div className="flex flex-wrap gap-3 mt-2">
+            <figure><img src={im.originalDataUrl} alt="분리한 원본 그림" className="w-[220px] max-w-full h-auto" /><figcaption>원본 크롭</figcaption></figure>
+            <figure><img src={im.dataUrl} alt="도형 엔진 재작도" className="w-[220px] max-w-full h-auto" /><figcaption>재작도</figcaption></figure>
+          </div>
+        </details>
+      ) : null)}
 
       {/* 도형 표시 — Phase #12/#13 우선순위 (사용자 결정 2026-05-27 — inline 우선):
           (a) 사용자가 "원본 보기" toggle off (default) + source="ai-gen" 있으면 ai-gen 만

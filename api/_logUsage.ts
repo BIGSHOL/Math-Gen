@@ -20,6 +20,8 @@ export interface LogAiUsageInput {
   endpoint:
     | "ai-ocr"
     | "ai-cropdetect"
+    | "ai-figure"
+    | "ai-generate"
     | "ai-solution"
     | "ai-variant"
     | "ai-image"
@@ -27,7 +29,7 @@ export interface LogAiUsageInput {
     | "ai-exam-commentary"
     | "ai-exam-v4"
     | "export-pdf";
-  provider: "anthropic" | "gemini" | "openai" | "puppeteer";
+  provider: "anthropic" | "gemini" | "openai" | "deepseek" | "puppeteer";
   model: string;
   usage: NormalizedUsage;
   latencyMs: number;

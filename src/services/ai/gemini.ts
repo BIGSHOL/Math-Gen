@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 
 /**
  * Google Gemini client — used as a 3rd-pass figure-rendering fallback when
@@ -21,7 +21,7 @@ import { GoogleGenAI } from "@google/genai";
  *    proxy so the key never ships to clients.
  */
 
-const apiKey = process.env.GEMINI_API_KEY;
+const apiKey = typeof window === "undefined" ? process.env.GEMINI_API_KEY : undefined;
 
 let _client: GoogleGenAI | null = null;
 
@@ -37,7 +37,7 @@ export const getGeminiClient = (): GoogleGenAI => {
 };
 
 /** True when a Gemini key is configured. Use this to gate UI affordances. */
-export const isGeminiAvailable = (): boolean => Boolean(apiKey);
+export const isGeminiAvailable = (): boolean => typeof window !== "undefined" || Boolean(apiKey);
 
 /**
  * Model family. Updated to match Google AI Studio's actual model list as of
@@ -61,6 +61,11 @@ export const isGeminiAvailable = (): boolean => Boolean(apiKey);
  * + cost band.
  */
 // Gemini 3 series — current generation
+export const GEMINI_3_8_FLASH = "gemini-3.8-flash" as const;
+/** Gemini 3.8 rejects temperature and thinkingBudget. */
+export const geminiSampling = (model: string) => model === GEMINI_3_8_FLASH
+  ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+  : { temperature: 0 };
 export const GEMINI_3_1_PRO = "gemini-3.1-pro-preview" as const;
 export const GEMINI_3_5_FLASH = "gemini-3.5-flash" as const;
 export const GEMINI_3_FLASH = "gemini-3-flash-preview" as const;
@@ -83,6 +88,7 @@ export const GEMINI_FLASH_LITE = GEMINI_2_5_FLASH_LITE;
 export const GEMINI_3_PRO_PREVIEW = GEMINI_3_1_PRO;
 
 export type GeminiModel =
+  | typeof GEMINI_3_8_FLASH
   | typeof GEMINI_3_1_PRO
   | typeof GEMINI_3_5_FLASH
   | typeof GEMINI_3_FLASH

@@ -14,7 +14,7 @@ import { logAiUsage, logError, serverFingerprint } from "./_logUsage.js";
  * 기본 commentary 부분 carry-over (V3 블로그 헤드라인 X).
  *
  * Input: AnalyzeCommentaryInput (basic BasicAnalysisResult + grade + meta)
- * Output: { result: CommentaryResult, modelUsed: "claude-sonnet-4-6" } —
+ * Output: { result: CommentaryResult, modelUsed: "deepseek-v4-pro" } —
  *   _usage 는 서버에서 ai_usage 기록 후 strip.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -41,7 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-exam-commentary",
-      provider: "anthropic",
+      provider: "deepseek",
       model: output.modelUsed,
       usage: normalized,
       latencyMs,
@@ -59,8 +59,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-exam-commentary",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
       usage: {
         inputTokens: 0,
         outputTokens: 0,

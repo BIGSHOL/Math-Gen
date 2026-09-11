@@ -1,3 +1,6 @@
+import { detectCropBoxes } from "@app/services/ai/cropDetect";
+import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
+import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
@@ -11,8 +14,6 @@ import { reconcileChoicesMissingWithCrop } from "@app/lib/cropKindReconcile";
 import { validateOcrAgainstTextLayer, assembleOcrText } from "@app/lib/textLayerValidator";
 import { reportError } from "@app/lib/errorReporter";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
-import { GEMINI_3_1_PRO, GEMINI_3_5_FLASH, isGeminiAvailable } from "@app/services/ai/gemini";
-import { SONNET_MODEL, OPUS_MODEL } from "@app/services/ai/client";
 import {
   useWizardStore,
   type OCRProblem,
@@ -26,26 +27,9 @@ import {
  */
 const CROP_MARGIN = 0.02;
 
-/**
- * per-crop OCR 모델 체인 — 박스 complexity 로 라우팅.
- *   - simple/undefined → **Gemini 3.5 Flash** 단일 (사용자 확정 2026-06-20).
- *     Gemini 키 없으면 Sonnet 4.6 폴백.
- *   - complex (다중 시각요소·긴 서술형) → **Gemini 3.1 Pro** 단일 (도형 품질 보전).
- *     Gemini 키 없으면 Opus 폴백.
- * 폴백: 1차가 *non-abort* error throw 하면 다음 모델로. AbortError 는 폴백 안 함.
- */
-const pickPass1Chain = (): OCRModel[] => {
-  const chain: OCRModel[] = [];
-  if (isGeminiAvailable()) chain.push(GEMINI_3_5_FLASH);
-  else chain.push(SONNET_MODEL);
-  return chain;
-};
-const pickPass2Chain = (): OCRModel[] => {
-  const chain: OCRModel[] = [];
-  if (isGeminiAvailable()) chain.push(GEMINI_3_1_PRO);
-  if (chain.length === 0) chain.push(OPUS_MODEL);
-  return chain;
-};
+/** Gemini transcribes every question; only isolated figure crops go to Opus 5. */
+const pickPass1Chain = (): OCRModel[] => [GEMINI_3_8_FLASH];
+const pickPass2Chain = (): OCRModel[] => [GEMINI_3_8_FLASH];
 
 /** 검증된 문제 박스 (class="problem" + number 보유). per-crop OCR 의 단위. */
 type ProblemBox = CropBox & { number: number };
@@ -56,8 +40,8 @@ type ProblemBox = CropBox & { number: number };
  * **per-crop OCR (testchange 방향, §per-crop)**: 페이지를 통째로 한 번 읽지 않고,
  * Step 1.5 에서 검증된 *문제 박스마다 1 OCR 콜* 을 보내 `box.number` 로 병합한다
  * (testchange `recognize_crop` 미러). 문항 격리(옆 문제 오염 0)·토큰 truncation 급감·
- * 크롭 검수가 OCR 입력을 직접 결정. 박스가 없는 페이지(legacy/검출 실패)는 *whole-page*
- * fallback 으로 안전하게 처리한다.
+ * 크롭 검수가 OCR 입력을 직접 결정. 박스가 없는 페이지는 문항 경계
+ * 검출을 다시 실행한 뒤 같은 이중 크롭 경로로 처리한다.
  *
  * 디스패치·완료신호(`page.ocrComplete`)·게이팅은 *페이지 단위* 유지 — 바뀐 것은 워커
  * 내부 OCR 전략(1 페이지콜 → N 크롭콜 병렬 + number 병합)뿐. 옛 2-pass(전체 페이지 Flash +
@@ -76,10 +60,10 @@ export const usePageOcr = () => {
 
   // 페이지 워커 디스패치 한도 — 각 워커는 자기 페이지의 크롭들을 cropLimit 통해 OCR.
   // testchange _OCR_WORKERS=6 과 동일 (D30, 엔진 이식).
-  const pageLimit = useMemo(() => pLimit(6), []);
+  const pageLimit = useMemo(() => pLimit(2), []);
   // 크롭 OCR 콜 *전역* 한도 — 페이지 수 무관 동시 OCR ≤ 6 (Gemini RPM 보호).
   // testchange _OCR_WORKERS=6 과 동일. throttle 미관측 환경에서 6 까지 안전(§per-crop 진단).
-  const cropLimit = useMemo(() => pLimit(6), []);
+  const cropLimit = useMemo(() => pLimit(2), []);
 
   // 현재 in-flight 페이지 id. re-render 가 같은 페이지를 이중 dispatch 하지 않게.
   // 워커 finally 에서 비움 → ocrComplete:false(재인식) / 새 업로드 시 자연 재dispatch.
@@ -223,8 +207,10 @@ export const usePageOcr = () => {
             // 크롭 = 1 문제. number 매칭 우선. 매칭 실패 + 다중 item 이면 옆 문제
             // 흡수 가능성 → items[0] 채택하되 status="warn" 으로 사용자 검토 유도.
             const byNumber = r.items.find((it) => it.number === box.number);
-            const matched = byNumber ?? r.items[0];
+            let matched = byNumber ?? r.items[0];
             if (!matched) return null;
+            matched = await redrawQuestionFigures(crop, matched, () => isCancelled(page.id));
+            if (isCancelled(page.id)) return null;
             const ambiguous = !byNumber && r.items.length > 1;
             if (ambiguous) {
               // eslint-disable-next-line no-console
@@ -342,24 +328,22 @@ export const usePageOcr = () => {
           }
           if (isCancelled(page.id)) return;
 
-          const problemBoxes = (page.cropBoxes ?? []).filter(
+          let problemBoxes = (page.cropBoxes ?? []).filter(
             (b): b is ProblemBox => b.class === "problem" && typeof b.number === "number",
           );
 
-          let result: { items: OCRProblem[]; modelUsed: OCRModel } | null;
           if (problemBoxes.length === 0) {
-            // ── fallback: 크롭 없음 → whole-page OCR (legacy / 검출 실패 안전망) ──
-            // testchange 동일 — 픽셀 전처리 없이 원본(회전 보정만) 전송 (D01).
+            const detected = await detectCropBoxes(rotated);
             if (isCancelled(page.id)) return;
-            result = await ocrChainOnImage(page, rotated, pageChain, {
-              crop: false,
-              textLayer: page.textLayer,
-              label: "전체",
-            });
-          } else {
-            // ── per-crop OCR (testchange 방향) ──
-            result = await runPerCropOcr(page, rotated, problemBoxes, pageChain);
+            problemBoxes = detected.filter(b => (!b.class || b.class === "problem") && Array.isArray(b.cropBox)
+              && b.cropBox.length === 4 && b.cropBox.every(Number.isFinite)).map((b, i) => ({
+              id: `${page.id}-auto-${i}`, class: "problem" as const, number: b.number,
+              bbox: b.cropBox as [number, number, number, number], verified: false, source: "ai" as const, kind: b.type,
+            }));
+            if (!problemBoxes.length) throw new Error("문항 크롭을 찾지 못했습니다. 크롭 단계에서 문제 영역을 지정해 주세요.");
+            useWizardStore.getState().setPageCropBoxes(page.id, problemBoxes);
           }
+          const result = await runPerCropOcr(page, rotated, problemBoxes, pageChain);
           if (!result) return;
 
           // 크롭 분류(kind="essay") 권위 신호로 "보기 누락" 오경고 제거 (§18, 2026-06-02).

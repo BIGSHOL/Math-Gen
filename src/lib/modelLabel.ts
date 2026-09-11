@@ -28,6 +28,9 @@ export const modelShortName = (model: string | undefined | null): string => {
       return "GPT5.5P";
     case "gpt-5":
       return "GPT5";
+    case "deepseek-v4-pro": return "DeepSeek";
+    case "gemini-3.8-flash": return "G3.8F";
+    case "claude-opus-5": return "Opus 5";
     case "claude-sonnet-4-6":
       return "Sonnet";
     case "claude-opus-4-7":

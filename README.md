@@ -46,13 +46,35 @@ PDF.js 수정 버전은 major 업데이트가 필요하므로 별도 호환성 �
 
 ## 주요 기능
 
+### 도형 이중 크롭과 모델 역할 (2026-09-11)
+
+- Gemini `gemini-3.8-flash`: 문제 영역 검출·OCR, 문제 안 그림의 별도 경계 검출.
+- Opus `claude-opus-5`: **별도로 잘라낸 그림만** 보고 FigureSpec 생성. 문제 전체 이미지는 전달하지 않는다.
+- `todays-math`에서 가져온 Python 엔진: FigureSpec v2 기하 작도와 `elem-1` 60종(그래프·통계·입체 포함), SVG 안전 검사, 그림 에셋.
+- DeepSeek `deepseek-v4-pro`: 기존 Sonnet의 해설·변형·텍스트 분석 역할. 이미지 분석은 Gemini가 담당한다.
+
+원본 그림 크롭과 재작도 SVG를 함께 보관하며 문항의 **원본 비교**에서 확인한다.
+엔진 검증 실패 시 Opus에 한 번 수정을 요청하고, 재실패하거나 지원하지 않는 그림이면
+경고와 함께 원본 크롭을 유지한다. 기존 HWP 그림 자리 안내 정책은 그대로 적용된다.
+MathJax 확장 없이 Python 엔진이 지원하는 라벨만 작도한다.
+
+서버 환경변수: `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`.
+로컬은 Python 3.11 이상이 필요하고 `PYTHON_BIN`으로 실행 파일을 지정할 수 있다.
+Vercel은 `api/figure-render.py`에서 같은 엔진을 실행한다. AI 키는 개발 환경에서도 브라우저에 전달하지 않는다.
+
+```powershell
+python scripts/figure/test_engine.py
+node scripts/figurePipelineBrowserHarness.mjs
+```
+
+두 번째 검증은 실행 중인 개발 서버를 사용하며 AI 호출은 가짜 응답으로 대체한다.
+
 ### 7단계 위자드 (`/`)
 0. **업로드** — PDF → 페이지별 hi-res 이미지 + IndexedDB 캐시. 자동 회전 감지.
 1. **검수** — 페이지와 문제 영역을 확인하고 조정.
-2. **OCR** — Gemini 3 Flash → 폴백 3.5 Flash 로 페이지별 multi-problem
-   추출. 도형 페이지는 자동으로 GPT-5.5 → 폴백 Gemini 3.1 Pro 로 2차 정밀
-   재추출. 카드별 인라인 편집.
-3. **해설·정답 생성** — Claude Sonnet 4.6 으로 단계별 풀이 + 짧은 정답 자동
+2. **OCR** — Gemini 3.8 Flash로 문제별 크롭을 인식하고, 내부 그림은 다시 크롭해
+   Opus 5와 도형 엔진으로 재작도한다. 카드별 인라인 편집.
+3. **해설·정답 생성** — DeepSeek V4 Pro로 단계별 풀이 + 짧은 정답 자동
    생성. 항목별 재생성·편집.
 4. **변환 옵션** — 변환 목표·난이도·동봉 자료 선택.
 5. **문항별 검토** — 문항과 정답을 확인하고 수정.
@@ -105,9 +127,9 @@ npm run build
 
 | 작업 | 1차 모델 | 폴백 모델 |
 |---|---|---|
-| OCR — 텍스트 | Gemini 3 Flash (Preview) | Gemini 3.5 Flash |
-| OCR — 도형 | GPT-5.5 | Gemini 3.1 Pro (Preview) |
-| 해설·정답 생성 | Claude Sonnet 4.6 | (단일 모델) |
+| OCR — 텍스트·그림 경계 | Gemini 3.8 Flash | 같은 모델 재시도 |
+| 그림 재작도 | Opus 5 + todays-math 엔진 | 원본 그림 크롭 유지 |
+| 해설·정답·변형 생성 | DeepSeek V4 Pro | 실패 안내·재시도 |
 
 폴백 트리거: 1차가 `non-AbortError` throw 시 자동. `AbortError` 는 폴백 안 함
 (사용자 취소 의도 존중).
@@ -163,7 +185,7 @@ src/
 │   ├── modal/                   — 모달 레이어
 │   └── ui/                      — 디자인 시스템 (Btn, Card, Chip, Icon ...)
 ├── hooks/
-│   ├── usePageOcr.ts            — Step 2 페이지 단위 fan-out (pLimit + AbortController + fallback chain)
+│   ├── usePageOcr.ts            — Step 2 페이지 단위 fan-out (pLimit + in-flight Set + 이중 크롭)
 │   └── useSolutionGen.ts        — Step 3 문제 단위 fan-out
 ├── lib/
 │   ├── pdfProcessor.ts          — loadPdf / renderPageForAI / detectPageRotation / applyRotation

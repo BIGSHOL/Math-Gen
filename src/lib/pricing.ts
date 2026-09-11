@@ -38,6 +38,11 @@ interface ModelPricing {
  * 2026-05 기준 단가 (USD per 1M tokens). 변동 시 provider 콘솔 가격표 확인 후 갱신.
  */
 const PRICING: Record<string, ModelPricing> = {
+  // Official prices verified 2026-09-11. DeepSeek peak prices (off-peak is half).
+  "deepseek-v4-pro": { input: 1.32, output: 3.96, cacheRead: 0.044, cacheCreation: 0 },
+  "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5, cacheCreation: 6.25 },
+  // Gemini 3.8 launch price through 2026-12-31.
+  "gemini-3.8-flash": { input: 0.75, output: 3.75, cacheRead: 0, cacheCreation: 0 },
   // ── Anthropic Claude ──────────────────────────────────────────────────
   "claude-sonnet-4-6":  { input: 3.0,  output: 15.0, cacheRead: 0.30, cacheCreation: 3.75 },
   "claude-opus-4-7":    { input: 15.0, output: 75.0, cacheRead: 1.50, cacheCreation: 18.75 },
@@ -80,7 +85,16 @@ export const computeCost = (
   model: string,
   usage: NormalizedUsage,
 ): number => {
-  const p = PRICING[model] ?? DEFAULT_PRICING;
+  let p = PRICING[model] ?? DEFAULT_PRICING;
+  const now = new Date();
+  if (model === "deepseek-v4-pro") {
+    const hour = now.getUTCHours();
+    const weekday = now.getUTCDay() > 0 && now.getUTCDay() < 6;
+    if (!(weekday && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)))) {
+      p = { input: p.input / 2, output: p.output / 2, cacheRead: p.cacheRead / 2, cacheCreation: 0 };
+    }
+  }
+  if (model === "gemini-3.8-flash" && now >= new Date("2027-01-01T00:00:00Z")) p = { ...p, input: 1.5, output: 7.5 };
   return (
     usage.inputTokens * p.input +
     usage.outputTokens * p.output +
@@ -113,10 +127,11 @@ export const normalizeGeminiUsage = (
   usage: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
   } | undefined,
 ): NormalizedUsage => ({
   inputTokens: usage?.promptTokenCount ?? 0,
-  outputTokens: usage?.candidatesTokenCount ?? 0,
+  outputTokens: (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0),
   cacheReadTokens: 0,
   cacheCreationTokens: 0,
 });

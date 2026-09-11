@@ -20,7 +20,7 @@ import OpenAI from "openai";
  *    `additionalProperties: false` everywhere, which our schema already has).
  */
 
-const apiKey = process.env.OPENAI_API_KEY;
+const apiKey = typeof window === "undefined" ? process.env.OPENAI_API_KEY : undefined;
 
 let _client: OpenAI | null = null;
 

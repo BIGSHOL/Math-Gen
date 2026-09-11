@@ -131,7 +131,7 @@ export const ocrToGenerated = (it: OCRProblem): GeneratedProblem => {
   const images = (it.images ?? [])
     .map((im) => {
       const src = im.source ?? "ai-crop";
-      if (src === "user-crop" && im.dataUrl) return { dataUrl: im.dataUrl, label: im.label };
+      if (im.dataUrl) return { dataUrl: im.dataUrl, label: im.label };
       if (src === "ai-gen" && im.url) return { dataUrl: im.url, label: im.label };
       return null;
     })

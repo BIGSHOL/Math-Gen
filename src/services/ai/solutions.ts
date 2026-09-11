@@ -1,3 +1,4 @@
+import { DEEPSEEK_MODEL, deepseekText } from "./deepseek.js";
 /**
  * Wizard Step 3 — single-problem solution + answer generation.
  *
@@ -34,6 +35,7 @@ import {
   GEMINI_3_1_FLASH_LITE,
   GEMINI_3_1_PRO,
   GEMINI_3_5_FLASH,
+  GEMINI_3_8_FLASH, geminiSampling,
   GEMINI_3_FLASH,
 } from "./gemini.js";
 import { getOpenAIClient, type OpenAIModel } from "./openai.js";
@@ -122,11 +124,12 @@ interface RawSolutionResponse {
 
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
 // figure out provider dispatch without duplicating the list.
-const providerOf = (model: OCRModel): "anthropic" | "gemini" | "openai" =>
+const providerOf = (model: OCRModel): "anthropic" | "gemini" | "openai" | "deepseek" =>
   OCR_MODELS[model]?.provider ?? "anthropic";
 
 /** Gemini ids — kept narrow so TS knows which SDK to call. */
 const isGeminiModel = (m: OCRModel): m is GeminiModel =>
+  m === GEMINI_3_8_FLASH ||
   m === GEMINI_2_5_FLASH ||
   m === GEMINI_2_5_FLASH_LITE ||
   m === GEMINI_2_5_PRO ||
@@ -233,7 +236,7 @@ const callGemini = async (
           : never,
         // Pin sampling for deterministic-ish solutions (same caveat as
         // OCR — pure 0.0 sometimes stuck on long structured output).
-        temperature: 0.1,
+        ...geminiSampling(model),
         maxOutputTokens: 16384,
         abortSignal: input.signal,
       },
@@ -430,25 +433,8 @@ const cleanupSolution = async (
   dirtySolution: string,
   signal?: AbortSignal,
 ): Promise<string> => {
-  const response = await anthropic.messages.create(
-    {
-      model: SONNET_MODEL,
-      max_tokens: 4096,
-      temperature: 0,
-      system: CLEANUP_SYSTEM,
-      messages: [{ role: "user", content: dirtySolution }],
-    },
-    signal ? { signal } : undefined,
-  );
-  const text = response.content
-    .map((b) =>
-      "text" in b && typeof (b as { text?: unknown }).text === "string"
-        ? (b as { text: string }).text
-        : "",
-    )
-    .join("")
-    .trim();
-  return stripCodeFences(text);
+  const response = await deepseekText(CLEANUP_SYSTEM, dirtySolution, { signal, maxTokens: 4096 });
+  return stripCodeFences(response.text);
 };
 
 const generateSolutionDirect = async (
@@ -458,11 +444,15 @@ const generateSolutionDirect = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
 
-  const model = (input.model ?? SONNET_MODEL) as OCRModel;
+  const model = (!input.model || input.model === SONNET_MODEL ? DEEPSEEK_MODEL : input.model) as OCRModel;
   const provider = providerOf(model);
 
   let parsed: RawSolutionResponse;
-  if (provider === "anthropic") {
+  if (provider === "deepseek") {
+    const result = await deepseekText(COMMON_INSTRUCTIONS, buildSolutionPrompt(input.problem, input.grade), { schema: SOLUTION_SCHEMA, signal: input.signal });
+    parsed = parseJsonOrThrow<RawSolutionResponse>(result.text);
+    parsed._usage = result.usage;
+  } else if (provider === "anthropic") {
     parsed = await callAnthropic(input, model as AnthropicModelId);
   } else if (provider === "gemini" && isGeminiModel(model)) {
     parsed = await callGemini(input, model);

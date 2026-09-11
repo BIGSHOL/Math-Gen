@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import type { VercelRequest, VercelResponse } from '../api/_types.js';
 
 const ROUTES = new Set(['testchange', 'ai-ocr', 'ai-cropdetect', 'ai-solution', 'ai-variant',
-  'ai-image', 'ai-exam-analysis', 'ai-exam-commentary', 'ai-exam-v4']);
+  'ai-image', 'ai-generate', 'ai-figure', 'ai-figure-detect', 'figure-render', 'ai-exam-analysis', 'ai-exam-commentary', 'ai-exam-v4']);
 
 /** Vercel API를 로컬에서도 같은 인증·검증 경로로 실행한다. 서버 키는 Node에만 둔다. */
 export const localApiPlugin = (): Plugin => ({
@@ -41,7 +41,7 @@ export const localApiPlugin = (): Plugin => ({
           try { request.body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
           catch { response.status(400).json({ error: '요청 JSON이 올바르지 않습니다.' }); return; }
         }
-        const api = await server.ssrLoadModule(`/api/${route}.ts`);
+        const api = await server.ssrLoadModule(route === "figure-render" ? "/scripts/figure/localRender.ts" : `/api/${route}.ts`);
         await api.default(request, response);
       } catch {
         if (!res.headersSent) response.status(500).json({ error: '로컬 데이터 연결에 실패했습니다.' });

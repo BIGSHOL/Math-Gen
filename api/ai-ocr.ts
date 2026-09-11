@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const result = await extractPageProblems(input);
     const latencyMs = Date.now() - t0;
-    const modelUsed = (result._modelUsed ?? input.model ?? "claude-sonnet-4-6") as OCRModel;
+    const modelUsed = (result._modelUsed ?? input.model ?? "gemini-3.8-flash") as OCRModel;
     const provider =
       (OCR_MODELS[modelUsed]?.provider as "anthropic" | "gemini" | "openai" | undefined) ??
       "anthropic";
@@ -60,7 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-ocr",
-      provider: "anthropic",
+      provider: "gemini",
       model: input.model ?? "unknown",
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       latencyMs,

@@ -1,3 +1,6 @@
+import { getGeminiClient, GEMINI_3_8_FLASH, geminiSampling } from "./gemini.js";
+import { normalizeGeminiUsage } from "../../lib/pricing.js";
+import { parseJsonOrThrow } from "./ocr.js";
 /**
  * 시험지 분석 (Phase N) — Sonnet 4.6 vision + prompt caching 서비스.
  *
@@ -18,7 +21,6 @@
  * 마이그레이션 후 `analyzeExamViaApi` 로 Vercel function 경유).
  */
 
-import { anthropic, SONNET_MODEL } from "./client.js";
 import { SYSTEM_BLOCKS } from "./generate.js";
 import { extractToolUseInput } from "./generate.js";
 import {
@@ -175,21 +177,18 @@ const analyzeExamDirect = async (
   ];
 
   // 4. Anthropic SDK 호출
-  const response = await anthropic.messages.create(
-    {
-      model: SONNET_MODEL,
-      max_tokens: 16000,
-      temperature: 0.1,
-      system: systemBlocks,
-      messages: [{ role: "user", content: userContent }],
-      tools: [EXAM_ANALYSIS_TOOL],
-      tool_choice: EXAM_ANALYSIS_TOOL_CHOICE,
-    },
-    input.signal ? { signal: input.signal } : undefined,
-  );
-
-  // 5. tool_use input 추출
-  const raw = extractToolUseInput<unknown>(response, EXAM_ANALYSIS_TOOL.name);
+  const completion = await getGeminiClient().models.generateContent({
+    model: GEMINI_3_8_FLASH,
+    contents: [{ role: "user", parts: [
+      ...imageBlocks.map(b => ({ inlineData: { data: b.source.data, mimeType: b.source.media_type } })),
+      { text: systemBlocks.map(b => b.text).join("\n\n") + "\nReturn JSON following this schema: " + JSON.stringify(EXAM_ANALYSIS_TOOL.input_schema) },
+    ] }],
+    config: { ...geminiSampling(GEMINI_3_8_FLASH), responseMimeType: "application/json", maxOutputTokens: 16000, abortSignal: input.signal },
+  });
+  if (completion.candidates?.[0]?.finishReason === "MAX_TOKENS") throw new Error("시험 분석 응답이 토큰 한도로 잘렸습니다.");
+  const raw = parseJsonOrThrow<unknown>(completion.text ?? "");
+  const normalized = normalizeGeminiUsage(completion.usageMetadata);
+  const response = { usage: { input_tokens: normalized.inputTokens, output_tokens: normalized.outputTokens } };
 
   // 6. 4-tier 후처리
   const result: BasicAnalysisResult = processAnalysisResult(raw);
@@ -214,7 +213,7 @@ const analyzeExamDirect = async (
 
   return {
     result,
-    modelUsed: SONNET_MODEL,
+    modelUsed: GEMINI_3_8_FLASH,
     _usage: usage,
   };
 };

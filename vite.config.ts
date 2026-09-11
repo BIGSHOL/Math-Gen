@@ -151,6 +151,7 @@ const SHELL_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "GEMINI_API_KEY",
   "OPENAI_API_KEY",
+  "DEEPSEEK_API_KEY",
   "VITE_SUPABASE_URL",
   "VITE_SUPABASE_ANON_KEY",
   "VITE_SUPABASE_ENABLED",
@@ -232,7 +233,7 @@ export default defineConfig(async ({ command }) => {
   const env = readAllowedShellEnv();
   // 서버 전용 환경변수는 define/env 객체에 포함하지 않는다.
   if (command === 'serve') {
-    for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'VITE_TESTCHANGE_ENABLED', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY']) {
+    for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'VITE_TESTCHANGE_ENABLED', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY']) {
       if (!process.env[key] && fileEnv[key]) process.env[key] = fileEnv[key];
     }
     if (!process.env.VITE_SUPABASE_URL && fileEnv.VITE_SUPABASE_URL) {
@@ -299,13 +300,7 @@ export default defineConfig(async ({ command }) => {
       // command === "serve" 가 *dev only* — `command === "build"` (production)
       // 에서는 이 define 자체가 제거되어 client bundle 의 process.env.X 가
       // undefined → src/services/ai/*.ts 의 USE_API=true 분기로 fetch path 사용.
-      ...(command === "serve"
-        ? {
-            "process.env.ANTHROPIC_API_KEY": JSON.stringify(ANTHROPIC_API_KEY),
-            "process.env.GEMINI_API_KEY": JSON.stringify(GEMINI_API_KEY),
-            "process.env.OPENAI_API_KEY": JSON.stringify(OPENAI_API_KEY),
-          }
-        : {}),
+      "import.meta.env.VITE_USE_API": JSON.stringify("true"),
       // Supabase — Phase A 인프라 마이그레이션. VITE_ prefix 로 client 에서
       // `import.meta.env` 로 접근. ENABLED 가 "true" 일 때만 client 가 활성.
       // anon key 는 *공개 OK* (RLS 가 보호) — production build 도 포함.

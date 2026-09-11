@@ -97,7 +97,8 @@ export const ProblemBody = ({
   } else if (problem.diagramSVG) {
     svgList = [{ svg: problem.diagramSVG, label: "도형" }];
   }
-  const showBboxFallback = !svgList && diagrams && diagrams.length > 0;
+  const imageCrops = problem.images?.map(im => ({ src: im.dataUrl, label: im.label }));
+  const showBboxFallback = !svgList && !imageCrops?.length && diagrams && diagrams.length > 0;
 
   // 보기 일관 렌더 (사용자 보고 2026-06-04: 인쇄 1단/2단 보기 크기 불일치).
   // choices[] 가 있으면 그대로, 비어있고 question 본문에 ①②③④⑤ 가 inline 으로
@@ -108,6 +109,11 @@ export const ProblemBody = ({
   const hasChoicesArr = !!problem.choices && problem.choices.length > 0;
   const extractedChoices = hasChoicesArr ? null : extractChoices(problem.question);
   const effectiveChoices = hasChoicesArr ? problem.choices : (extractedChoices ?? undefined);
+  const inlineImageIndices = new Set(Array.from(
+    [problem.question, ...(effectiveChoices ?? [])].join("\n").matchAll(/\[그림(\d+)\]/g),
+    m => Number(m[1]) - 1,
+  ));
+  const standaloneImages = problem.images?.filter((_, index) => !inlineImageIndices.has(index));
   // 본문 선두의 자기 번호("4. ")를 제거 — 템플릿의 QuestionNumber 가 번호를 따로 그리므로
   // 안 지우면 "4. 4." 중복(§42-8d 의 웹 판; 다사중 #4 사용자 보고 2026-06-26).
   // + 배점 [N점] 을 발문 끝으로 통일 — 보기 박스 끝에 남던 것 교정(§45, #9). 6 템플릿 공통이라
@@ -126,7 +132,7 @@ export const ProblemBody = ({
   // 서술형(보기 없음) + 도형 없음 + 소문항((1)(2)…) 있으면 소문항마다 풀이공간.
   // 도형 있으면 [그림N] placeholder 인덱싱이 복잡해져 split 안 함(전체 + 슬롯 여백).
   const isEssay = !effectiveChoices || effectiveChoices.length === 0;
-  const subParts = isEssay && !svgList ? splitSubQuestions(questionBody) : null;
+  const subParts = isEssay && !svgList && !imageCrops?.length ? splitSubQuestions(questionBody) : null;
   const hasSubQ = !!subParts && subParts.length > 1 && subParts.some((p) => p.isSub);
 
   return (
@@ -156,7 +162,7 @@ export const ProblemBody = ({
             </div>
           ))
         ) : (
-          <MarkdownRenderer content={questionBody} diagramSvgs={svgList} />
+          <MarkdownRenderer content={questionBody} diagramSvgs={svgList} imageCrops={imageCrops} />
         )}
       </div>
 
@@ -177,9 +183,9 @@ export const ProblemBody = ({
       {/* 이미지 도형 (작품 사진 user-crop · AI 생성 ai-gen — 벡터 불가). 내보내기
           표시 (#14, 사용자 보고 2026-06-04: 21번 고흐 작품). diagramParams(벡터)와
           별개 도형 — 둘이 겹치는 문항 없음. */}
-      {problem.images && problem.images.length > 0 && (
+      {standaloneImages && standaloneImages.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-2 justify-center">
-          {problem.images.map((img, ii) => (
+          {standaloneImages.map((img, ii) => (
             <img
               key={ii}
               src={img.dataUrl}
@@ -206,7 +212,7 @@ export const ProblemBody = ({
                   {["①", "②", "③", "④", "⑤"][ci]}
                 </span>
                 <div className="flex-1">
-                  <MarkdownRenderer content={cleanChoice} inline />
+                  <MarkdownRenderer content={cleanChoice} imageCrops={imageCrops} inline />
                 </div>
               </div>
             );

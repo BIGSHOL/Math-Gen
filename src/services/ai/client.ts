@@ -11,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
  * (Vercel/Cloudflare Functions). Until then, do NOT ship a production build
  * with this configuration. Local development + private demo only.
  */
-const apiKey = process.env.ANTHROPIC_API_KEY;
+const apiKey = typeof window === "undefined" ? process.env.ANTHROPIC_API_KEY : undefined;
 
 // Module-load warning policy:
 //   - Anthropic missing, but Gemini OR OpenAI present  → silent. The user is
@@ -23,10 +23,10 @@ const apiKey = process.env.ANTHROPIC_API_KEY;
 //
 // 이 조건문이 없으면 Gemini+OpenAI 로만 OCR 돌리는 사용자에게도 매번 콘솔
 // 경고가 떠 노이즈가 됨 (사용자 보고).
-const hasAnyProviderKey =
-  Boolean(apiKey) ||
-  Boolean(process.env.GEMINI_API_KEY) ||
-  Boolean(process.env.OPENAI_API_KEY);
+const hasAnyProviderKey = typeof window === "undefined" && (
+  Boolean(apiKey) || Boolean(process.env.GEMINI_API_KEY) ||
+  Boolean(process.env.OPENAI_API_KEY) || Boolean(process.env.DEEPSEEK_API_KEY)
+);
 
 // Phase 5a — production build 의 client bundle 에는 *AI 키가 의도적으로 없음*
 // (vite.config.ts 의 define 이 command="serve" 만 inject). 모든 AI 호출은

@@ -1,3 +1,5 @@
+import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
+import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useCallback, useState } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
@@ -8,8 +10,6 @@ import { withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
 import { showToast } from "@app/stores/toastStore";
 import { extractPageProblems, type OCRModel } from "@app/services/ai/ocr";
-import { GEMINI_3_5_FLASH, isGeminiAvailable } from "@app/services/ai/gemini";
-import { SONNET_MODEL } from "@app/services/ai/client";
 import { useWizardStore, type OCRProblem, type WizardPage } from "@app/stores/wizardStore";
 
 /**
@@ -69,9 +69,7 @@ export const useItemReocr = () => {
         const crop = await cropPageImageData(rotated, box.bbox, { margin: CROP_MARGIN });
 
         // 3. OCR (Gemini 3.5 Flash → Sonnet 폴백). 크롭 = 1 문제.
-        const chain: OCRModel[] = isGeminiAvailable()
-          ? [GEMINI_3_5_FLASH, SONNET_MODEL]
-          : [SONNET_MODEL];
+        const chain: OCRModel[] = [GEMINI_3_8_FLASH];
         let matched: OCRProblem | null = null;
         let modelUsed: OCRModel | null = null;
         let lastErr: Error | null = null;
@@ -88,6 +86,8 @@ export const useItemReocr = () => {
           }
         }
         if (!matched || !modelUsed) throw lastErr ?? new Error("문항 OCR 에 실패했습니다.");
+
+        matched = await redrawQuestionFigures(crop, matched);
 
         // 4. crop-local box → full-page 역변환(usePageOcr Pass 2 와 동일).
         const remap = (b: [number, number, number, number]) =>

@@ -1,3 +1,4 @@
+import { DEEPSEEK_MODEL, deepseekText } from "./deepseek.js";
 /**
  * Wizard Step 4 — single-problem variant generation.
  *
@@ -28,6 +29,7 @@ import {
   GEMINI_3_1_FLASH_LITE,
   GEMINI_3_1_PRO,
   GEMINI_3_5_FLASH,
+  GEMINI_3_8_FLASH, geminiSampling,
   GEMINI_3_FLASH,
 } from "./gemini.js";
 import { getOpenAIClient, type OpenAIModel } from "./openai.js";
@@ -124,10 +126,11 @@ interface RawVariantResponse {
 
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
 // figure out provider dispatch without duplicating the list.
-const providerOf = (model: OCRModel): "anthropic" | "gemini" | "openai" =>
+const providerOf = (model: OCRModel): "anthropic" | "gemini" | "openai" | "deepseek" =>
   OCR_MODELS[model]?.provider ?? "anthropic";
 
 const isGeminiModel = (m: OCRModel): m is GeminiModel =>
+  m === GEMINI_3_8_FLASH ||
   m === GEMINI_2_5_FLASH ||
   m === GEMINI_2_5_FLASH_LITE ||
   m === GEMINI_2_5_PRO ||
@@ -242,7 +245,7 @@ const callGemini = async (
             ? R
             : never
           : never,
-        temperature: 0.3,
+        ...geminiSampling(model),
         maxOutputTokens: 16384,
         abortSignal: input.signal,
       },
@@ -433,11 +436,15 @@ const generateVariantDirect = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
 
-  const model = (input.model ?? SONNET_MODEL) as OCRModel;
+  const model = (!input.model || input.model === SONNET_MODEL ? DEEPSEEK_MODEL : input.model) as OCRModel;
   const provider = providerOf(model);
 
   let parsed: RawVariantResponse;
-  if (provider === "anthropic") {
+  if (provider === "deepseek") {
+    const result = await deepseekText(COMMON_INSTRUCTIONS, buildVariantPrompt(input.problem, { goal: input.goal, difficulty: input.difficulty, grade: input.grade, choicesCount: input.choicesCount }), { schema: VARIANT_SCHEMA, signal: input.signal });
+    parsed = parseJsonOrThrow<RawVariantResponse>(result.text);
+    parsed._usage = result.usage;
+  } else if (provider === "anthropic") {
     parsed = await callAnthropic(input, model as AnthropicModelId);
   } else if (provider === "gemini" && isGeminiModel(model)) {
     parsed = await callGemini(input, model);

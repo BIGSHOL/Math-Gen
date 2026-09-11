@@ -1,3 +1,4 @@
+import { DEEPSEEK_MODEL, deepseekText } from "./deepseek.js";
 /**
  * 시험지 commentary 서비스 (Phase N+3).
  *
@@ -12,7 +13,6 @@
  *   5. CommentaryResult 반환
  */
 
-import { anthropic, SONNET_MODEL } from "./client.js";
 import { SYSTEM_BLOCKS } from "./generate.js";
 import {
   COMMENTARY_SYSTEM_PROMPT,
@@ -116,38 +116,11 @@ const analyzeCommentaryDirect = async (
     },
   ];
 
-  const response = await anthropic.messages.create(
-    {
-      model: SONNET_MODEL,
-      max_tokens: 16384,
-      temperature: 0.5,
-      system: systemBlocks,
-      messages: [{ role: "user", content: userContent }],
-    },
-    input.signal ? { signal: input.signal } : undefined,
-  );
-
-  // text content 추출 — Anthropic SDK ContentBlock union 안전 분기
-  const text = response.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("");
-
-  if (!text) {
-    throw new Error("Commentary 응답이 비어있습니다");
-  }
-
-  if (
-    (response as { stop_reason?: string }).stop_reason === "max_tokens"
-  ) {
-    console.warn(
-      "[examCommentary] max_tokens 도달 — 응답이 잘렸을 수 있음. partial 파싱 시도.",
-    );
-  }
-
-  // JSON 추출 + 후처리
+  const completion = await deepseekText(systemBlocks.map(b => b.text).join("\n\n"), userContent, { schema: { type: "object" }, signal: input.signal });
+  const text = completion.text;
+  const response = { usage: { input_tokens: completion.usage.inputTokens, output_tokens: completion.usage.outputTokens,
+    cache_read_input_tokens: completion.usage.cacheReadTokens, cache_creation_input_tokens: completion.usage.cacheCreationTokens } };
   const parsed = parseJsonResponse(text) as CommentaryResult;
-
   const usage = (
     response as {
       usage?: {
@@ -167,7 +140,7 @@ const analyzeCommentaryDirect = async (
 
   return {
     result: parsed,
-    modelUsed: SONNET_MODEL,
+    modelUsed: DEEPSEEK_MODEL,
     _usage: usage,
   };
 };

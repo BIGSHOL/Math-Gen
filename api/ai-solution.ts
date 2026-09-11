@@ -66,8 +66,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId: auth.userId,
       tenantId: auth.tenantId,
       endpoint: "ai-solution",
-      provider: "anthropic", // model 모를 때 default
-      model: input.model ?? "unknown",
+      provider: input.model ? (OCR_MODELS[input.model]?.provider ?? "deepseek") : "deepseek", // model 모를 때 default
+      model: input.model ?? "deepseek-v4-pro",
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       latencyMs,
       error: msg.slice(0, 500),

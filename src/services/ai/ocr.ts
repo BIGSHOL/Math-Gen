@@ -1,3 +1,4 @@
+import { DEEPSEEK_MODEL } from "./deepseek.js";
 /**
  * Wizard Step 2 — page-level OCR.
  *
@@ -41,6 +42,7 @@ import {
   GEMINI_3_1_FLASH_LITE,
   GEMINI_3_1_PRO,
   GEMINI_3_5_FLASH,
+  GEMINI_3_8_FLASH, geminiSampling,
   GEMINI_3_FLASH,
   type GeminiModel,
 } from "./gemini.js";
@@ -84,12 +86,12 @@ import {
 } from "../../lib/pricing.js";
 
 /** Unified union — every provider's vision-capable model the OCR layer accepts. */
-export type OCRModel = AnthropicModelId | GeminiModel | OpenAIModel;
+export type OCRModel = AnthropicModelId | GeminiModel | OpenAIModel | typeof DEEPSEEK_MODEL;
 
 export interface OCRModelInfo {
   id: OCRModel;
   /** Provider family. */
-  provider: "anthropic" | "gemini" | "openai";
+  provider: "anthropic" | "gemini" | "openai" | "deepseek";
   /** Human-readable label for UI. */
   label: string;
   /** One-line description shown next to the label. */
@@ -109,6 +111,8 @@ export interface OCRModelInfo {
  * bench grid renders in a sensible order.
  */
 export const OCR_MODELS: Record<OCRModel, OCRModelInfo> = {
+  [DEEPSEEK_MODEL]: { id: DEEPSEEK_MODEL, provider: "deepseek", label: "DeepSeek V4 Pro", blurb: "해설·변형 생성 (텍스트 전용)", costBand: 1, vision: false },
+  [GEMINI_3_8_FLASH]: { id: GEMINI_3_8_FLASH, provider: "gemini", label: "Gemini 3.8 Flash", blurb: "문항 인식·문제 내부 그림 크롭", costBand: 1, vision: true },
   // ── Anthropic ──────────────────────────────────────────────
   [HAIKU_MODEL]: {
     id: HAIKU_MODEL,
@@ -478,7 +482,9 @@ const newId = (): string =>
 
 /** Build the user-facing prompt + OCR-layer hint (used by every provider). */
 const buildUserText = (textLayer: string, crop = false): string => {
-  const base = crop ? `${OCR_CROP_PREFIX}${OCR_PAGE_PROMPT}` : OCR_PAGE_PROMPT;
+  const figureRule = `
+FINAL FIGURE RULE (overrides earlier SVG/diagram drawing instructions): Transcribe text only. Do NOT draw SVG or generate diagramParams. For each printed figure inside the question, place [그림1], [그림2], ... in reading order at its original location, including figures inside choices/subquestions. Provide its images[] box in 0-1000 coordinates relative to the supplied image. Include labels in the box. A separate Gemini crop stage and Opus figure engine will redraw it. Do not substitute a description or omit the marker.`;
+  const base = (crop ? `${OCR_CROP_PREFIX}${OCR_PAGE_PROMPT}` : OCR_PAGE_PROMPT) + figureRule;
   const hint = textLayer.trim().slice(0, 2000);
   return hint
     ? `${base}\n\n[PDF text-layer OCR hint — may contain noise; use only to disambiguate]\n${hint}`
@@ -866,7 +872,7 @@ const callGemini = async (
         responseMimeType: "application/json",
         // OCR is a transcription task — testchange ocr_engine 와 동일하게 0
         // (_gemini_generate temperature=0). 결정적·정확도 우선, 옵션 B 엔진 이식.
-        temperature: 0,
+        ...geminiSampling(model),
         // 토큰 한도 — whole-page 는 multi-problem + inline SVG 로 50k+ 가능해
         // 65536, crop 은 단일 문제라 16384 (위 maxTokens 분기). truncation 재실행
         // 보다 한 번에 받는 게 경제적이라 whole-page 는 모델 max 까지 풀어둠.
@@ -1180,7 +1186,7 @@ const transcribeImage = async (
           parts: [{ inlineData: { mimeType: mediaType, data } }, { text: prompt }],
         },
       ],
-      config: { temperature: 0, maxOutputTokens: maxTokens, abortSignal: input.signal },
+      config: { ...geminiSampling(model), maxOutputTokens: maxTokens, abortSignal: input.signal },
     });
     return typeof response.text === "string" ? response.text : "";
   }
@@ -1257,7 +1263,8 @@ const extractPageProblemsDirect = async (
     throw new DOMException("Aborted before request", "AbortError");
   }
 
-  const model = (input.model ?? DEFAULT_MODEL) as OCRModel;
+  const model = (input.model ?? GEMINI_3_8_FLASH) as OCRModel;
+  if (!OCR_MODELS[model]?.vision) throw new Error("이 모델은 이미지 인식을 지원하지 않습니다.");
   const info = OCR_MODELS[model];
   if (!info) {
     throw new Error(`[ocr] Unknown model "${model}". Add it to OCR_MODELS.`);
