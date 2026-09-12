@@ -1,6 +1,6 @@
 import type { TestPaper } from '../types';
 import type { ContentBlock, SubQuestion } from '../types/ocrBlocks';
-import type { OCRProblem } from '../stores/wizardStore';
+import type { OCRImage, OCRProblem } from '../stores/wizardStore';
 import type { DetailData } from '../hooks/useDetailData';
 import type { EngineBlock, EngineQuestion, TestchangeExam, TestchangeExamData, TestchangeQuestion } from '../types/testchange';
 import { testchangeId, testchangeTitle } from '../types/testchange';
@@ -18,10 +18,16 @@ export const testchangeExamToTest = (exam: TestchangeExam): TestPaper => ({
 });
 
 /** 엔진의 dict 표 셀과 도형 블록을 웹이 읽는 형식으로 변환. 원본 body는 변경하지 않는다. */
-export function engineBlocksToWeb(blocks: EngineBlock[] = []): ContentBlock[] {
+export function engineBlocksToWeb(blocks: EngineBlock[] = [], images?: OCRImage[]): ContentBlock[] {
   return (Array.isArray(blocks) ? blocks : []).flatMap((b): ContentBlock[] => {
     if (!b || typeof b !== 'object') return [];
     if (b.type === 'figure' || b.type === 'image') {
+      if (images && (b.crop || b.svg)) {
+        const dataUrl = b.svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(b.svg)}` : b.crop!;
+        images.push({ box: [0, 0, 1000, 1000], label: b.desc || `도형${images.length + 1}`,
+          source: 'user-crop', dataUrl, originalDataUrl: b.crop, engineSvg: b.svg });
+        return [{ type: 'text', value: `\n\n[그림${images.length}]\n\n`, rows: [] }];
+      }
       const description = b.desc || (typeof b.value === 'string' && !/[\\/]/.test(b.value) ? b.value : '');
       return [{ type: 'text', value: `\n\n※ 그림 자리${description ? ` — ${description}` : ''}\n\n`, rows: [] }];
     }
@@ -35,23 +41,24 @@ export function engineBlocksToWeb(blocks: EngineBlock[] = []): ContentBlock[] {
   });
 }
 
-function subToWeb(q: EngineQuestion): SubQuestion {
-  return { number: q.number ?? 1, contents: engineBlocksToWeb(q.contents),
-    choices: q.choices?.map(c => ({ number: c.number, contents: engineBlocksToWeb(c.contents) })),
+function subToWeb(q: EngineQuestion, images: OCRImage[]): SubQuestion {
+  return { number: q.number ?? 1, contents: engineBlocksToWeb(q.contents, images),
+    choices: q.choices?.map(c => ({ number: c.number, contents: engineBlocksToWeb(c.contents, images) })),
     score: Number.isFinite(Number(q.score)) && q.score != null ? Number(q.score) : undefined,
     printedScore: typeof q.score === 'string' && /^\d+(?:\.\d+)?$/.test(q.score.trim()) ? q.score.trim() : undefined,
     labelType: q.label_type };
 }
 
 export function testchangeQuestionToOcr(row: TestchangeQuestion): OCRProblem {
-  const blocks = engineBlocksToWeb(row.body.contents);
-  const choices = row.body.choices?.map(c => ({ number: c.number, contents: engineBlocksToWeb(c.contents) })) ?? [];
-  const subs = row.body.sub_questions?.map(subToWeb) ?? [];
+  const images: OCRImage[] = [];
+  const blocks = engineBlocksToWeb(row.body.contents, images);
+  const choices = row.body.choices?.map(c => ({ number: c.number, contents: engineBlocksToWeb(c.contents, images) })) ?? [];
+  const subs = row.body.sub_questions?.map(q => subToWeb(q, images)) ?? [];
   const source = row.answer_source;
   const computed = Boolean(row.answer && source !== 'printed');
   return { id: `testchange:q:${row.id}`, number: row.number,
     text: blocksToMarkdown(blocks, choices, subs) || row.plain || '',
-    blocks, choiceGroups: choices, subQuestions: subs,
+    blocks, choiceGroups: choices, subQuestions: subs, images,
     score: row.score ?? undefined, labelType: row.body.label_type || row.label || undefined,
     printedScore: typeof row.body.score === 'string' && /^\d+(?:\.\d+)?$/.test(row.body.score.trim()) ? row.body.score.trim() : undefined,
     answer: row.answer ?? undefined, solution: row.solution ?? undefined, topic: row.topic ?? undefined,

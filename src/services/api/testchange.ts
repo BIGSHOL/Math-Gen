@@ -1,4 +1,4 @@
-import { currentAccessToken } from './supabase';
+import { fetchWithAuth } from './supabase';
 import type { TestchangeExam, TestchangeExamData } from '../../types/testchange';
 
 export const TESTCHANGE_ENABLED = import.meta.env.VITE_TESTCHANGE_ENABLED === 'true';
@@ -9,8 +9,7 @@ async function read<T>(query = ''): Promise<T> {
   let request = pending.get(url);
   if (!request) {
     request = (async () => {
-      const token = await currentAccessToken();
-      const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const res = await fetchWithAuth(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '시험지를 불러오지 못했습니다.');
       return data;

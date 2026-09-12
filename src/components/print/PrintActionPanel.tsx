@@ -7,6 +7,7 @@ import { showToast } from "@app/stores/toastStore";
 import type { ExportProgress } from "@app/lib/pdfExporter";
 import type { ProblemReview } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
+import { HWP_AGENT_DOWNLOAD_URL } from '@app/services/api/hwpAccess';
 
 /**
  * Step 5 우측 액션 패널. filename input + 페이지 요약 + 인쇄/PDF 버튼 +
@@ -51,8 +52,6 @@ const downloadBlob = (blob: Blob, filename: string): void => {
 /** HWP 도우미(로컬 커넥터) 다운로드 — 한글 설치된 PC 에서 1회 설치 후 자동 실행.
  *  버전 무관 latest URL — 새 도우미 릴리스를 latest 로 올리면 코드 수정 없이 자동 반영
  *  (에셋명 MathGenHWP.zip 고정 필수). 릴리스 런북은 CLAUDE.md §36. */
-const HWP_AGENT_DOWNLOAD_URL =
-  "https://github.com/BIGSHOL/Math-Gen/releases/latest/download/MathGenHWP.zip";
 
 export interface PrintActionPanelProps {
   /** Step5Export 의 printable-root ref. PDF 캡처 대상. */
@@ -109,6 +108,7 @@ export const PrintActionPanel = ({
   const hwpConverting = isExporting && exportKind === "hwp";
   // 커넥터(HWP 도우미) 미감지 → 다운로드 안내 카드 노출.
   const [connectorMissing, setConnectorMissing] = useState(false);
+  const [hwpError, setHwpError] = useState('');
   const testId = useWizardStore((s) => s.testId);
 
   const handlePrint = useCallback(async () => {
@@ -222,6 +222,7 @@ export const PrintActionPanel = ({
   const handleHWP = useCallback(async () => {
     setExportKind("hwp");
     setConnectorMissing(false);
+    setHwpError('');
     // 진행 중 입력 필드 등에서 포커스 제거 — 변환 중 stray 키 입력 방지.
     (document.activeElement as HTMLElement | null)?.blur?.();
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
@@ -233,6 +234,7 @@ export const PrintActionPanel = ({
         getStoredToken,
         setStoredToken,
         HwpConnectorError,
+        hwpExtension,
       } = await import("@app/services/api/hwpConnector");
 
       const health = await detectConnector();
@@ -245,8 +247,14 @@ export const PrintActionPanel = ({
       }
       if (problems.length === 0) throw new Error("내보낼 문항이 없습니다.");
 
-      const payload = buildHwpPayload(problems, meta, exportSource, printOptions);
-      const ext = health.engine === "hwp" ? "hwp" : "hwpx";
+      if (!health.hwp_com) throw new Error('한글이 설치된 PC에서 도우미를 실행해 주세요.');
+      const { hasHwpFigures, prepareHwpFigures } = await import('@app/lib/hwpFigures');
+      const draft = buildHwpPayload(problems, meta, exportSource, printOptions);
+      if (hasHwpFigures(draft) && !health.capabilities.includes('v2-figures')) {
+        setConnectorMissing(true);
+        throw new Error('편집한 도형을 한글에 넣으려면 HWP 도우미를 최신 버전으로 업데이트해 주세요.');
+      }
+      const payload = await prepareHwpFigures(draft);
       const { sanitizeFilename } = await import("@app/lib/filename");
       // 내보내기 파일명은 *파일명 입력값* 이 단일 소스(Step5Export 가 원본 업로드명으로
       // 자동 입력 → 사용자가 수정 가능). PDF 경로와 동일 우선순위. 비어 있을 때만 원본
@@ -266,16 +274,17 @@ export const PrintActionPanel = ({
             "",
           );
           if (!entered || !entered.trim()) throw new Error("페어링 토큰이 필요합니다.");
-          setStoredToken(entered.trim());
           blob = await convertToHwp(payload, entered.trim());
+          setStoredToken(entered.trim());
         } else {
           throw e;
         }
       }
-      downloadBlob(blob, `${safeName}.${ext}`);
+      downloadBlob(blob, `${safeName}.${await hwpExtension(blob)}`);
       setProgress({ current: totalPages, total: totalPages, phase: "done" });
     } catch (err) {
       const msg = (err as Error).message ?? "HWP 변환 실패";
+      setHwpError(msg);
       setProgress({ current: 0, total: totalPages, phase: "error", error: msg });
       // 변환 실패 — 중앙 경고 모달은 닫히고 사이드 진행카드는 3초 뒤 사라지므로,
       // 토스트로 확실히 알린다(한글 오류 등 실패 인지, 사용자 보고 2026-06-22).
@@ -407,7 +416,8 @@ export const PrintActionPanel = ({
           </Card>
         )}
 
-        {/* 커넥터 미감지 — HWP 도우미 다운로드 안내 (한글 설치 PC 1회 설치). */}
+        {hwpError && <p role="alert" className="text-caption text-danger">{hwpError}</p>}
+        {hwpError && !connectorMissing && <a className="text-caption underline" href={HWP_AGENT_DOWNLOAD_URL}>HWP 도우미 다운로드</a>}
         {connectorMissing && (
           <Card pad={12} className="bg-warn-soft border-warn/30">
             <div className="text-caption font-bold mb-1.5">
@@ -457,7 +467,7 @@ export const PrintActionPanel = ({
         <p className="text-caption text-text2 leading-relaxed bg-warn-soft/40 border border-warn/20 rounded-r2 px-2.5 py-2">
           <Icon name="info" size={12} weight="duotone" color="#F59E0B" />{" "}
           HWP는 한글 자체 레이아웃이라 <strong>쪽 나눔·간격이 미리보기와 다를 수 있고</strong>,
-          도형은 한글에서 직접 붙여넣어야 합니다. (PDF·인쇄는 미리보기와 동일)
+          편집한 도형도 함께 삽입됩니다. (PDF·인쇄는 미리보기와 동일)
         </p>
 
         {/* 저장 완료 — 보관함 복귀. */}

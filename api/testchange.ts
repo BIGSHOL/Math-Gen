@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from './_types.js';
 import { getServiceClient } from './_supabase.js';
 import { requireAuth } from './_jwt.js';
+import { restoreStoredFigures } from './_testchange-figures.js';
 
 const EXAM_FIELDS = 'id,level,school,grade,subject,year,semester,round,publisher,question_count,created_at';
 const QUESTION_FIELDS = 'id,exam_id,number,qtype,score,label,body,plain,answer,solution,topic,difficulty,answer_source,has_figure';
@@ -31,7 +32,9 @@ export async function readTestchange(req: VercelRequest, res: VercelResponse) {
       ]);
       if (exam.error || questions.error) throw new Error('query failed');
       if (!exam.data) { res.status(404).json({ error: '시험지를 찾을 수 없습니다.' }); return; }
-      res.status(200).json({ exam: exam.data, questions: questions.data ?? [] });
+      const data = { exam: exam.data, questions: questions.data ?? [] };
+      await restoreStoredFigures(client, data);
+      res.status(200).json(data);
       return;
     }
     // Supabase 기본 1,000행 제한에 의해 목록이 잘리지 않도록 범위 조회.

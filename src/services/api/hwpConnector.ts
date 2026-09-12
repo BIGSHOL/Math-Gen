@@ -10,10 +10,11 @@
 
 import type { ProblemReview, PrintOptions } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
-import type { GeneratedProblem } from "@app/types";
-import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlocks";
+import { problemFigureBlocks } from "@app/lib/hwpFigures";
 import { getFontPack, type FontPackId } from "@app/lib/printFontPacks";
-import type { EngineQuestion } from '../../types/testchange';
+import type { EngineBlock, EngineQuestion } from '../../types/testchange';
+import { connectorAccessMessage } from './hwpAccess';
+export { hwpExtension } from './hwpAccess';
 
 /** 커넥터 base URL. dev override 가능 (VITE_HWP_CONNECTOR_URL). */
 const BASE =
@@ -37,20 +38,20 @@ export interface HwpHealth {
 export interface HwpPayloadProblem {
   number: number;
   /** markdown 본문 (fallback) — 블록 없거나 사용자 편집 시 커넥터가 이걸로 변환. */
-  text: string;
+  text?: string;
   topic?: string;
   /**
    * 옵션 B: 네이티브 typed-block. 있으면 커넥터(adapter._adapt_native_problem)가
    * markdown 재분해 없이 *그대로* parse_ocr_response 에 넘겨 testchange 변환과 일치.
    */
-  contents?: ContentBlock[];
+  contents?: EngineBlock[];
   /** 보기 (ChoiceGroup) — contents 와 함께 emit. 서술형이면 생략. */
-  choices?: ChoiceGroup[];
+  choices?: Array<{ number: number; contents: EngineBlock[] }>;
   /**
    * D3: 소문항 (1)(2) — 커넥터 adapter._adapt_native_problem 가 재귀 passthrough →
    * content_parser sub_questions → writer 가 소문항별 번호·배점·답란 렌더. 없으면 생략.
    */
-  subQuestions?: Array<Omit<SubQuestion, 'score'> & { score?: number | string }>;
+  subQuestions?: HwpPayloadProblem[];
   /** 배점. */
   score?: number | string;
   /** 문항 유형 라벨 ("서답형"/"서술형"/…). */
@@ -147,6 +148,7 @@ const fontStyleFor = (
 
 export interface HwpPayload {
   schema: "v2";
+  renderFigures: true;
   meta: HwpPayloadMeta;
   /** 고른 폼(템플릿+accent+단) — 엔진 헤더 재현용. */
   style?: HwpPayloadStyle;
@@ -155,88 +157,21 @@ export interface HwpPayload {
 
 /** GET /health — 커넥터 실행·엔진 감지. 미실행/타임아웃이면 null. */
 export const detectConnector = async (
-  timeoutMs = 2500,
+  timeoutMs = 15000,
 ): Promise<HwpHealth | null> => {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
     const res = await fetch(`${BASE}/health`, { signal: ctrl.signal });
-    clearTimeout(t);
-    if (!res.ok) return null;
+    if (!res.ok) throw new Error('health failed');
     return (await res.json()) as HwpHealth;
   } catch {
-    return null;
-  }
+    throw new HwpConnectorError(await connectorAccessMessage());
+  } finally { clearTimeout(t); }
 };
 
-/**
- * D8 — HWP 내보내기에서 그림은 *생략하고 멘트만* 남긴다 (사용자 결정: 도형은 웹 전용).
- *
- * testchange 의 그림 렌더-오프 동작과 동일하게 figure 를 "※ 그림 자리 …" 안내 텍스트
- * 블록으로 치환한다. 커넥터 COM writer 의 `_is_figure_note`(접두 `※ 그림 자리`,
- * hwp_com_writer.py:200)가 이 블록을 인식해 발문 뒤 *가운데 별도줄* 로 렌더한다.
- * (raw `<svg>` 마크업이 wire 로 흘러 평문 run 으로 노출되던 누출도 함께 차단.)
- *
- * 노트 텍스트는 testchange `_FIGURE_NOTE`(hwp_form_writer.py:300)와 동일 — 접두
- * `※ 그림 자리` 가 인식 키이므로 뒷부분이 달라도 동작하나, 출력 일치를 위해 그대로 둔다.
- */
-const FIGURE_NOTE = "※ 그림 자리 — 원본에서 이 영역을 캡처해 여기에 붙여넣으세요";
 const SVG_RE = /<svg[\s\S]*?<\/svg>/gi;
 const FIGURE_MARKER_RE = /\[그림\s*\d+\]/g;
-
-const figureNoteBlock = (): ContentBlock => ({
-  type: "text",
-  value: FIGURE_NOTE,
-  rows: [],
-});
-
-/**
- * 그림 신호(inline `<svg>` · `[그림N]` 마커 · 도형 존재)를 노트 블록으로 치환한 wire
- * `contents` 를 만든다. text 블록만 검사 — 수식/표 블록은 그대로.
- *  - `<svg>…</svg>` 제거 + 노트 1개
- *  - `[그림N]` 마커 제거 + 마커당 노트 1개
- *  - 인라인 신호 없는데 도형(diagramParams/images) 있으면 말미 노트 1개
- */
-const figuresToWireBlocks = (
-  blocks: ContentBlock[],
-  hasDiagram: boolean,
-): ContentBlock[] => {
-  const out: ContentBlock[] = [];
-  let noteCount = 0;
-  for (const b of blocks) {
-    if (!b || typeof b.type !== "string") continue;
-    if (b.type !== "text") {
-      out.push(b);
-      continue;
-    }
-    const original = b.value ?? "";
-    const svgStripped = original.replace(SVG_RE, " ");
-    const markerCount = (svgStripped.match(FIGURE_MARKER_RE) || []).length;
-    const hadFigure = svgStripped !== original || markerCount > 0;
-    if (!hadFigure) {
-      // 그림 신호 없음 → 원본 블록 그대로(값 변형 X — 회귀 방지).
-      out.push(b);
-      continue;
-    }
-    const cleaned = svgStripped
-      .replace(FIGURE_MARKER_RE, " ")
-      .replace(/[^\S\n]+/g, " ")
-      .trim();
-    if (cleaned) out.push({ type: "text", value: cleaned, rows: b.rows ?? [] });
-    const n = Math.max(markerCount, 1); // 마커 개수만큼(svg 만이면 1개)
-    for (let k = 0; k < n; k++) {
-      out.push(figureNoteBlock());
-      noteCount++;
-    }
-  }
-  if (noteCount === 0 && hasDiagram) out.push(figureNoteBlock());
-  return out;
-};
-
-/** 그림이 어떤 형태로든 존재하는지 (diagramParams 또는 이미지 도형). */
-const problemHasDiagram = (p: GeneratedProblem): boolean =>
-  (Array.isArray(p.diagramParams) && p.diagramParams.length > 0) ||
-  (Array.isArray(p.images) && p.images.length > 0);
 
 /**
  * 내보내기 problems(ProblemReview[]) → 커넥터 wire payload(§12-1).
@@ -261,6 +196,7 @@ export const buildHwpPayload = (
   >,
 ): HwpPayload => ({
   schema: "v2",
+  renderFigures: true,
   meta: {
     title: meta.title || "시험지",
     subject: meta.subject || "수학",
@@ -328,34 +264,10 @@ export const buildHwpPayload = (
     }
     // 옵션 B: 네이티브 블록 있으면 그대로 전달 → 커넥터가 markdown 재분해 없이
     // testchange 파이프라인(parse_ocr_response→build_document→writer)으로 변환.
-    if (Array.isArray(p.blocks) && p.blocks.length > 0) {
-      // D8: 그림 신호를 "※ 그림 자리" 노트 블록으로 치환 (raw svg 누출 차단).
-      wire.contents = figuresToWireBlocks(p.blocks, problemHasDiagram(p));
-      if (Array.isArray(p.choiceGroups) && p.choiceGroups.length > 0) {
-        wire.choices = p.choiceGroups;
-      }
-      // D3: 소문항 — 각 sub contents 도 그림 신호를 노트로 변환해 전달.
-      if (Array.isArray(p.subQuestions) && p.subQuestions.length > 0) {
-        wire.subQuestions = p.subQuestions.map((s) => ({
-          number: s.number,
-          contents: figuresToWireBlocks(s.contents, false),
-          ...(Array.isArray(s.choices) && s.choices.length > 0
-            ? { choices: s.choices }
-            : {}),
-          ...(typeof s.score === "number" ? { score: s.printedScore ?? s.score } : {}),
-          ...(s.labelType ? { labelType: s.labelType } : {}),
-        }));
-      }
-      // 배점: score 우선, 없으면 points 폴백(변형 문항은 points 만 가짐 — 미리보기 points??3 와 일치).
-      const sc =
-        typeof p.score === "number"
-          ? p.score
-          : typeof p.points === "number"
-            ? p.points
-            : undefined;
-      if (typeof sc === "number") wire.score = p.printedScore ?? sc;
-      if (p.labelType) wire.labelType = p.labelType;
-    }
+    Object.assign(wire, problemFigureBlocks(p));
+    const score = p.score ?? p.points;
+    if (typeof score === 'number') wire.score = p.printedScore ?? score;
+    if (p.labelType) wire.labelType = p.labelType;
     return wire;
   }),
 });
@@ -397,7 +309,7 @@ export const convertToHwp = async (
     method: "POST",
     headers,
     body: JSON.stringify(payload),
-  });
+  }).catch(async () => { throw new HwpConnectorError(await connectorAccessMessage()); });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new HwpConnectorError(err.error || `HTTP ${res.status}`, res.status);
