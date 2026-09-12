@@ -567,14 +567,27 @@ export const DEEPSEEK_SOLUTION_SYSTEM = `당신은 한국 중·고등학교 수�
 문항을 실제로 풀고 검산하되, 출력에는 처음부터 정답까지 이어지는 최선의 풀이 하나만 쓴다.
 한국어 평서형 답지 문체를 사용하고 현재 학년 교육과정 밖의 풀이법은 쓰지 않는다.
 
+반드시 아래 구분자 형식 그대로 출력한다(JSON 금지, 코드펜스 금지, 다른 말 금지).
+LaTeX 백슬래시를 있는 그대로 쓸 수 있도록 일부러 JSON을 쓰지 않는다.
+
+###ANSWER###
+(정답)
+###SOLUTION###
+(해설 여러 줄)
+###TOPIC###
+(단원명)
+###DIFFICULTY###
+(상 또는 중 또는 하)
+###END###
+
 형식 규칙:
-- solution은 쉬운 문제 1~3줄, 보통 3~6줄, 어려운 문제도 10줄 이내로 쓴다.
+- solution은 실제 줄바꿈으로 구분하고 각 줄을 step1), step2)처럼 시작한다. 쉬운 문제 1~3줄, 보통 3~6줄, 어려운 문제도 10줄 이내로 쓴다.
 - 문제를 다시 적지 않고 검산·재시도·오답 인정·정답 대조·자가점검 문장을 노출하지 않는다.
 - 수식은 반드시 $...$ 안에 쓴다. raw HTML, data-katex 태그, 코드펜스, \\( ... \\), $$...$$를 쓰지 않는다.
 - LaTeX 명령은 한 번만 쓴다. \\left\\left, \\right\\right, \\dfrac, \\approx, ≈를 쓰지 않는다.
 - 수식 안에 한글을 넣지 않는다. 한국어는 $ 밖에 쓴다.
 - gcd/lcm/max/min 함수 표기는 쓰지 않고 최대공약수·최소공배수·큰 값·작은 값으로 풀어 쓴다.
-- 객관식 answer는 원문자와 값(예: ③ 5), 주관식 answer는 최종 값만 쓴다.
+- 객관식 answer는 원문자 하나만(예: ③), 주관식 answer는 최종 값만 쓴다.
 - 정보가 손상되어 답이 결정되지 않을 때만 answer를 ?로 쓴다. 추측하지 않는다.
 
 정확성 규칙:
@@ -590,7 +603,7 @@ export const buildDeepSeekSolutionPrompt = (
 ): string => {
   const gradeLabel = grade ? GRADE_LABELS[grade] : "해당";
   const topic = problem.topic?.trim() ? `\n[단원] ${problem.topic.trim()}` : "";
-  return `[학년] ${gradeLabel}${topic}\n[문제]\n${problem.text}\n\nJSON schema에 맞춰 solution과 answer만 출력하라.`;
+  return `다음은 ${gradeLabel} 수학 시험지 문항이다.${topic}\n\n--- 문항 시작 ---\n${problem.text}\n--- 문항 끝 ---\n\n이 문항을 풀어 정답·해설·단원·난이도를 위 구분자 형식 그대로 출력하라.\n(###ANSWER###부터 ###END###까지. JSON 금지, 코드펜스 금지.)`;
 };
 
 /**

@@ -124,6 +124,21 @@ interface RawSolutionResponse {
   _usage?: import("../../lib/pricing.js").NormalizedUsage;
 }
 
+const DEEPSEEK_SECTION_RE = /###\s*(ANSWER|SOLUTION|TOPIC|DIFFICULTY)\s*###\s*\n?([\s\S]*?)(?=###\s*(?:ANSWER|SOLUTION|TOPIC|DIFFICULTY|END)\s*###|$)/gi;
+
+/** testchange와 같은 delimiter 응답을 써서 JSON escape가 LaTeX를 훼손하지 않게 한다. */
+export const parseDeepSeekSolutionResponse = (raw: string): RawSolutionResponse => {
+  const text = stripCodeFences(raw).trim();
+  const sections: Record<string, string> = {};
+  for (const match of text.matchAll(DEEPSEEK_SECTION_RE)) {
+    sections[match[1].toLowerCase()] = match[2].trim();
+  }
+  if (!sections.answer || !sections.solution) {
+    throw new Error("DeepSeek 해설 응답에서 정답 또는 풀이 구분자를 찾지 못했습니다.");
+  }
+  return { answer: sections.answer, solution: sections.solution };
+};
+
 // `OCR_MODELS` already enumerates every known model id; we re-use it to
 // figure out provider dispatch without duplicating the list.
 const providerOf = (model: OCRModel): "anthropic" | "gemini" | "openai" | "deepseek" =>
@@ -454,9 +469,9 @@ const generateSolutionDirect = async (
     const result = await deepseekText(
       DEEPSEEK_SOLUTION_SYSTEM,
       buildDeepSeekSolutionPrompt(input.problem, input.grade),
-      { schema: SOLUTION_SCHEMA, signal: input.signal, maxTokens: 4096 },
+      { signal: input.signal, maxTokens: 4096 },
     );
-    parsed = parseJsonOrThrow<RawSolutionResponse>(result.text);
+    parsed = parseDeepSeekSolutionResponse(result.text);
     parsed._usage = result.usage;
   } else if (provider === "anthropic") {
     parsed = await callAnthropic(input, model as AnthropicModelId);
