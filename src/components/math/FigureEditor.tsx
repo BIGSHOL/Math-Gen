@@ -7,15 +7,16 @@ import { redrawFigureCrop, svgDataUrl } from "@app/services/ai/figurePipeline";
 import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, removeFigureObject, fitFigureViewport } from "@app/lib/figureSvgEditing";
 import { typesetFigureSvg } from "@app/lib/figureTypeset";
 import { figureHandles, hitFigureObject, moveFigureHandle } from "@app/lib/figureHandles";
-import { FigureLabelInput, figureLabelSummary } from "./FigureLabelInput";
+import { FigureLabelInput, figureLabelSummary, isFigureMathLabel } from "./FigureLabelInput";
 import { isTextInputEvent } from "@app/lib/keyboard";
 import { layoutFigureNumbers, type FigureNumber } from "@app/lib/figureObjectNumbers";
 
-type Tool = "select" | "pan" | "line" | "arrow" | "curve" | "circle" | "rect" | "text";
+type Tool = "select" | "pan" | "line" | "arrow" | "curve" | "circle" | "ellipse" | "rect" | "text";
 const TOOLS: { id: Tool; label: string; glyph: string }[] = [
   { id: "select", label: "선택·이동", glyph: "↖" }, { id: "pan", label: "화면 이동", glyph: "✋" }, { id: "line", label: "선분", glyph: "╱" },
   { id: "arrow", label: "화살표", glyph: "↗" },
   { id: "curve", label: "곡선", glyph: "⌒" }, { id: "circle", label: "원", glyph: "○" },
+  { id: "ellipse", label: "타원", glyph: "⬭" },
   { id: "rect", label: "사각형", glyph: "□" }, { id: "text", label: "글자", glyph: "T" },
 ];
 const NAMES: Record<string, string> = { path: "곡선/경로", line: "선분", circle: "원", ellipse: "타원", rect: "사각형", polygon: "다각형", polyline: "꺾은선", text: "글자" };
@@ -29,6 +30,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [tool, setTool] = useState<Tool>("select");
   const [selected, setSelected] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [label, setLabel] = useState("A");
   const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const surface = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const spaceDown = useRef(false);
-  const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const liveSvg = useRef(svg);
   liveSvg.current = svg;
   const [available, setAvailable] = useState({ width: 560, height: 520 });
@@ -245,19 +247,19 @@ export function FigureEditor({ image, index, onSave, onClose }: {
         </div>
         <div className="px-3 py-2 flex items-center gap-2 text-caption bg-white border-b border-line">
           <button type="button" aria-label="도형 축소" onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span>
-          <button type="button" aria-label="도형 확대" onClick={() => setZoom(z => Math.min(3, z + 0.1))}>＋</button><button type="button" onClick={() => setZoom(1)}>맞춤</button>
+          <button type="button" aria-label="도형 확대" onClick={() => setZoom(z => Math.min(3, z + 0.1))}>＋</button><button type="button" onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); viewport.current?.scrollTo(0, 0); }}>맞춤</button>
           <button type="button" aria-pressed={showNumbers} onClick={() => setShowNumbers(value => !value)} className="ml-2 rounded border border-orange-200 px-2 py-1 text-orange-800 whitespace-nowrap">{showNumbers ? "번호 숨기기" : "번호 보이기"}</button>
           <span className="ml-auto text-muted">{tool === "select" ? "끌어서 이동 · 주황색 점으로 모양 조절 · Shift로 방향 고정" : tool === "pan" ? "드래그로 화면 이동 · Ctrl+휠로 확대/축소" : tool === "text" ? "우측에서 글자를 정한 뒤 캔버스를 클릭하세요" : "캔버스에서 드래그해 그리세요"}</span>
         </div>
         <div ref={viewport} className="flex-1 min-h-[180px] overflow-auto p-6" style={{ cursor: tool === "pan" ? "grab" : undefined }}
           onPointerDownCapture={e => { if ((tool === "pan" || spaceDown.current) && e.button === 0) {
-            const node = viewport.current!; pan.current = { x: e.clientX, y: e.clientY, left: node.scrollLeft, top: node.scrollTop };
+            const node = viewport.current!; pan.current = { x: e.clientX, y: e.clientY, offsetX: panOffset.x, offsetY: panOffset.y };
             node.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); surface.current?.focus({ preventScroll: true });
           } }}
-          onPointerMove={e => { if (pan.current) { const p = pan.current; viewport.current!.scrollTo(p.left - e.clientX + p.x, p.top - e.clientY + p.y); } }}
+          onPointerMove={e => { if (pan.current) { const p = pan.current; setPanOffset({ x: p.offsetX + e.clientX - p.x, y: p.offsetY + e.clientY - p.y }); } }}
           onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
           <div ref={surface} tabIndex={0} aria-label="도형 편집 캔버스" className="outline-none" onPointerMove={move} onPointerUp={up} onPointerCancel={() => { if (drag.current) { liveSvg.current = drag.current.original; setSvg(drag.current.original); } drag.current = null; }}
-            style={{ width: `${fittedWidth * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", touchAction: "none", background: "white", boxShadow: "0 1px 6px #0001" }}>
+            style={{ width: `${fittedWidth * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", transform: `translate(${panOffset.x}px, ${panOffset.y}px)`, touchAction: "none", background: "white", boxShadow: "0 1px 6px #0001" }}>
             <div id="figure-editor-canvas" ref={canvas} style={{ width: "100%", height: "100%", position: "relative", touchAction: "none", cursor: tool === "select" || tool === "pan" ? "grab" : "crosshair" }}
               onPointerDown={down} onDoubleClick={() => { if (current?.type === "text") { const input = document.querySelector<HTMLInputElement | HTMLElement>('[aria-label="선택한 도형 글자"], [aria-label="선택한 도형 글자 수식"]'); input?.focus(); if (input instanceof HTMLInputElement) input.select(); } }}
               dangerouslySetInnerHTML={{ __html: displaySvg }} />
@@ -268,7 +270,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
             </div>}
             {showNumbers && <svg aria-label="도형 요소 번호" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", margin: 0, overflow: "visible", pointerEvents: "none" }}>
               {objectNumbers.map(item => <g key={item.id}>
-                <line x1={item.x} y1={item.y} x2={item.targetX} y2={item.targetY} stroke={selected === item.id ? "#f97316" : "#94a3b8"} strokeWidth={selected === item.id ? 1.5 : 0.7} strokeDasharray="3 4" opacity={selected === item.id ? 0.85 : 0.35} />
+                <line x1={item.x} y1={item.y} x2={item.targetX} y2={item.targetY} stroke={selected === item.id ? "#f97316" : "#808080"} strokeWidth={selected === item.id ? 1.5 : 1} strokeDasharray="3 4" opacity={selected === item.id ? 0.85 : 1} />
                 <g data-figure-number={item.number} data-number-object={item.id} role="button" tabIndex={0} aria-label={`요소 ${item.number} 선택`}
                   style={{ pointerEvents: "all", cursor: "pointer" }} onClick={() => { setSelected(item.id); setTool("select"); }}
                   onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(item.id); setTool("select"); } }}>
@@ -302,7 +304,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
             onClick={() => { setSelected(o.id); setTool("select"); }}
             className={`flex items-center gap-1.5 rounded-md border py-1 pl-1 pr-2 text-caption ${selected === o.id ? "border-orange-300 bg-orange-50 text-orange-900" : "border-line bg-slate-50 hover:border-orange-200"}`}>
             <span className={`grid h-5 min-w-5 place-items-center rounded text-[11px] font-semibold ${selected === o.id ? "bg-orange-600 text-white" : "bg-white text-orange-800"}`}>{n + 1}</span>
-            <span className="max-w-28 truncate">{o.type === "text" ? `글자 ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : NAMES[o.type] ?? o.type}</span>
+            <span className="max-w-28 truncate">{o.type === "text" ? `${isFigureMathLabel(o.attrs["data-mj"] ?? o.text) ? "수식" : "글자"} ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : NAMES[o.type] ?? o.type}</span>
           </button>)}</div>
         </section>
       </main>

@@ -80,6 +80,7 @@ export function addFigureObject(svg: string, type: string, from: { x: number; y:
   }
   if (type === "rect") set({ x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), width: Math.max(1, Math.abs(to.x - from.x)), height: Math.max(1, Math.abs(to.y - from.y)) });
   if (type === "circle") set({ cx: from.x, cy: from.y, r: Math.max(1, Math.hypot(to.x - from.x, to.y - from.y)) });
+  if (type === "ellipse") set({ cx: from.x, cy: from.y, rx: Math.max(1, Math.abs(to.x - from.x)), ry: Math.max(1, Math.abs(to.y - from.y)) });
   if (type === "curve") set({ d: `M ${from.x} ${from.y} Q ${(from.x + to.x) / 2} ${Math.min(from.y, to.y) - Math.abs(to.x - from.x) / 2} ${to.x} ${to.y}` });
   if (type === "text") {
     set({ x: from.x, y: from.y, fill: "#111111", stroke: "none", "font-size": 18, "font-style": "normal", "font-family": "Times New Roman, serif", "data-mj": label });

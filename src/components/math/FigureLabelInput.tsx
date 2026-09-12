@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MathfieldElement, convertAsciiMathToLatex } from "mathlive";
+import { MathfieldElement, convertAsciiMathToLatex, convertLatexToAsciiMath } from "mathlive";
+import { attachCompactMathKeyboard } from "@app/lib/compactMathKeyboard";
 import "mathlive/fonts.css";
 
 MathfieldElement.fontsDirectory = null;
@@ -16,18 +17,21 @@ const MATH_TEMPLATES = [
   ["θ", "\\theta"],
 ] as const;
 
-const isMathLabel = (value: string) => {
+export const isFigureMathLabel = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length >= 2 && trimmed.startsWith("$") && trimmed.endsWith("$");
 };
 
 const unwrapMathLabel = (value: string) => {
   const trimmed = value.trim();
-  return isMathLabel(trimmed) ? trimmed.slice(1, -1) : trimmed;
+  return isFigureMathLabel(trimmed) ? trimmed.slice(1, -1) : trimmed;
 };
 
 export function figureLabelSummary(value: string) {
-  return unwrapMathLabel(value).replace(/\\mathrm\{([^{}]+)\}/g, "$1");
+  const plain = unwrapMathLabel(value);
+  if (!isFigureMathLabel(value)) return plain;
+  try { return convertLatexToAsciiMath(plain).replace(/\s+([()])/g, "$1"); }
+  catch { return plain.replace(/\\(?:left|right)\b/g, ""); }
 }
 
 export function FigureLabelInput({ value, onChange, idPrefix }: {
@@ -35,7 +39,7 @@ export function FigureLabelInput({ value, onChange, idPrefix }: {
   onChange: (value: string) => void;
   idPrefix: string;
 }) {
-  const [mode, setMode] = useState<LabelMode>(() => isMathLabel(value) ? "math" : "text");
+  const [mode, setMode] = useState<LabelMode>(() => isFigureMathLabel(value) ? "math" : "text");
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<MathfieldElement | null>(null);
   const latestOnChange = useRef(onChange);
@@ -45,7 +49,7 @@ export function FigureLabelInput({ value, onChange, idPrefix }: {
     if (mode !== "math" || !host.current) return;
     const mathField = new MathfieldElement();
     mathField.value = unwrapMathLabel(value);
-    mathField.mathVirtualKeyboardPolicy = "auto";
+    mathField.mathVirtualKeyboardPolicy = "manual";
     mathField.smartFence = true;
     mathField.setAttribute("aria-label", `${idPrefix} 수식`);
     mathField.setAttribute("placeholder", "예: v(t), x^2, 1/2");
@@ -53,7 +57,9 @@ export function FigureLabelInput({ value, onChange, idPrefix }: {
     mathField.addEventListener("input", input);
     host.current.replaceChildren(mathField);
     field.current = mathField;
+    const detachKeyboard = attachCompactMathKeyboard(mathField);
     return () => {
+      detachKeyboard();
       mathField.removeEventListener("input", input);
       if (field.current === mathField) field.current = null;
       try { window.mathVirtualKeyboard?.hide({ animate: false }); } catch { /* already detached */ }

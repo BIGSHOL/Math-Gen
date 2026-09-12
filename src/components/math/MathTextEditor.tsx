@@ -9,6 +9,7 @@ import "mathlive/fonts.css";
 import MarkdownRenderer, { type MarkdownRendererProps } from "./MarkdownRenderer";
 import { renderKatexSafe } from "@app/lib/katexRender";
 import { documentMarkdown, prepareVisualDocument } from "@app/lib/visualDocument";
+import { attachCompactMathKeyboard } from "@app/lib/compactMathKeyboard";
 
 MathfieldElement.fontsDirectory = null;
 MathfieldElement.soundsDirectory = null;
@@ -70,6 +71,7 @@ const createMathNode = (active: React.MutableRefObject<MathfieldElement | null>)
       return ({ node: firstNode, editor, getPos }) => {
         let node = firstNode;
         let field: MathfieldElement | null = null;
+        let detachKeyboard: (() => void) | null = null;
         let destroyed = false;
         const dom = document.createElement("span");
         dom.className = "visual-math";
@@ -87,6 +89,7 @@ const createMathNode = (active: React.MutableRefObject<MathfieldElement | null>)
         const close = (direction?: "forward" | "backward") => {
           if (!field || destroyed) return;
           if (active.current === field) active.current = null;
+          detachKeyboard?.(); detachKeyboard = null;
           hideMathLiveUi();
           field = null;
           paint();
@@ -104,6 +107,7 @@ const createMathNode = (active: React.MutableRefObject<MathfieldElement | null>)
           field.setAttribute("aria-label", "수식 입력");
           active.current = field;
           dom.replaceChildren(field);
+          detachKeyboard = attachCompactMathKeyboard(field);
           field.addEventListener("input", () => {
             const pos = getPos();
             if (typeof pos !== "number" || !field) return;
@@ -150,6 +154,7 @@ const createMathNode = (active: React.MutableRefObject<MathfieldElement | null>)
           },
           destroy: () => {
             destroyed = true;
+            detachKeyboard?.(); detachKeyboard = null;
             if (active.current === field) active.current = null;
             hideMathLiveUi();
           },

@@ -560,6 +560,26 @@ svg text {
   --selection-background-color: #ffedd5;
 }
 .figure-label-mathfield math-field:focus { outline: none; }
+.compact-math-help { display: block; margin-top: 4px; color: #64748b; font: 11px/1.5 sans-serif; white-space: normal; }
+.compact-math-keyboard {
+  position: fixed; z-index: 1200; padding: 8px; border: 1px solid #cbd5e1; border-radius: 10px;
+  background: #fff; color: #334155; box-shadow: 0 8px 24px #0f172a26; font: 12px/1.4 sans-serif;
+  box-sizing: border-box; max-height: calc(100vh - 24px); overflow-y: auto;
+}
+.compact-math-keyboard[hidden] { display: none; }
+.compact-math-keyboard button { border-radius: 5px; cursor: pointer; }
+.compact-math-keyboard button:focus-visible { outline: 2px solid #ea580c; outline-offset: 1px; }
+.compact-math-keyboard-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; }
+.compact-math-keyboard-heading button { padding: 2px 6px; color: #64748b; font-weight: 400; }
+.compact-math-keyboard-tabs { display: flex; gap: 4px; padding-bottom: 6px; }
+.compact-math-keyboard-tabs button { flex: 1; padding: 4px; background: #f1f5f9; }
+.compact-math-keyboard-tabs button[aria-pressed="true"] { color: #9a3412; background: #ffedd5; }
+.compact-math-keyboard-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.compact-math-keyboard-grid button { display: grid; place-items: center; height: 30px; border: 1px solid #e2e8f0; background: #fff; }
+.compact-math-keyboard-grid button:hover, .compact-math-keyboard-actions button:hover { background: #fff7ed; border-color: #fb923c; }
+.compact-math-keyboard-grid .katex { font-size: 1.1em; }
+.compact-math-keyboard-actions { display: flex; gap: 4px; margin-top: 6px; }
+.compact-math-keyboard-actions button { flex: 1; height: 28px; background: #f8fafc; border: 1px solid #e2e8f0; }
 .visual-figure {
   width: fit-content;
   max-width: 100%;
