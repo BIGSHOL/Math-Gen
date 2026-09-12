@@ -64,6 +64,14 @@ try {
  await page.evaluate(async()=>{await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
  await page.screenshot({path:'.checks.local/figure-editor-open.png'});
  assert(await page.$eval('#figure-editor-canvas',e=>Math.abs(e.getBoundingClientRect().width-e.querySelector('svg').getBoundingClientRect().width)<1),'Editor SVG fills its canvas without the document figure size cap');
+ const listPlacement=await page.$eval('[aria-label="도형 요소 목록"]',e=>{const panel=e.parentElement.getBoundingClientRect(),list=e.getBoundingClientRect();return{bottom:Math.abs(panel.bottom-list.bottom),topRatio:(list.top-panel.top)/panel.height};});
+ assert(listPlacement.bottom<2&&listPlacement.topRatio>.55,'Object list stays at the bottom below the detailed editor');
+ await page.evaluate(()=>[...document.querySelectorAll('label')].find(e=>e.textContent.includes('원본을 흐리게 겹쳐 보기')).querySelector('input').click());
+ await page.waitForSelector('[aria-label="겹쳐 보는 원본 크기"]');
+ await page.$eval('[aria-label="겹쳐 보는 원본 크기"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'0.65');e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.waitForFunction(()=>document.querySelector('[alt="원본 겹쳐 보기"]')?.dataset.sourceOverlayScale==='0.65');
+ assert(await page.$eval('[alt="원본 겹쳐 보기"]',e=>e.style.transform)==='scale(0.65)','Overlay source size changes immediately with the control below its toggle');
+ await page.screenshot({path:'.checks.local/figure-overlay-scale.png'});
  const n=await page.$$eval('#figure-editor-canvas [data-object-id]',els=>els.length);
  assert(n===3,'Editor exposes line and text objects from engine SVG');
  const dragHandle=async(key,dx,dy)=>{
@@ -87,6 +95,20 @@ try {
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('되돌리기')).click());
  assert(await page.$eval('#figure-editor-canvas text',e=>e.textContent)==='A','Undo restores the previous figure');
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('다시 실행')).click());
+ await page.click('#figure-editor-canvas text');
+ await page.waitForSelector('[aria-label="선택한 도형 글자"]');
+ assert(await page.$eval('[aria-label="선택한 도형 글자"]',e=>e.getBoundingClientRect().x)>await page.$eval('#figure-editor-canvas',e=>e.getBoundingClientRect().right),'Detailed label input is placed to the right of the canvas');
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="선택한 도형 글자 종류"] button')].find(b=>b.textContent.trim()==='수식').click());
+ await page.waitForSelector('math-field[aria-label="선택한 도형 글자 수식"]');
+ await page.$eval('math-field[aria-label="선택한 도형 글자 수식"]',e=>{e.value='v(t)';e.dispatchEvent(new Event('input',{bubbles:true}));});
+ await page.waitForFunction(()=>{const e=document.querySelector('#figure-editor-canvas text');return e?.textContent==='v(t)'&&e.getAttribute('data-mj')==='$v(t)$';});
+ assert(await page.$eval('math-field[aria-label="선택한 도형 글자 수식"]',e=>e.value)==='v(t)','Figure math labels are edited visually without dollar-sign delimiters');
+ assert(await page.$eval('#figure-editor-canvas text',e=>e.textContent)==='v(t)','Canvas never flashes raw math delimiters while a label is being typeset');
+ await page.screenshot({path:'.checks.local/figure-label-math.png'});
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="선택한 도형 글자 종류"] button')].find(b=>b.textContent.trim()==='일반 글자').click());
+ await page.waitForSelector('[aria-label="선택한 도형 글자"]');
+ await page.$eval('[aria-label="선택한 도형 글자"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Z');e.dispatchEvent(new Event('input',{bubbles:true}));});
+ await page.waitForFunction(()=>document.querySelector('#figure-editor-canvas text')?.textContent==='Z');
  await page.evaluate(()=>[...document.querySelectorAll('[aria-label="도형 편집 도구"] button')].find(b=>b.textContent.trim()==='○원').click());
  const surface=await page.$('#figure-editor-canvas');const area=await surface.boundingBox();
  await page.mouse.move(area.x+350,area.y+250);await page.mouse.down();await page.mouse.move(area.x+395,area.y+295,{steps:4});await page.mouse.up();

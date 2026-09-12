@@ -740,6 +740,33 @@ export const extractHangulFromMath = (content: string): string => {
   return out;
 };
 
+/**
+ * 모델이 display directive/여는 `$$` 뒤에 한글 설명을 쓰고, 실제 식만 다시
+ * `$...$`로 감싼 혼합 delimiter를 복구한다.
+ *
+ * 보고 입력: `\displaystyle $$이동 거리= $x(b)-x(a)=8.$`
+ * 복구 결과: `이동 거리= $x(b)-x(a)=8.$`
+ *
+ * 뒤에 완결된 inline `$...$`가 있을 때만 고치므로 정상 `$$...$$` 블록은
+ * 건드리지 않는다. sanitize 이전 원문과 이미 저장된 원문 모두 처리한다.
+ */
+export const repairProsePrefixedInlineMath = (content: string): string => {
+  const hasInlineLater =
+    "(?=[^\\n]*?(?<!\\$)\\$(?!\\$)[^\\n$]+(?<!\\$)\\$(?!\\$))";
+  const hangulNext = "(?=[ \\t]*[가-힣ㄱ-ㅎㅏ-ㅣ])";
+  const directiveThenDisplay = new RegExp(
+    `\\\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\\b[ \\t]*\\$\\$${hangulNext}${hasInlineLater}`,
+    "g",
+  );
+  const lineStartDisplay = new RegExp(
+    `(^|\\n)([ \\t]*)\\$\\$${hangulNext}${hasInlineLater}`,
+    "g",
+  );
+  return content
+    .replace(directiveThenDisplay, "")
+    .replace(lineStartDisplay, "$1$2");
+};
+
 /* ───────────────────────────────────────────────────────────────────────────
  * `<조건>` / `<보기>` 평문 블록 → blockquote 박스 (사용자 보고 2026-06-04).
  *
@@ -832,7 +859,7 @@ export const LATEX_WRAP_TRIGGER_SOURCE =
  *     해서 괄호 높이가 내용에 맞게 늘어난다.
  */
 export const preprocessMathText = (content: string): string => {
-  let out = content
+  let out = repairProsePrefixedInlineMath(content)
     .replace(/\\\(([\s\S]*?)\\\)/g, (_m, p1) => `$${p1}$`)
     .replace(/\\\[([\s\S]*?)\\\]/g, (_m, p1) => `$$${p1}$$`);
 

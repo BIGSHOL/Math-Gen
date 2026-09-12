@@ -7,6 +7,7 @@ import { redrawFigureCrop, svgDataUrl } from "@app/services/ai/figurePipeline";
 import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, removeFigureObject, fitFigureViewport } from "@app/lib/figureSvgEditing";
 import { typesetFigureSvg } from "@app/lib/figureTypeset";
 import { figureHandles, hitFigureObject, moveFigureHandle } from "@app/lib/figureHandles";
+import { FigureLabelInput, figureLabelSummary } from "./FigureLabelInput";
 
 type Tool = "select" | "pan" | "line" | "arrow" | "curve" | "circle" | "rect" | "text";
 const TOOLS: { id: Tool; label: string; glyph: string }[] = [
@@ -31,6 +32,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sourceOverlay, setSourceOverlay] = useState(false);
+  const [sourceOverlayScale, setSourceOverlayScale] = useState(1);
   const [history, setHistory] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
   const canvas = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
@@ -210,11 +212,20 @@ export function FigureEditor({ image, index, onSave, onClose }: {
         <Btn kind="accent" icon="arrow-clockwise" onClick={regenerate} disabled={busy || !original} className="mt-2 w-full">{busy ? "처리 중…" : "원본으로 다시 그리기"}</Btn>
         {error && <p role="alert" className="mt-2 text-small text-warnInk">{error}</p>}
         <p className="text-caption text-muted mt-3">다시 그리기는 현재 편집본을 바꿉니다. 되돌리기로 이전 결과를 복원할 수 있습니다.</p>
-        <label className="flex gap-2 mt-4 text-small"><input type="checkbox" checked={sourceOverlay} onChange={e => setSourceOverlay(e.target.checked)} disabled={!original} />원본을 흐리게 겹쳐 보기</label>
+        <label className="flex items-center gap-2 mt-4 text-small"><input type="checkbox" checked={sourceOverlay} onChange={e => setSourceOverlay(e.target.checked)} disabled={!original} />원본을 흐리게 겹쳐 보기</label>
+        {sourceOverlay && original && <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50/70 p-3">
+          <label className="block text-caption font-medium text-orange-900">
+            <span className="flex items-center justify-between"><span>원본 크기</span><output>{Math.round(sourceOverlayScale * 100)}%</output></span>
+            <input type="range" min={0.3} max={1.8} step={0.05} value={sourceOverlayScale} aria-label="겹쳐 보는 원본 크기"
+              onChange={e => setSourceOverlayScale(Number(e.target.value))} className="mt-2 w-full accent-orange-600" />
+          </label>
+          <div className="mt-1 flex justify-between text-[11px] text-orange-700"><span>작게</span>
+            <button type="button" onClick={() => setSourceOverlayScale(1)} className="rounded px-1.5 py-0.5 hover:bg-orange-100">100%로 복원</button><span>크게</span></div>
+        </div>}
       </aside>
       <main className="flex-1 min-w-0 flex flex-col bg-slate-100">
         <div className="flex flex-wrap gap-1 p-2 border-b border-line bg-white" role="toolbar" aria-label="도형 편집 도구">
-          {TOOLS.map(t => <button type="button" key={t.id} aria-pressed={tool === t.id} onClick={() => setTool(t.id)} disabled={busy}
+          {TOOLS.map(t => <button type="button" key={t.id} aria-pressed={tool === t.id} onClick={() => { setTool(t.id); if (t.id !== "select" && t.id !== "pan") setSelected(null); }} disabled={busy}
             className={`px-2 py-1.5 text-caption rounded ${tool === t.id ? "bg-orange-100 text-orange-800 ring-1 ring-orange-300" : "hover:bg-surface2"}`}><span className="text-base mr-1">{t.glyph}</span>{t.label}</button>)}
           <button type="button" onClick={remove} disabled={!selected || busy} className="px-2 text-caption disabled:opacity-40">삭제</button>
           <span className="mx-1 border-l border-line" />
@@ -224,8 +235,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
         <div className="px-3 py-2 flex items-center gap-2 text-caption bg-white border-b border-line">
           <button type="button" aria-label="도형 축소" onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span>
           <button type="button" aria-label="도형 확대" onClick={() => setZoom(z => Math.min(3, z + 0.1))}>＋</button><button type="button" onClick={() => setZoom(1)}>맞춤</button>
-          {tool === "text" ? <label className="ml-3">넣을 글자 <input value={label} aria-label="추가할 도형 글자" onChange={e => setLabel(e.target.value)} className="w-28 border border-line rounded px-2 py-1" /></label>
-            : <span className="ml-auto text-muted">{tool === "select" ? "끌어서 이동 · 주황색 점으로 모양 조절 · Shift로 방향 고정" : tool === "pan" ? "드래그로 화면 이동 · Ctrl+휠로 확대/축소" : "캔버스에서 드래그해 그리세요"}</span>}
+          <span className="ml-auto text-muted">{tool === "select" ? "끌어서 이동 · 주황색 점으로 모양 조절 · Shift로 방향 고정" : tool === "pan" ? "드래그로 화면 이동 · Ctrl+휠로 확대/축소" : tool === "text" ? "우측에서 글자를 정한 뒤 캔버스를 클릭하세요" : "캔버스에서 드래그해 그리세요"}</span>
         </div>
         <div ref={viewport} className="flex-1 min-h-0 overflow-auto p-6" style={{ cursor: tool === "pan" ? "grab" : undefined }}
           onPointerDownCapture={e => { if ((tool === "pan" || spaceDown.current) && e.button === 0) {
@@ -237,9 +247,13 @@ export function FigureEditor({ image, index, onSave, onClose }: {
           <div ref={surface} tabIndex={0} aria-label="도형 편집 캔버스" className="outline-none" onPointerMove={move} onPointerUp={up} onPointerCancel={() => { if (drag.current) { liveSvg.current = drag.current.original; setSvg(drag.current.original); } drag.current = null; }}
             style={{ width: `${fittedWidth * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", touchAction: "none", background: "white", boxShadow: "0 1px 6px #0001" }}>
             <div id="figure-editor-canvas" ref={canvas} style={{ width: "100%", height: "100%", position: "relative", touchAction: "none", cursor: tool === "select" || tool === "pan" ? "grab" : "crosshair" }}
-              onPointerDown={down} onDoubleClick={() => { if (current?.type === "text") { const input = document.querySelector<HTMLInputElement>('[aria-label="선택한 도형 글자"]'); input?.focus(); input?.select(); } }}
+              onPointerDown={down} onDoubleClick={() => { if (current?.type === "text") { const input = document.querySelector<HTMLInputElement | HTMLElement>('[aria-label="선택한 도형 글자"], [aria-label="선택한 도형 글자 수식"]'); input?.focus(); if (input instanceof HTMLInputElement) input.select(); } }}
               dangerouslySetInnerHTML={{ __html: displaySvg }} />
-            {sourceOverlay && original && <img src={original} alt="원본 겹쳐 보기" className="absolute inset-0 w-full h-full object-contain opacity-25 pointer-events-none" />}
+            {sourceOverlay && original && <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <img src={original} alt="원본 겹쳐 보기" data-source-overlay-scale={sourceOverlayScale}
+                className="h-full w-full object-contain opacity-25 transition-transform duration-150"
+                style={{ transform: `scale(${sourceOverlayScale})`, transformOrigin: "center center" }} />
+            </div>}
             {selection && selected && tool === "select" && (() => {
               const at = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(selection.matrix);
               const b = selection.bounds;
@@ -260,11 +274,13 @@ export function FigureEditor({ image, index, onSave, onClose }: {
           </div>
         </div>
       </main>
-      <aside className="w-[220px] shrink-0 p-4 border-l border-line overflow-auto">
-        <h3 className="text-small font-semibold mb-3">{current ? `${NAMES[current.type] ?? current.type} 속성` : "속성"}</h3>
+      <aside className="w-[300px] shrink-0 border-l border-line bg-white flex flex-col overflow-hidden">
+        <section className="flex-1 min-h-0 overflow-y-auto p-4">
+        <h3 className="text-small font-semibold mb-1">{current ? `${NAMES[current.type] ?? current.type} 편집` : tool === "text" ? "새 글자" : "상세 편집"}</h3>
+        <p className="mb-3 text-caption text-muted">{current ? "선택한 요소의 모양과 표시를 바꿉니다." : tool === "text" ? "내용을 정한 다음 그림에서 놓을 위치를 클릭하세요." : "그림에서 수정할 요소를 선택하세요."}</p>
         {current ? <div className="space-y-3 text-caption">
           <p className="rounded bg-orange-50 p-2 leading-relaxed text-orange-800">{current.type === "text" ? "글자를 끌어서 옮기세요. 더블클릭하면 내용을 바꿀 수 있습니다." : "주황색 조절점을 끌어 모양을 바꾸세요. 선이나 테두리를 끌면 통째로 이동합니다."}</p>
-          {current.type === "text" && <label className="block">글자<input aria-label="선택한 도형 글자" className="w-full mt-1 border border-line rounded px-2 py-1" value={current.text} onChange={e => change({}, e.target.value)} /></label>}
+          {current.type === "text" && <div><span className="mb-1.5 block font-medium">글자 내용</span><FigureLabelInput key={current.id} idPrefix="선택한 도형 글자" value={current.attrs["data-mj"] ?? current.text} onChange={value => change({}, value)} /></div>}
           {current.type === "text" && <div className="flex gap-2">
             <button type="button" className="border border-line rounded px-2 py-1" onClick={() => change({ "font-style": current.attrs["font-style"] === "italic" ? "normal" : "italic" })}>기울임</button>
             <button type="button" className="border border-line rounded px-2 py-1 font-bold" onClick={() => change({ "font-weight": current.attrs["font-weight"] === "bold" ? "normal" : "bold" })}>굵게</button>
@@ -287,12 +303,16 @@ export function FigureEditor({ image, index, onSave, onClose }: {
             change({ d: `M ${points[0]} ${points[1]} Q ${points[2]} ${points[3]} ${points[4]} ${points[5]}` });
           }} /></label>)}</div>}
           </details>
-        </div> : <p className="text-caption text-muted">그림의 요소나 아래 목록을 선택하세요.</p>}
-        <h3 className="mt-5 pt-3 border-t border-line text-small font-semibold">요소 목록 ({objects.length})</h3>
+        </div> : tool === "text" ? <FigureLabelInput idPrefix="추가할 도형 글자" value={label} onChange={setLabel} />
+          : <div className="rounded-lg border border-dashed border-line p-4 text-center text-caption leading-relaxed text-muted">캔버스의 선, 곡선, 글자를 클릭하면<br />여기에 편집 항목이 나타납니다.</div>}
+        </section>
+        <section className="shrink-0 max-h-[38%] min-h-[150px] overflow-y-auto border-t border-line bg-slate-50 p-3" aria-label="도형 요소 목록">
+        <div className="flex items-center justify-between"><h3 className="text-small font-semibold">요소 목록</h3><span className="rounded-full bg-white px-2 py-0.5 text-caption text-muted ring-1 ring-line">{objects.length}</span></div>
         <div className="mt-2 space-y-1">{objects.map((o, n) => <button type="button" key={o.id} onClick={() => { setSelected(o.id); setTool("select"); }}
           className={`block w-full text-left text-caption px-2 py-1.5 rounded truncate ${selected === o.id ? "bg-orange-100 text-orange-800" : "hover:bg-surface2"}`}>
-          {o.type === "text" ? `글자 ${o.text}` : `${NAMES[o.type] ?? o.type} ${n + 1}`}
+          {o.type === "text" ? `글자 ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : `${NAMES[o.type] ?? o.type} ${n + 1}`}
         </button>)}</div>
+        </section>
       </aside>
     </div>
   </ModalShell>, document.body);

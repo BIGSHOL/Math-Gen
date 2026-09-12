@@ -8,7 +8,11 @@
  * SECURITY NOTE: this module only handles "broken icon" prevention. Full
  * XSS-safe SVG sanitization (DOMPurify) lands in Phase 5 — see the plan.
  */
-import { cleanMalformedLatex, LATEX_WRAP_TRIGGER_SOURCE } from "../../lib/textPreprocess.js";
+import {
+  cleanMalformedLatex,
+  LATEX_WRAP_TRIGGER_SOURCE,
+  repairProsePrefixedInlineMath,
+} from "../../lib/textPreprocess.js";
 
 const IMG_TAG_RE = /<img[^>]*>/gi;
 const MD_IMG_RE = /!\[.*?\]\(.*?\)/g;
@@ -539,6 +543,7 @@ const stripModelSelfNotes = (text: string): string => {
 
 export const sanitizeText = (text: string | undefined): string => {
   if (!text) return text ?? "";
+  text = repairProsePrefixedInlineMath(text);
   // 렌더러 내부 placeholder가 모델 응답/저장본에 섞인 경우 빈 태그를 제거한다.
   // 이 문자열은 사용자 콘텐츠가 아니며 화면에 보이면 즉시 렌더 파손이다.
   text = text

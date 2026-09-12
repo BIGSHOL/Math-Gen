@@ -7,6 +7,10 @@ const parse = (svg: string) => {
   return doc;
 };
 export const serializeFigureSvg = (doc: Document) => new XMLSerializer().serializeToString(doc.documentElement);
+const visibleFigureLabel = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed.length >= 2 && trimmed.startsWith("$") && trimmed.endsWith("$") ? trimmed.slice(1, -1) : value;
+};
 
 export function prepareFigureSvg(source?: string) {
   const doc = parse(source || `<svg xmlns="${SVG_NS}" viewBox="0 0 480 360" width="480" height="360"></svg>`);
@@ -49,7 +53,7 @@ export function editFigureObject(svg: string, id: string, attrs: Record<string, 
     const styled = el as SVGElement;
     if (styled.style.getPropertyValue(key)) value === "" ? styled.style.removeProperty(key) : styled.style.setProperty(key, value);
   }
-  if (text !== undefined && el.localName === "text") { el.textContent = text; el.setAttribute("data-mj", text); }
+  if (text !== undefined && el.localName === "text") { el.textContent = visibleFigureLabel(text); el.setAttribute("data-mj", text); }
   return serializeFigureSvg(doc);
 }
 
@@ -77,7 +81,10 @@ export function addFigureObject(svg: string, type: string, from: { x: number; y:
   if (type === "rect") set({ x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), width: Math.max(1, Math.abs(to.x - from.x)), height: Math.max(1, Math.abs(to.y - from.y)) });
   if (type === "circle") set({ cx: from.x, cy: from.y, r: Math.max(1, Math.hypot(to.x - from.x, to.y - from.y)) });
   if (type === "curve") set({ d: `M ${from.x} ${from.y} Q ${(from.x + to.x) / 2} ${Math.min(from.y, to.y) - Math.abs(to.x - from.x) / 2} ${to.x} ${to.y}` });
-  if (type === "text") { set({ x: from.x, y: from.y, fill: "#111111", stroke: "none", "font-size": 18, "font-style": "normal", "font-family": "Times New Roman, serif" }); el.textContent = label; }
+  if (type === "text") {
+    set({ x: from.x, y: from.y, fill: "#111111", stroke: "none", "font-size": 18, "font-style": "normal", "font-family": "Times New Roman, serif", "data-mj": label });
+    el.textContent = visibleFigureLabel(label);
+  }
   doc.documentElement.append(el);
   return { svg: serializeFigureSvg(doc), id };
 }

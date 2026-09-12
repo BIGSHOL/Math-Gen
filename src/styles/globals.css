@@ -550,6 +550,16 @@ svg text {
   --caret-color: #ea580c;
   --selection-background-color: #ffedd5;
 }
+.figure-label-mathfield math-field {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  font-size: 1.08rem;
+  --caret-color: #ea580c;
+  --selection-background-color: #ffedd5;
+}
+.figure-label-mathfield math-field:focus { outline: none; }
 .visual-figure {
   width: fit-content;
   max-width: 100%;

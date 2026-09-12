@@ -43,7 +43,7 @@ const renderKatexHtml = (tex: string, displayMode: boolean): { error: boolean } 
 };
 
 /** MarkdownRenderer.prerenderAllKatex 복제 (block `$$` 먼저, inline `$` 다음). */
-const scan = (text: string): { katexErrors: string[]; leftoverDollar: number } => {
+const scan = (text: string): { katexErrors: string[]; leftoverDollar: number; rawDirective: boolean } => {
   const katexErrors: string[] = [];
   let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex: string) => {
     if (renderKatexHtml(tex.trim(), true).error) katexErrors.push(`block: ${tex.trim()}`);
@@ -53,7 +53,11 @@ const scan = (text: string): { katexErrors: string[]; leftoverDollar: number } =
     if (renderKatexHtml(tex, false).error) katexErrors.push(`inline: ${tex}`);
     return "";
   });
-  return { katexErrors, leftoverDollar: (out.match(/\$/g) || []).length };
+  return {
+    katexErrors,
+    leftoverDollar: (out.match(/\$/g) || []).length,
+    rawDirective: /\\(?:displaystyle|textstyle|scriptstyle|scriptscriptstyle)\b/.test(out),
+  };
 };
 
 interface Case {
@@ -90,6 +94,10 @@ const CASES: Case[] = [
   { name: "\\Bigg\\left + \\Bigg\\right", input: "$\\Bigg\\left[ \\frac{1}{2} \\Bigg\\right]$" },
   { name: "raw line: only \\tfrac (no $)", input: "\\tfrac{1}{2} = \\tfrac{2}{4} 이므로" },
   { name: "raw line: \\cfrac (no $)", input: "\\cfrac{1}{2+\\cfrac{1}{3}} 형태" },
+  {
+    name: "directive + $$한글 + inline $ 혼합 (reported 2026-09-12)",
+    input: "\\displaystyle $$이동 거리= $x(b)-x(a)=-4-(-12)=8.$",
+  },
   // autoSizeBrackets 이중 wrap 회귀 — 모델이 이미 \left( 로 감싼 경우 \left\left 금지.
   { name: "model already \\left( \\frac \\right)", input: "$\\left( \\frac{1}{2} \\right)$" },
   // ── 정상 케이스 (회귀 — 깨지면 안 됨) ──
@@ -103,8 +111,8 @@ const CASES: Case[] = [
 let failed = 0;
 for (const c of CASES) {
   const pre = preprocessMathText(c.input);
-  const { katexErrors, leftoverDollar } = scan(pre);
-  const ok = katexErrors.length === 0 && leftoverDollar === 0;
+  const { katexErrors, leftoverDollar, rawDirective } = scan(pre);
+  const ok = katexErrors.length === 0 && leftoverDollar === 0 && !rawDirective;
   if (ok) {
     console.log(`  PASS  ${c.name}`);
   } else {
@@ -114,6 +122,7 @@ for (const c of CASES) {
     console.log(`        preprocessed: ${JSON.stringify(pre)}`);
     if (katexErrors.length) console.log(`        katex errors: ${JSON.stringify(katexErrors)}`);
     if (leftoverDollar) console.log(`        leftover $: ${leftoverDollar}`);
+    if (rawDirective) console.log("        raw directive leaked outside math");
   }
 }
 
