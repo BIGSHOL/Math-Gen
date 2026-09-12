@@ -206,12 +206,12 @@ class ExpressionParser {
       return value;
     }
     if (token.kind === "identifier") {
-      if (this.peek().kind === "leftParen") {
-        return this.parseFunctionCall(token.value);
-      }
       if (token.value === "x") return this.x;
       if (token.value === "pi" || token.value === "PI") return Math.PI;
       if (token.value === "e" || token.value === "E") return Math.E;
+      if (this.peek().kind === "leftParen") {
+        return this.parseFunctionCall(token.value);
+      }
     }
     throw new Error("Expected value");
   }

@@ -91,7 +91,7 @@ const SCORE_TAG_ONE = /\[\s*(\d+(?:\.\d+)?)\s*점\s*\]/;
  * 없으면 본문에서 추출)를 발문 끝에 1회 삽입. *소문항((1)(2)) 줄의 배점은 보존*(그 줄부터 본문
  * 영역 밖). 점수 없으면 제거만(추가 X). HWP 출력(6 템플릿 발문 끝 통일)과 일치.
  */
-export const repositionScore = (question: string, scoreField?: number | string): string => {
+export const repositionScore = (question: string, scoreField?: number | string, visible = true): string => {
   if (!question) return question;
   const lines = question.split("\n");
   let bodyEnd = lines.findIndex((l) => CHOICE_OR_SUB_LINE.test(l));
@@ -105,10 +105,17 @@ export const repositionScore = (question: string, scoreField?: number | string):
   const score =
     scoreField != null && /^\d+(?:\.\d+)?$/.test(String(scoreField).trim()) && Number(scoreField) > 0 ? String(scoreField).trim() : extracted;
   const body = lines.join("\n");
+  if (!visible) return body.replace(/\[\s*\d+(?:\.\d+)?\s*점\s*\]/g, "");
   if (!score || !(Number(score) > 0)) return body;
   const tag = ` [${score}점]`;
-  const fb = body.indexOf("\n\n");
-  return fb >= 0 ? body.slice(0, fb).trimEnd() + tag + body.slice(fb) : body.trimEnd() + tag;
+  // 그림/보기 박스 내부를 공백으로 가린 뒤 마지막 발문 위치를 찾는다.
+  // 빈 줄 유무와 무관하며 SVG의 좌표·라벨이나 소문항 배점에 끼어들지 않는다.
+  const main = lines.slice(0, bodyEnd).join("\n");
+  const masked = main.replace(/<svg\b[\s\S]*?<\/svg>|<table\b[\s\S]*?<\/table>|<blockquote\b[\s\S]*?<\/blockquote>|\[그림\s*\d+\]|!\[[^\]]*\]\([^\n]*?\)|^\s*>[^\n]*|^\s*\|[^\n]*/gim,
+    value => value.replace(/[^\n]/g, " "));
+  const end = masked.trimEnd().length;
+  if (!end) return tag.trimStart() + "\n\n" + body.trimStart();
+  return body.slice(0, end).trimEnd() + tag + body.slice(end);
 };
 
 /**

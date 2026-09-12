@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // JaseupTemplate.tsx (T5) — 자습 학습지 (개념박스 + 모눈 풀이공간)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color
 // + MarkdownRenderer 실제 import.
@@ -142,7 +143,7 @@ export function JaseupTemplate({
         width: A4_DIM.width,
         height: A4_DIM.height,
         background: PAPER_COLORS.paperWarm,
-        padding: "36px 50px 20px",
+        padding: printPagePadding(options.marginPreset),
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",

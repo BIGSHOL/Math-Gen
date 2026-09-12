@@ -188,9 +188,7 @@ export const PrintOptionsPanel = ({
             <Icon name="info" size={13} weight="duotone" color="#F59E0B" className="mt-px shrink-0" />
             <span>
               <strong>미리보기·PDF·인쇄</strong>는 아래 설정이 모두 그대로 출력됩니다.{" "}
-              <strong>HWP 내보내기</strong>도 템플릿·폰트·강조색·단 나눔·여백·세로 간격·단원명·
-              정답해설까지 반영되며, <strong>날짜·난이도 라벨만 미리보기 전용</strong>입니다.
-              (2단 HWP 는 헤더가 간단 머릿말로 표시)
+              <strong>HWPX 내보내기</strong>도 같은 미리보기의 페이지·헤더·문항 배치를 사용합니다.
             </span>
           </p>
         </div>
@@ -460,7 +458,7 @@ export const PrintOptionsPanel = ({
         </Section>
 
         {/* 4.5 쪽 여백 — HWP 내보내기 시 적용(미리보기는 자체 여백). 좁게/보통/넓게. */}
-        <Section title="쪽 여백" hint="HWP 출력">
+        <Section title="쪽 여백" hint="미리보기·내보내기">
           <Segmented<"narrow" | "normal" | "wide">
             value={printOptions.marginPreset}
             onChange={(v) => onChangePrintOptions({ marginPreset: v })}
@@ -469,7 +467,7 @@ export const PrintOptionsPanel = ({
             full
           />
           <p className="mt-1.5 text-caption text-muted leading-tight">
-            <Icon name="info" size={11} color="#9CA3AF" /> HWP 출력에 적용 — 좁게(좌우12·상하10) / 보통(15·12) / 넓게(22·18mm)
+            <Icon name="info" size={11} color="#9CA3AF" /> 미리보기와 내보내기에 함께 적용합니다.
           </p>
         </Section>
 

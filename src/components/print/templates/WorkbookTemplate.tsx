@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // WorkbookTemplate.tsx (T4) — 학원 워크북 (풀이공간 포함)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
@@ -122,7 +123,7 @@ export function WorkbookTemplate({
         width: A4_DIM.width,
         height: A4_DIM.height,
         background: PAPER_COLORS.paper,
-        padding: "32px 44px 20px",
+        padding: printPagePadding(options.marginPreset),
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",

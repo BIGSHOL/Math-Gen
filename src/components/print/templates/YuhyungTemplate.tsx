@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // YuhyungTemplate.tsx (T6) — 유형 훈련지 (같은 유형 반복, 컴팩트)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color.
 
@@ -72,7 +73,7 @@ export function YuhyungTemplate({
         width: A4_DIM.width,
         height: A4_DIM.height,
         background: PAPER_COLORS.paper,
-        padding: "28px 44px 16px",
+        padding: printPagePadding(options.marginPreset),
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",

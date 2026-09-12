@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // JeongtongTemplate.tsx (T2) — 정통 내신형 (학교 시험지 표 양식)
 // design_handoff 카피 + import path 조정 + ProblemBody import 교체.
 
@@ -94,7 +95,7 @@ export function JeongtongTemplate({
         width: A4_DIM.width,
         height: A4_DIM.height,
         background: PAPER_COLORS.paper,
-        padding: "40px 50px 24px",
+        padding: printPagePadding(options.marginPreset),
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",

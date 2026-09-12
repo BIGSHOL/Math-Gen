@@ -279,6 +279,7 @@ export const DetailScreen = () => {
           test={enrichedTest}
           onMakeVariant={() => handleResume(4)}
           onResume={() => handleResume()}
+          onExport={() => handleResume(6)}
           resumeStepLabel={resumeStepLabel}
           resuming={resuming}
           loading={detail.loading}

@@ -45,9 +45,17 @@ export const TEMPLATE_GEOMETRY: Record<PrintTemplate, TemplateGeometry> = {
  * 적용해야 측정==렌더가 성립. 2단은 BodyContainer 의 "1fr 1px 1fr" 그리드 기준
  * (1px rule 무시 — 오차 1px).
  */
-export function columnContentWidth(template: PrintTemplate, columns: 1 | 2): number {
+export const PRINT_MARGINS = {
+  narrow: { top: 10, bottom: 10, left: 12, right: 12 },
+  normal: { top: 12, bottom: 12, left: 15, right: 15 },
+  wide: { top: 18, bottom: 15, left: 22, right: 22 },
+};
+export function printPagePadding(preset: keyof typeof PRINT_MARGINS = "normal") {
+  const m = PRINT_MARGINS[preset]; return `${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm`;
+}
+export function columnContentWidth(template: PrintTemplate, columns: 1 | 2, marginPreset?: keyof typeof PRINT_MARGINS): number {
   const g = TEMPLATE_GEOMETRY[template];
-  const bodyWidth = A4_DIM.width - 2 * g.padX;
+  const bodyWidth = A4_DIM.width - (marginPreset ? (PRINT_MARGINS[marginPreset].left + PRINT_MARGINS[marginPreset].right) * 96 / 25.4 : 2 * g.padX);
   if (columns === 1) return bodyWidth;
   return (bodyWidth - g.columnGap) / 2;
 }

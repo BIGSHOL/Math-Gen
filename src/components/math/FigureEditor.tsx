@@ -4,12 +4,16 @@ import { ModalShell } from "@app/components/modal";
 import { Btn } from "@app/components/ui";
 import type { OCRImage } from "@app/stores/wizardStore";
 import { redrawFigureCrop, svgDataUrl } from "@app/services/ai/figurePipeline";
-import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, removeFigureObject, fitFigureViewport } from "@app/lib/figureSvgEditing";
+import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, fitFigureViewport } from "@app/lib/figureSvgEditing";
+import { copyFigureSelection, pasteFigureSelection, removeFigureSelection, transformFigureSelection, FIGURE_CLIPBOARD_TYPE } from "@app/lib/figureClipboard";
+import { modKey } from "@app/lib/platform";
 import { typesetFigureSvg } from "@app/lib/figureTypeset";
 import { figureHandles, hitFigureObject, moveFigureHandle } from "@app/lib/figureHandles";
 import { FigureLabelInput, figureLabelSummary, isFigureMathLabel } from "./FigureLabelInput";
 import { isTextInputEvent } from "@app/lib/keyboard";
 import { layoutFigureNumbers, type FigureNumber } from "@app/lib/figureObjectNumbers";
+import { FunctionGraphInput } from "./FunctionGraphInput";
+import type { FunctionGraphConfig } from "@app/lib/functionGraph";
 
 type Tool = "select" | "pan" | "line" | "arrow" | "curve" | "circle" | "ellipse" | "rect" | "text";
 const TOOLS: { id: Tool; label: string; glyph: string }[] = [
@@ -28,7 +32,12 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [svg, setSvg] = useState(() => prepareFigureSvg(image.engineSvg));
   const [displaySvg, setDisplaySvg] = useState(svg);
   const [tool, setTool] = useState<Tool>("select");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [addingFunction, setAddingFunction] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selected = selectedIds.length === 1 ? selectedIds[0] : null;
+  const setSelected = (id: string | null, additive = false) => setSelectedIds(previous => !id ? [] : additive ? previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id] : [id]);
+  const [clipboardNotice, setClipboardNotice] = useState("");
+  const pasteCount = useRef({ source: "", count: 0 });
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [label, setLabel] = useState("A");
@@ -51,11 +60,14 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [available, setAvailable] = useState({ width: 560, height: 520 });
   const [selection, setSelection] = useState<{ matrix: DOMMatrix; bounds: DOMRect; scale: number } | null>(null);
   const drag = useRef<{ original: string; start: DOMPoint; transform: string; id?: string; inverse: DOMMatrix;
+    multiple?: { id: string; start: DOMPoint; inverse: DOMMatrix; transform: string }[];
     handle?: string; bounds?: DOMRect; moved?: boolean } | null>(null);
   const original = image.originalDataUrl ?? (!image.dataUrl?.startsWith("data:image/svg") ? image.dataUrl : undefined);
   const objects = useMemo(() => figureObjects(svg), [svg]);
   const current = objects.find(o => o.id === selected);
-  const handles = useMemo(() => current ? figureHandles(current) : [], [current]);
+  const handles = useMemo(() => current && !current.attrs["data-function"] ? figureHandles(current) : [], [current]);
+  let currentFunction: FunctionGraphConfig | undefined;
+  try { currentFunction = current?.attrs["data-function"] ? JSON.parse(current.attrs["data-function"]) : undefined; } catch { /* Imported metadata may be invalid. */ }
   const curvePoints = current?.type === "path" && /^M[^A-Za-z]*Q[^A-Za-z]*$/i.test(current.attrs.d ?? "")
     ? current.attrs.d.match(/-?(?:\d*\.)?\d+/g)?.map(Number) : undefined;
   const viewBox = svg.match(/viewBox=["']([^"']+)/)?.[1].trim().split(/[\s,]+/).map(Number) ?? [0, 0, 480, 360];
@@ -75,7 +87,30 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     setHistory({ past: [...history.past, svg], future: history.future.slice(1) }); setSvg(next); setSelected(null);
   };
   const change = (attrs: Record<string, string>, text?: string) => { if (selected) commit(editFigureObject(svg, selected, attrs, text)); };
-  const remove = () => { if (selected) { commit(removeFigureObject(svg, selected)); setSelected(null); } };
+  const remove = () => { if (selectedIds.length) { commit(removeFigureSelection(svg, selectedIds)); setSelected(null); } };
+  const paste = (source: string, duplicate = false) => {
+    try {
+      const count = source === pasteCount.current.source ? pasteCount.current.count + 1 : 1;
+      const result = pasteFigureSelection(svg, source, duplicate ? 12 : 12 * count);
+      if (!result) return;
+      pasteCount.current = { source, count };
+      commit(result.svg); setSelectedIds(result.ids); setTool("select");
+      setClipboardNotice(`${result.ids.length}개 요소를 ${duplicate ? "복제" : "붙여넣기"}했습니다.`);
+    } catch { setClipboardNotice("붙여넣을 도형을 읽을 수 없습니다."); }
+  };
+  const nudge = (dx: number, dy: number) => {
+    const root = canvas.current?.querySelector("svg"), matrix = root?.getScreenCTM();
+    if (!root || !matrix) return;
+    const origin = new DOMPoint(0, 0).matrixTransform(matrix), delta = new DOMPoint(dx, dy).matrixTransform(matrix);
+    const updates = selectedIds.flatMap(id => {
+      const node = root.querySelector<SVGGraphicsElement>(`[data-object-id="${id}"]`);
+      const parent = (node?.parentElement as unknown as SVGGraphicsElement)?.getScreenCTM();
+      if (!node || !parent) return [];
+      const a = origin.matrixTransform(parent.inverse()), b = delta.matrixTransform(parent.inverse());
+      return [{ id, transform: `translate(${b.x - a.x} ${b.y - a.y}) ${node.getAttribute("transform") ?? ""}` }];
+    });
+    if (updates.length) commit(transformFigureSelection(svg, updates));
+  };
   useLayoutEffect(() => {
     const root = canvas.current?.querySelector("svg");
     setObjectNumbers(root && showNumbers ? layoutFigureNumbers(root) : []);
@@ -94,19 +129,40 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     return () => { node.removeEventListener("wheel", wheel); window.removeEventListener("keyup", release); window.removeEventListener("blur", release); };
   }, []);
   useEffect(() => {
+    const inEditor = (event: Event) => !isTextInputEvent(event) && !!surface.current?.closest('[role="dialog"]')?.contains(document.activeElement);
     const key = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || isTextInputEvent(e)) return;
-      // 요소 삭제/이동은 캔버스에 초점이 있을 때만. 속성 입력과 도구 버튼은 제외한다.
-      if (!surface.current?.contains(document.activeElement)) return;
-      if (busy) return;
-      if (e.code === "Space") { e.preventDefault(); spaceDown.current = true; }
+      if (e.defaultPrevented || !inEditor(e) || busy || drag.current) return;
+      const key = e.key.toLowerCase();
+      if (e.ctrlKey || e.metaKey) {
+        if (key === "z" || key === "y") { e.preventDefault(); key === "y" || e.shiftKey ? redo() : undo(); }
+        else if (key === "a") { e.preventDefault(); setSelectedIds(objects.map(o => o.id)); setTool("select"); }
+        else if (key === "d") { e.preventDefault(); const source = copyFigureSelection(svg, selectedIds); if (source) paste(source, true); }
+        // C/X/V는 브라우저의 clipboard 이벤트에서 처리해 OS 클립보드와 호환한다.
+        return;
+      }
+      if (e.key === "Escape" && (selectedIds.length || tool !== "select")) { e.preventDefault(); e.stopPropagation(); setSelected(null); setTool("select"); return; }
+      if (e.code === "Space" && surface.current?.contains(document.activeElement)) { e.preventDefault(); spaceDown.current = true; }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       const directions: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-      if (selected && directions[e.key]) { e.preventDefault(); const [x, y] = directions[e.key], step = e.shiftKey ? 10 : 1;
-        change({ transform: `translate(${x * step} ${y * step}) ${current?.attrs.transform ?? ""}` }); }
+      if (selectedIds.length && directions[e.key]) { e.preventDefault(); const [x, y] = directions[e.key], step = e.shiftKey ? 10 : 1; nudge(x * step, y * step); }
     };
-    window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
+    const copy = (event: ClipboardEvent) => {
+      if (!inEditor(event) || busy || drag.current || !event.clipboardData) return;
+      const source = copyFigureSelection(svg, selectedIds); if (!source) return;
+      event.preventDefault(); event.clipboardData.setData(FIGURE_CLIPBOARD_TYPE, source); event.clipboardData.setData("text/plain", source);
+      setClipboardNotice(`${selectedIds.length}개 요소를 ${event.type === "cut" ? "잘라냈" : "복사했"}습니다.`);
+      if (event.type === "cut") remove();
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      if (!inEditor(event) || busy || drag.current || !event.clipboardData) return;
+      const source = event.clipboardData.getData(FIGURE_CLIPBOARD_TYPE) || event.clipboardData.getData("image/svg+xml") || event.clipboardData.getData("text/plain");
+      event.preventDefault();
+      if (/^\s*<svg\b/i.test(source)) paste(source);
+      else setClipboardNotice("도형 요소를 복사한 뒤 붙여넣어 주세요.");
+    };
+    window.addEventListener("keydown", key, true);
+    document.addEventListener("copy", copy); document.addEventListener("cut", copy); document.addEventListener("paste", onPaste);
+    return () => { window.removeEventListener("keydown", key, true); document.removeEventListener("copy", copy); document.removeEventListener("cut", copy); document.removeEventListener("paste", onPaste); };
   });
   useLayoutEffect(() => {
     const root = canvas.current?.querySelector("svg");
@@ -133,9 +189,19 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     if (!matrix) return;
     const inverse = matrix.inverse(); const start = point(e, inverse);
     if (tool === "select") {
-      setSelected(target?.getAttribute("data-object-id") ?? null);
+      const id = target?.getAttribute("data-object-id");
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { setSelected(id ?? null, true); e.preventDefault(); return; }
+      if (!id || !selectedIds.includes(id)) setSelected(id ?? null);
       if (!target) return;
       drag.current = { original: svg, start, inverse, id: target.getAttribute("data-object-id")!, transform: target.getAttribute("transform") ?? "" };
+      if (id && selectedIds.includes(id) && selectedIds.length > 1) {
+        drag.current.multiple = selectedIds.flatMap(objectId => {
+          const node = root.querySelector<SVGGraphicsElement>(`[data-object-id="${objectId}"]`);
+          const parent = (node?.parentElement as unknown as SVGGraphicsElement)?.getScreenCTM();
+          if (!node || !parent) return [];
+          const inverse = parent.inverse(); return [{ id: objectId, inverse, start: point(e, inverse), transform: node.getAttribute("transform") ?? "" }];
+        });
+      }
     } else if (tool === "text") {
       const result = addFigureObject(svg, "text", start, start, label);
       commit(result.svg); setSelected(result.id); setTool("select"); return;
@@ -158,7 +224,11 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     if (Math.hypot(to.x - d.start.x, to.y - d.start.y) < 0.5 && !d.moved) return;
     d.moved = true;
     let next: string;
-    if (d.id && d.handle?.startsWith("resize-") && d.bounds) {
+    if (d.multiple) {
+      next = transformFigureSelection(d.original, d.multiple.map(item => {
+        const p = point(e, item.inverse); return { id: item.id, transform: `translate(${p.x - item.start.x} ${p.y - item.start.y}) ${item.transform}` };
+      }));
+    } else if (d.id && d.handle?.startsWith("resize-") && d.bounds) {
       const b = d.bounds, index = Number(d.handle.slice(-1));
       const opposite = [[b.x + b.width, b.y + b.height], [b.x, b.y + b.height], [b.x, b.y], [b.x + b.width, b.y]][index];
       let sx = Math.max(0.02, (to.x - opposite[0]) / (d.start.x - opposite[0] || 1));
@@ -238,12 +308,20 @@ export function FigureEditor({ image, index, onSave, onClose }: {
       </aside>}
       <main className="flex-1 min-w-0 flex flex-col overflow-y-auto bg-slate-100">
         <div className="flex flex-wrap gap-1 p-2 border-b border-line bg-white" role="toolbar" aria-label="도형 편집 도구">
-          {TOOLS.map(t => <button type="button" key={t.id} aria-pressed={tool === t.id} onClick={() => { setTool(t.id); if (t.id !== "select" && t.id !== "pan") setSelected(null); }} disabled={busy}
+          {TOOLS.map(t => <button type="button" key={t.id} aria-pressed={!addingFunction && tool === t.id} onClick={() => { setAddingFunction(false); setTool(t.id); if (t.id !== "select" && t.id !== "pan") setSelected(null); }} disabled={busy}
             className={`px-2 py-1.5 text-caption rounded ${tool === t.id ? "bg-orange-100 text-orange-800 ring-1 ring-orange-300" : "hover:bg-surface2"}`}><span className="text-base mr-1">{t.glyph}</span>{t.label}</button>)}
-          <button type="button" onClick={remove} disabled={!selected || busy} className="px-2 text-caption disabled:opacity-40">삭제</button>
+          <button type="button" aria-pressed={addingFunction} onClick={() => { setSelected(null); setTool("select"); setAddingFunction(true); }} disabled={busy} className="px-2 py-1.5 text-caption rounded hover:bg-orange-50">ƒ 함수</button>
+          <button type="button" title="Delete / Backspace" onClick={remove} disabled={!selectedIds.length || busy} className="px-2 text-caption disabled:opacity-40">삭제</button>
           <span className="mx-1 border-l border-line" />
-          <button type="button" onClick={undo} disabled={!history.past.length || busy} className="px-2 text-caption disabled:opacity-40">↶ 되돌리기</button>
-          <button type="button" onClick={redo} disabled={!history.future.length || busy} className="px-2 text-caption disabled:opacity-40">↷ 다시 실행</button>
+          <button type="button" title={`${modKey()}+Z`} onClick={undo} disabled={!history.past.length || busy} className="px-2 text-caption disabled:opacity-40">↶ 되돌리기</button>
+          <button type="button" title={`${modKey()}+Y / ${modKey()}+Shift+Z`} onClick={redo} disabled={!history.future.length || busy} className="px-2 text-caption disabled:opacity-40">↷ 다시 실행</button>
+          <details className="relative ml-auto text-caption"><summary className="cursor-pointer rounded px-2 py-1.5 hover:bg-slate-100">단축키</summary>
+            <div className="absolute right-0 top-full z-20 w-64 rounded-lg border border-line bg-white p-3 shadow-lg leading-6">
+              <div>{modKey()}+Z 되돌리기 · {modKey()}+Y 다시 실행</div><div>{modKey()}+C / X / V 복사 / 잘라내기 / 붙여넣기</div>
+              <div>{modKey()}+A 전체 선택 · {modKey()}+D 복제</div><div>Shift+클릭 여러 요소 선택</div><div>방향키 미세 이동 · Shift로 10배</div><div>Delete 삭제 · Esc 선택 해제</div>
+              <p className="mt-1 text-muted">글자·수식 입력 중에는 입력창의 단축키가 동작합니다.</p>
+            </div>
+          </details>
         </div>
         <div className="px-3 py-2 flex items-center gap-2 text-caption bg-white border-b border-line">
           <button type="button" aria-label="도형 축소" onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span>
@@ -270,12 +348,12 @@ export function FigureEditor({ image, index, onSave, onClose }: {
             </div>}
             {showNumbers && <svg aria-label="도형 요소 번호" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", margin: 0, overflow: "visible", pointerEvents: "none" }}>
               {objectNumbers.map(item => <g key={item.id}>
-                <line x1={item.x} y1={item.y} x2={item.targetX} y2={item.targetY} stroke={selected === item.id ? "#f97316" : "#808080"} strokeWidth={selected === item.id ? 1.5 : 1} strokeDasharray="3 4" opacity={selected === item.id ? 0.85 : 1} />
+                <line x1={item.x} y1={item.y} x2={item.targetX} y2={item.targetY} stroke={selectedIds.includes(item.id) ? "#f97316" : "#808080"} strokeWidth={selectedIds.includes(item.id) ? 1.5 : 1} strokeDasharray="3 4" opacity={selectedIds.includes(item.id) ? 0.85 : 1} />
                 <g data-figure-number={item.number} data-number-object={item.id} role="button" tabIndex={0} aria-label={`요소 ${item.number} 선택`}
-                  style={{ pointerEvents: "all", cursor: "pointer" }} onClick={() => { setSelected(item.id); setTool("select"); }}
+                  style={{ pointerEvents: "all", cursor: "pointer" }} onClick={event => { setSelected(item.id, event.shiftKey || event.ctrlKey || event.metaKey); setTool("select"); }}
                   onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(item.id); setTool("select"); } }}>
-                  <circle cx={item.x} cy={item.y} r={10} fill={selected === item.id ? "#ea580c" : "#fff7ed"} stroke="#fb923c" />
-                  <text x={item.x} y={item.y} textAnchor="middle" dominantBaseline="central" style={{ font: "600 11px Arial, sans-serif", fill: selected === item.id ? "#fff" : "#9a3412", stroke: "none" }}>{item.number}</text>
+                  <circle cx={item.x} cy={item.y} r={10} fill={selectedIds.includes(item.id) ? "#ea580c" : "#fff7ed"} stroke="#fb923c" />
+                  <text x={item.x} y={item.y} textAnchor="middle" dominantBaseline="central" style={{ font: "600 11px Arial, sans-serif", fill: selectedIds.includes(item.id) ? "#fff" : "#9a3412", stroke: "none" }}>{item.number}</text>
                 </g>
               </g>)}
             </svg>}
@@ -299,21 +377,23 @@ export function FigureEditor({ image, index, onSave, onClose }: {
           </div>
         </div>
         <section className="shrink-0 border-t border-line bg-white px-3 py-2" aria-label="도형 요소 목록">
-          <div className="mb-1.5 flex items-center gap-2 text-caption"><h3 className="font-semibold">요소 목록</h3><span className="text-muted">{objects.length}개 · 그림의 번호와 연결됩니다</span></div>
-          <div className="flex flex-wrap gap-1.5">{objects.map((o, n) => <button type="button" key={o.id} data-figure-list-number={n + 1} aria-pressed={selected === o.id}
-            onClick={() => { setSelected(o.id); setTool("select"); }}
-            className={`flex items-center gap-1.5 rounded-md border py-1 pl-1 pr-2 text-caption ${selected === o.id ? "border-orange-300 bg-orange-50 text-orange-900" : "border-line bg-slate-50 hover:border-orange-200"}`}>
-            <span className={`grid h-5 min-w-5 place-items-center rounded text-[11px] font-semibold ${selected === o.id ? "bg-orange-600 text-white" : "bg-white text-orange-800"}`}>{n + 1}</span>
-            <span className="max-w-28 truncate">{o.type === "text" ? `${isFigureMathLabel(o.attrs["data-mj"] ?? o.text) ? "수식" : "글자"} ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : NAMES[o.type] ?? o.type}</span>
+          <div className="mb-1.5 flex items-center gap-2 text-caption"><h3 className="font-semibold">요소 목록</h3><span className="text-muted">{objects.length}개 · {selectedIds.length ? `${selectedIds.length}개 선택` : "Shift+클릭으로 여러 요소 선택"}</span><span role="status" className="ml-auto text-orange-800">{clipboardNotice}</span></div>
+          <div className="flex flex-wrap gap-1.5">{objects.map((o, n) => <button type="button" key={o.id} data-figure-list-number={n + 1} aria-pressed={selectedIds.includes(o.id)}
+            onClick={event => { setSelected(o.id, event.shiftKey || event.ctrlKey || event.metaKey); setTool("select"); }}
+            className={`flex items-center gap-1.5 rounded-md border py-1 pl-1 pr-2 text-caption ${selectedIds.includes(o.id) ? "border-orange-300 bg-orange-50 text-orange-900" : "border-line bg-slate-50 hover:border-orange-200"}`}>
+            <span className={`grid h-5 min-w-5 place-items-center rounded text-[11px] font-semibold ${selectedIds.includes(o.id) ? "bg-orange-600 text-white" : "bg-white text-orange-800"}`}>{n + 1}</span>
+            <span className="max-w-28 truncate">{o.attrs["data-function"] ? "함수 그래프" : o.type === "text" ? `${isFigureMathLabel(o.attrs["data-mj"] ?? o.text) ? "수식" : "글자"} ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : NAMES[o.type] ?? o.type}</span>
           </button>)}</div>
         </section>
       </main>
       <aside className="w-[300px] shrink-0 border-l border-line bg-white flex flex-col overflow-hidden"
         onPointerDownCapture={() => { if (document.activeElement === surface.current) surface.current?.blur(); }}>
         <section className="flex-1 min-h-0 overflow-y-auto p-4">
-        <h3 className="text-small font-semibold mb-1">{current ? `${objects.indexOf(current) + 1} · ${NAMES[current.type] ?? current.type} 편집` : tool === "text" ? "새 글자" : "상세 편집"}</h3>
+        <h3 className="text-small font-semibold mb-1">{selectedIds.length > 1 ? `${selectedIds.length}개 요소 선택` : current ? `${objects.indexOf(current) + 1} · ${NAMES[current.type] ?? current.type} 편집` : tool === "text" ? "새 글자" : "상세 편집"}</h3>
         <p className="mb-3 text-caption text-muted">{current ? "선택한 요소의 모양과 표시를 바꿉니다." : tool === "text" ? "내용을 정한 다음 그림에서 놓을 위치를 클릭하세요." : "그림에서 수정할 요소를 선택하세요."}</p>
         {current ? <div className="space-y-3 text-caption">
+          {currentFunction && <FunctionGraphInput key={current.id} initial={currentFunction} editing viewBox={current.attrs["data-function-viewbox"]?.split(" ").map(Number) ?? viewBox}
+            onApply={(config, result) => change({ d: result.path, "data-function": JSON.stringify(config) })} />}
           <p className="rounded bg-orange-50 p-2 leading-relaxed text-orange-800">{current.type === "text" ? "글자를 끌어서 옮기세요. 더블클릭하면 내용을 바꿀 수 있습니다." : "주황색 조절점을 끌어 모양을 바꾸세요. 선이나 테두리를 끌면 통째로 이동합니다."}</p>
           {current.type === "text" && <div><span className="mb-1.5 block font-medium">글자 내용</span><FigureLabelInput key={current.id} idPrefix="선택한 도형 글자" value={current.attrs["data-mj"] ?? current.text} onChange={value => change({}, value)} /></div>}
           {current.type === "text" && <div className="flex gap-2">
@@ -338,8 +418,11 @@ export function FigureEditor({ image, index, onSave, onClose }: {
             change({ d: `M ${points[0]} ${points[1]} Q ${points[2]} ${points[3]} ${points[4]} ${points[5]}` });
           }} /></label>)}</div>}
           </details>
-        </div> : tool === "text" ? <FigureLabelInput idPrefix="추가할 도형 글자" value={label} onChange={setLabel} />
-          : <div className="rounded-lg border border-dashed border-line p-4 text-center text-caption leading-relaxed text-muted">캔버스의 선, 곡선, 글자를 클릭하면<br />여기에 편집 항목이 나타납니다.</div>}
+        </div> : addingFunction ? <FunctionGraphInput viewBox={viewBox} onApply={(_config, result) => {
+          const pasted = pasteFigureSelection(svg, result.svg, 0);
+          if (pasted) { commit(pasted.svg); setSelected(pasted.ids.at(-1)!); setAddingFunction(false); }
+        }} /> : tool === "text" ? <FigureLabelInput idPrefix="추가할 도형 글자" value={label} onChange={setLabel} />
+          : <div className="rounded-lg border border-dashed border-line p-4 text-center text-caption leading-relaxed text-muted">{selectedIds.length > 1 ? "선택한 요소를 함께 끌어서 옮기거나 복사·잘라내기·삭제할 수 있습니다." : <>캔버스의 선, 곡선, 글자를 클릭하면<br />여기에 편집 항목이 나타납니다.</>}</div>}
         </section>
       </aside>
     </div>

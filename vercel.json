@@ -25,6 +25,11 @@
       "maxDuration": 30,
       "includeFiles": "{vendor/figure-engine/**,scripts/figure/**}",
       "excludeFiles": "{node_modules/**,.checks.local/**}"
+    },
+    "api/export-hwpx.py": {
+      "maxDuration": 30,
+      "includeFiles": "{vendor/hwpx/**,scripts/hwpx/writer.py}",
+      "excludeFiles": "{node_modules/**,.checks.local/**}"
     }
   }
 }

@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // PyeonggaTemplate.tsx (T1) — 평가원 정밀형 (수능·모의평가 클론)
 // design_handoff 의 동명 파일 그대로 + import path 조정 + ProblemBody placeholder
 // → 실제 import 로 교체.
@@ -144,7 +145,7 @@ export function PyeonggaTemplate({
       ) : (
         <div
           style={{
-            padding: "20px 56px 8px",
+            padding: printPagePadding(options.marginPreset),
             fontSize: 11,
             color: PAPER_COLORS.ink50,
             display: "flex",

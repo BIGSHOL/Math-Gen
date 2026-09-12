@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import type { TextLayerWarning } from "@app/lib/textLayerValidator";
 import { usePageOcr } from "@app/hooks/usePageOcr";
@@ -116,6 +117,7 @@ const PendingSkeletons = () => (
 );
 
 export const Step2OCRReview = () => {
+  const [showScores, setShowScores] = useState(true);
   const pages = useWizardStore((s) => s.pages);
   const activeIdx = useWizardStore((s) => s.activePageIndex);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
@@ -249,6 +251,9 @@ export const Step2OCRReview = () => {
               </Chip>
             )}
           </div>
+          <button type="button" aria-pressed={showScores} onClick={() => setShowScores(value => !value)} className="ml-auto px-2 py-1 text-caption rounded border border-line hover:bg-surface2">
+            {showScores ? "배점 숨기기" : "배점 보이기"}
+          </button>
           {activePage.ocrComplete && (activePage.isProblemPage || activePage.forceOcr) && (
             <Btn kind="ghost" size="sm" icon="arrow-clockwise" onClick={requestRetry}>
               페이지 재인식
@@ -322,6 +327,7 @@ export const Step2OCRReview = () => {
               key={item.id}
               pageId={activePage.id}
               item={item}
+              showScores={showScores}
               pageImageDataUrl={pageImage}
               testId={testId}
               persistCrops

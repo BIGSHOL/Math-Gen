@@ -1,0 +1,41 @@
+import puppeteer from 'puppeteer-core';
+import { startBrowserFixture } from './browserFixture.mjs';
+const fixture=await startBrowserFixture({'/entry.js':'scripts/figureEditingHarnessEntry.tsx'});
+const browser=await puppeteer.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
+let checks=0;
+const assert=(ok,label)=>{if(!ok)throw Error(label);checks++;console.log('PASS',label);};
+try {
+ const page=await browser.newPage();await page.setViewport({width:1500,height:1000});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(fixture.url);await page.evaluate(async()=>{
+  const native=window.fetch;window.fetch=async(url,options)=>url==='/api/ai-figure-labels'?Response.json({labels:JSON.parse(options.body).labels.map(()=>null)}):native(url,options);
+  const m=await import('/entry.js');m.mountDirectFigure('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360"><defs><marker id="arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0 0L5 2.5L0 5Z"/></marker></defs><g transform="translate(30 20) scale(1.5)"><line x1="20" y1="40" x2="180" y2="40" stroke="#111" stroke-width="2" marker-end="url(#arrow)"/></g><text x="60" y="190" font-size="20">ABC</text></svg>');
+ });
+ await page.waitForSelector('#figure-editor-canvas line');
+ const shortcut=async(key,shift=false)=>{await page.keyboard.down('Control');if(shift)await page.keyboard.down('Shift');await page.keyboard.press(key);if(shift)await page.keyboard.up('Shift');await page.keyboard.up('Control');};
+ const count=()=>page.$$eval('#figure-editor-canvas [data-object-id]',nodes=>nodes.length);
+ const button=async(text)=>page.evaluate(text=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text);if(!b)throw Error('button '+text);b.click();},text);
+ await page.click('[aria-label="도형 요소 목록"] button');await shortcut('c');await shortcut('v');
+ await page.waitForFunction(()=>document.querySelectorAll('#figure-editor-canvas [data-object-id]').length===3);
+ assert(await count()===3,'Native Ctrl+C/V copies the selected shape');
+ assert(await page.$$eval('#figure-editor-canvas line',nodes=>new Set(nodes.map(n=>n.getAttribute('marker-end'))).size===2),'Pasted arrow uses a separate marker ID');
+ await shortcut('z');assert(await count()===2,'Ctrl+Z undoes paste');await shortcut('y');assert(await count()===3,'Ctrl+Y restores paste');
+ await page.click('#figure-editor-canvas text');await shortcut('x');assert(await count()===2,'Ctrl+X cuts the selected label');await shortcut('z');assert(await count()===3,'Undo restores a cut label');
+ await shortcut('z');await shortcut('z',true);assert(await count()===3,'Ctrl+Shift+Z also redoes');
+ await shortcut('a');await page.keyboard.press('ArrowRight');
+ assert(await page.$$eval('#figure-editor-canvas [data-object-id]',nodes=>nodes.every(n=>n.hasAttribute('transform'))),'Arrow key moves every selected element');
+ await page.keyboard.press('Delete');assert(await count()===0,'Ctrl+A and Delete remove the whole selection');await shortcut('z');assert(await count()===3,'One undo restores the whole selection');
+ await page.click('#figure-editor-canvas text');await page.click('[aria-label="선택한 도형 글자"]');await shortcut('a');await page.keyboard.press('Backspace');
+ assert(await count()===3&&!!await page.$('[aria-label="선택한 도형 글자"]'),'Backspace in a text input keeps the element and editor open');
+ await page.keyboard.type('Hello');
+ await button('ƒ 함수');await page.waitForSelector('[aria-label="함수식"]');
+ await page.$eval('[aria-label="함수식"]',el=>el.select());await page.type('[aria-label="함수식"]','y=1/x');
+ const paths=await page.$eval('[aria-label="함수 그래프 미리보기"] path[data-function]',el=>el.getAttribute('d'));
+ assert((paths.match(/M/g)||[]).length===2,'1/x preview separates the branches at its asymptote');
+ await button('그림에 함수 추가');await page.waitForSelector('#figure-editor-canvas [data-function]');
+ const original=await page.$eval('#figure-editor-canvas [data-function]',el=>el.getAttribute('d'));
+ await page.$eval('[aria-label="함수식"]',el=>el.select());await page.type('[aria-label="함수식"]','y=x(x+1)');await button('함수식 적용');
+ assert(await page.$eval('#figure-editor-canvas [data-function]',el=>el.getAttribute('d'))!==original,'Changing a stored function redraws its curve, including implicit multiplication');
+ await page.click('[aria-label="도형 편집 캔버스"]');await shortcut('z');
+ assert(await page.$eval('#figure-editor-canvas [data-function]',el=>el.getAttribute('d'))===original,'One undo restores the previous function');
+ assert(!errors.length,'No browser runtime errors');console.log(`${checks} shortcut and graph checks passed`);
+}finally{await browser.close();await fixture.close();}

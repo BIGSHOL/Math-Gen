@@ -1,3 +1,4 @@
+import { printPagePadding } from "@app/lib/printGeometry";
 // ModernTemplate.tsx (T3) — 모던 내신형 (학교 마케팅 / 세련된 톤)
 // design_handoff 카피 + import path 조정 + options.accentColor → options.color
 // (Mathgen 의 PrintOptions 는 `color` 사용).
@@ -79,7 +80,7 @@ export function ModernTemplate({
         width: A4_DIM.width,
         height: A4_DIM.height,
         background: PAPER_COLORS.paper,
-        padding: "40px 56px 24px",
+        padding: printPagePadding(options.marginPreset),
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",

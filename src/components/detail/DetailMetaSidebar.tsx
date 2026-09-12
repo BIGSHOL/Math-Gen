@@ -3,7 +3,6 @@ import { Btn, Chip, Eyebrow, Icon } from "@app/components/ui";
 import type { TestPaper, TopicSlice } from "@app/types";
 import { formatVariantLabel } from "@app/lib/conversionLabels";
 import { isTestchangeId } from '../../types/testchange';
-import { TestchangeHwpExport } from './TestchangeHwpExport';
 
 /** 변형 이력 기본 노출 개수 — 그 이상은 "더보기" 로 펼침 (사용자 결정 2026-06-04). */
 const VARIANT_PREVIEW_COUNT = 5;
@@ -26,6 +25,7 @@ export interface DetailMetaSidebarProps {
   onMakeVariant: () => void;
   /** *이어서 작업* — 미완료 단계 자동 결정 (decideResumeStep). 끊긴 작업 재개. */
   onResume: () => void;
+  onExport: () => void;
   /** 재개될 단계 라벨 (예: "옵션 (5/7단계)") — 사용자가 어느 단계로 가는지 미리 안내. */
   resumeStepLabel?: string;
   onShare?: () => void;
@@ -88,6 +88,7 @@ export const DetailMetaSidebar = ({
   test,
   onMakeVariant,
   onResume,
+  onExport,
   resumeStepLabel,
   onShare,
   onPdf,
@@ -172,7 +173,7 @@ export const DetailMetaSidebar = ({
         </button>
       </div>
       <div className="flex flex-col gap-2 mb-7">
-        {isTestchangeId(test.id) && <TestchangeHwpExport testId={test.id} />}
+        <Btn kind="secondary" icon="download-simple" full onClick={onExport} disabled={resuming || loading}>미리보기 · HWPX 내보내기</Btn>
         {/* 변형 만들기 — Step 3 (옵션) 강제 진입. 새 옵션으로 변형 다시 생성. */}
         <div>
           <Btn

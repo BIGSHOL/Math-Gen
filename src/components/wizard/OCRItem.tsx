@@ -20,6 +20,7 @@ import {
   type OCRImage,
 } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
+import { repositionScore } from "@app/lib/problemAdapter";
 import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
 
 const MathTextEditor = lazy(() =>
@@ -73,6 +74,8 @@ export interface OCRItemProps {
   onReocr?: () => void;
   /** 이 문항이 재인식 중인지 — 버튼 스피너 표시. */
   reocring?: boolean;
+  /** 읽기 화면의 배점 미리보기만 바꾸며 인식 원문은 보존한다. */
+  showScores?: boolean;
 }
 
 /** images[idx] 에 storagePath 를 박은 새 배열 (freeze 후 store 기록용). */
@@ -246,6 +249,7 @@ export const OCRItem = ({
   persistCrops,
   onReocr,
   reocring,
+  showScores = true,
 }: OCRItemProps) => {
   const updateOCRItem = useWizardStore((s) => s.updateOCRItem);
 
@@ -513,7 +517,7 @@ export const OCRItem = ({
             </div>
           )}
           <MarkdownRenderer
-            content={item.text}
+            content={repositionScore(item.text, item.printedScore ?? item.score, showScores)}
             diagramSvgs={vectorDiagrams}
             imageCrops={crops.map((c) => ({
               src: c.src,

@@ -55,7 +55,7 @@ const tryRender = (input: string, displayMode: boolean): string =>
     displayMode,
     // `\htmlClass` 만 허용 — uprightGeometryLabels 의 호(⌒) span 용.
     trust: (ctx) => ctx.command === "\\htmlClass",
-  });
+  }).replace('class="katex"', `class="katex" data-export-tex="${encodeURIComponent(input)}"`);
 
 /**
  * 절대 붉은 글씨를 반환하지 않는 KaTeX 렌더. 반환값은 항상 안전한 HTML —

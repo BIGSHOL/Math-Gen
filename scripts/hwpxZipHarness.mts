@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
+import { hwpxZip } from '../src/lib/hwpxZip';
+const folder='.checks.local/hwpx';
+const raw=await readFile(folder+'/parts.json');
+const packed=gzipSync(raw), stream=new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'));
+const parts=JSON.parse(await new Response(stream).text());
+const assets:Record<string,Blob>={};
+for(const name of await readdir(folder))if(/^image\d+\.png$/.test(name))assets['BinData/'+name]=new Blob([await readFile(folder+'/'+name)]);
+const blob=await hwpxZip(parts,assets), bytes=new Uint8Array(await blob.arrayBuffer());
+assert.equal(new DataView(bytes.buffer).getUint32(0,true),0x04034b50);
+await writeFile(folder+'/browser-pack.hwpx',bytes);
+assert.ok(packed.length<raw.length/3);
+console.log('PASS browser gzip decoding and HWPX ZIP assembly; XML response',packed.length,'bytes');

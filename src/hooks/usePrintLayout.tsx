@@ -87,6 +87,7 @@ export function usePrintLayout({
     showDifficulty,
     layoutMode,
     problemsPerColumn,
+    marginPreset,
   } = options;
 
   // 측정에 영향 주는 입력만 (spacing 제외 — gap 은 item offsetHeight 에 영향 X).
@@ -101,6 +102,7 @@ export function usePrintLayout({
           v.choicesLayout ?? "",
           v.topic ?? "",
           v.points ?? "",
+          v.printedScore ?? v.score ?? "",
           v.diagramParams?.length ?? 0,
           v.diagramSVG ? 1 : 0,
           v.images?.length ?? 0,
@@ -110,6 +112,7 @@ export function usePrintLayout({
     return [
       template,
       columns,
+      marginPreset,
       fontPack,
       showChapter ? 1 : 0,
       showDifficulty ? 1 : 0,
@@ -122,6 +125,7 @@ export function usePrintLayout({
   }, [
     problems,
     template,
+    marginPreset,
     columns,
     fontPack,
     showChapter,
@@ -216,7 +220,7 @@ export function usePrintLayout({
   // 재파싱되지 않도록 높이 영향 입력에만 의존.
   const measureNode = useMemo(() => {
     const TemplateComp = TEMPLATE_COMPONENTS[template] ?? JeongtongTemplate;
-    const columnWidthPx = columnContentWidth(template, columns);
+    const columnWidthPx = columnContentWidth(template, columns, marginPreset ?? "normal");
     const fontPackResolved = getFontPack(fontPack);
     const fontVars = {
       "--paper-font-serif": fontPackResolved.serif,
