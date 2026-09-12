@@ -1,4 +1,5 @@
 import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
+import { figuresForQuestionCrop, QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
 import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useCallback, useState } from "react";
 import { getPageImage } from "@app/lib/imageStore";
@@ -26,7 +27,6 @@ import { useWizardStore, type OCRProblem, type WizardPage } from "@app/stores/wi
  */
 
 /** usePageOcr 와 *동일* 해야 box 역변환이 정확. */
-const CROP_MARGIN = 0.02;
 
 export const useItemReocr = () => {
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
@@ -87,7 +87,7 @@ export const useItemReocr = () => {
         }
         if (!matched || !modelUsed) throw lastErr ?? new Error("문항 OCR 에 실패했습니다.");
 
-        matched = await redrawQuestionFigures(crop, matched);
+        matched = await redrawQuestionFigures(crop, matched, undefined, figuresForQuestionCrop(box));
 
         // 4. crop-local box → full-page 역변환(usePageOcr Pass 2 와 동일).
         const remap = (b: [number, number, number, number]) =>

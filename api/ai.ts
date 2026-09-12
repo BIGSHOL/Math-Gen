@@ -12,6 +12,8 @@ const handlers = {
   "ai-exam-v4": () => import("./_ai-exam-v4.js"),
   "ai-figure-detect": () => import("./_ai-figure-detect.js"),
   "ai-figure": () => import("./_ai-figure.js"),
+  "ai-figure-review": () => import("./_ai-figure-review.js"),
+  "ai-figure-labels": () => import("./_ai-figure-labels.js"),
   "ai-generate": () => import("./_ai-generate.js"),
 };
 

@@ -54,9 +54,19 @@ PDF.js 수정 버전은 major 업데이트가 필요하므로 별도 호환성 �
 - DeepSeek `deepseek-v4-pro`: 기존 Sonnet의 해설·변형·텍스트 분석 역할. 이미지 분석은 Gemini가 담당한다.
 
 원본 그림 크롭과 재작도 SVG를 함께 보관하며 문항의 **원본 비교**에서 확인한다.
-엔진 검증 실패 시 Opus에 한 번 수정을 요청하고, 재실패하거나 지원하지 않는 그림이면
-경고와 함께 원본 크롭을 유지한다. 기존 HWP 그림 자리 안내 정책은 그대로 적용된다.
-MathJax 확장 없이 Python 엔진이 지원하는 라벨만 작도한다.
+엔진 검증과 Gemini 원본 대조에서 실패하면 Opus에 최대 두 번 수정을 요청한다.
+렌더 불가·미지원 그림은 원본을 유지한다. 원본 대조만 실패한 결과는 검수 경고와 함께 재작도와 원본을
+모두 보관해 사람이 직접 수정할 수 있다. 기존 HWP 그림 자리 안내 정책은 그대로 적용된다.
+`todays-math`의 MathJax 조판기(`scripts/figure`)와 라벨 실측을 연결해 분수·루트·각도를 벡터로 출력한다.
+편집용 글자와 출력용 글리프를 분리하므로 조판 후에도 라벨을 수정할 수 있다.
+조판기 원본은 todays-math `1babaf20`의 `src/lib/figure/mathjaxLabel.ts`, `mathjaxSubstitute.ts`이며,
+이 프로젝트에서는 서버 import 확장자, Unicode 위첨자, 입력·캐시 상한을 추가했다.
+
+첫 크롭 검수에서 내부 그림을 미리 검출해 주황색 ‘도형 1·2’ 박스로 표시한다.
+검수한 좌표는 OCR 이후 재작도에도 그대로 사용한다. 문제 수정 모드에는 수식 입력기와
+벡터 도형 편집기(선분·곡선·화살표·원·사각형·글자, 속성 편집, 되돌리기, SVG 저장)가 있다.
+`graph-1` 렌더러는 함수 곡선과 유한 선분·내접 다각형·개별 라벨을 함께 처리한다.
+인증 401은 세션 갱신 후 1회 재요청하며, 인증 서버 장애는 503으로 구분한다.
 
 서버 환경변수: `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`.
 로컬은 Python 3.11 이상이 필요하고 `PYTHON_BIN`으로 실행 파일을 지정할 수 있다.
@@ -66,6 +76,9 @@ Vercel은 `api/figure-render.py`에서 같은 엔진을 실행한다. AI 키는 
 ```powershell
 python scripts/figure/test_engine.py
 node scripts/figurePipelineBrowserHarness.mjs
+node scripts/figureEditingBrowserHarness.mjs
+node scripts/authRetryBrowserHarness.mjs
+node scripts/runHarness.mjs scripts/figureTypesetHarness.mts scripts/aiRouterHarness.mts
 ```
 
 두 번째 검증은 실행 중인 개발 서버를 사용하며 AI 호출은 가짜 응답으로 대체한다.

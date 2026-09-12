@@ -29,6 +29,10 @@ export interface EditableCropBoxProps {
   pageHeight: number;
   currentTool: CropTool;
   selected: boolean;
+  label?: string;
+  /** 내부 도형은 부모 문제 안에서만 이동/크기 조절한다. */
+  bounds?: CropBox["bbox"];
+  nested?: boolean;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<CropBox>) => void;
   onDelete: (id: string) => void;
@@ -44,7 +48,7 @@ export interface EditableCropBoxProps {
  */
 const CLASS_COLORS: Record<CropBox["class"], { border: string; bg: string; label: string }> = {
   problem: { border: "#0EA5E9", bg: "rgba(14,165,233,0.08)", label: "문제" },
-  figure: { border: "#10B981", bg: "rgba(16,185,129,0.08)", label: "그림" },
+  figure: { border: "#EA580C", bg: "rgba(249,115,22,0.10)", label: "도형" },
   table: { border: "#F97316", bg: "rgba(249,115,22,0.08)", label: "표" },
   artwork: { border: "#A855F7", bg: "rgba(168,85,247,0.08)", label: "작품" },
 };
@@ -72,6 +76,9 @@ export const EditableCropBox = ({
   pageHeight,
   currentTool,
   selected,
+  label,
+  bounds,
+  nested = false,
   onSelect,
   onUpdate,
   onDelete,
@@ -102,6 +109,7 @@ export const EditableCropBox = ({
       const dx = ((e.clientX - origin.clientX) / pageWidth) * 1000;
       const dy = ((e.clientY - origin.clientY) / pageHeight) * 1000;
       const [oy, ox, oyMax, oxMax] = origin.bbox;
+      const [by, bx, byMax, bxMax] = bounds ?? [0, 0, 1000, 1000];
       let next: [number, number, number, number];
       if (dragMode.current === "move") {
         // 전체 box 이동 (size 보존).
@@ -110,21 +118,21 @@ export const EditableCropBox = ({
         const newX = clamp(ox + dx);
         const newY = clamp(oy + dy);
         // 박스가 페이지 밖으로 나가지 않게 — 우측/하단 한도 적용.
-        const cappedX = Math.min(newX, 1000 - w);
-        const cappedY = Math.min(newY, 1000 - h);
+        const cappedX = Math.max(bx, Math.min(newX, bxMax - w));
+        const cappedY = Math.max(by, Math.min(newY, byMax - h));
         next = [cappedY, cappedX, cappedY + h, cappedX + w];
       } else {
         // resize — 우하단 corner만. yMax/xMax 만 갱신.
         const newXMax = clamp(oxMax + dx);
         const newYMax = clamp(oyMax + dy);
         // 최소 크기 보장 (50/1000 = 5%).
-        const finalXMax = Math.max(ox + 50, newXMax);
-        const finalYMax = Math.max(oy + 50, newYMax);
+        const finalXMax = Math.min(bxMax, Math.max(ox + (nested ? 10 : 50), newXMax));
+        const finalYMax = Math.min(byMax, Math.max(oy + (nested ? 10 : 50), newYMax));
         next = [oy, ox, finalYMax, finalXMax];
       }
       onUpdate(box.id, { bbox: next });
     },
-    [box.id, onUpdate, pageHeight, pageWidth],
+    [box.id, onUpdate, pageHeight, pageWidth, bounds, nested],
   );
 
   // pointermove / pointerup window listener attach — drag 시작 시
@@ -176,7 +184,15 @@ export const EditableCropBox = ({
   return (
     <div
       role="button"
+      aria-label={label ?? `${box.number ?? "?"}번 ${boxLabel(box)} 크롭`}
+      aria-pressed={selected}
+      data-crop-id={box.id}
+      data-crop-kind={nested ? "inner-figure" : box.class}
       tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(box.id); }
+        if (e.key === "Delete" && selected) { e.preventDefault(); onDelete(box.id); }
+      }}
       onClick={handleClick}
       onPointerDown={(e) => {
         if (currentTool === "select" && selected) {
@@ -200,7 +216,7 @@ export const EditableCropBox = ({
             : "pointer",
         pointerEvents: pointerEventsValue,
         userSelect: "none",
-        zIndex: selected ? 20 : 10,
+        zIndex: nested ? (selected ? 32 : 30) : selected ? 20 : 10,
       }}
     >
       {/* 박스 라벨 — 좌상단. */}
@@ -219,7 +235,7 @@ export const EditableCropBox = ({
           pointerEvents: "none",
         }}
       >
-        {box.number !== undefined ? `${box.number}` : "?"} · {boxLabel(box)}
+        {label ?? `${box.number !== undefined ? box.number : "?"} · ${boxLabel(box)}`}
       </div>
 
       {/* 우하단 resize handle — select 모드 + selected 일 때만 */}

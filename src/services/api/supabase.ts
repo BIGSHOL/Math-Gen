@@ -71,6 +71,30 @@ export const currentAccessToken = async (): Promise<string | null> => {
   return data.session?.access_token ?? null;
 };
 
+let refreshInFlight: Promise<string | null> | null = null;
+/** 만료된 인증 요청만 1회 재전송. 동시에 실패한 문항은 같은 갱신 요청을 공유한다. */
+export async function fetchWithAuth(url: string, init: RequestInit = {}): Promise<Response> {
+  const originalToken = await currentAccessToken();
+  const send = (token: string | null) => {
+    const headers = new Headers(init.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...init, headers });
+  };
+  const response = await send(originalToken);
+  if (response.status !== 401 || !authClient || !originalToken) return response;
+  let token = await currentAccessToken();
+  if (!token || token === originalToken) {
+    if (!refreshInFlight) {
+      refreshInFlight = authClient.auth.refreshSession().then(({ data, error }) => {
+        if (error) return null;
+        return data.session?.access_token ?? null;
+      }).catch(() => null).finally(() => { refreshInFlight = null; });
+    }
+    token = await refreshInFlight;
+  }
+  return token && !init.signal?.aborted ? send(token) : response;
+}
+
 /**
  * DEV 콘솔에서 *Supabase 활성 상태* 확인용. App 진입 시 한 번 호출.
  * 운영에선 호출하지 말 것 (key 노출 우려 — anon key 라 큰 문제 없지만 일관성).

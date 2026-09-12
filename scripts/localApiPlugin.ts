@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import type { VercelRequest, VercelResponse } from '../api/_types.js';
 
 const ROUTES = new Set(['testchange', 'ai-ocr', 'ai-cropdetect', 'ai-solution', 'ai-variant',
-  'ai-image', 'ai-generate', 'ai-figure', 'ai-figure-detect', 'figure-render', 'ai-exam-analysis', 'ai-exam-commentary', 'ai-exam-v4']);
+  'ai-image', 'ai-generate', 'ai-figure', 'ai-figure-detect', 'ai-figure-review', 'ai-figure-labels', 'figure-render', 'ai-exam-analysis', 'ai-exam-commentary', 'ai-exam-v4']);
 
 /** Vercel API를 로컬에서도 같은 인증·검증 경로로 실행한다. 서버 키는 Node에만 둔다. */
 export const localApiPlugin = (): Plugin => ({

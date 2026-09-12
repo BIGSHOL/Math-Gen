@@ -1,5 +1,6 @@
 import { detectCropBoxes } from "@app/services/ai/cropDetect";
 import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
+import { figuresForQuestionCrop, QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
 import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
@@ -25,7 +26,6 @@ import {
  * 크롭 margin — `cropPageImageData` 호출과 `remapBoxToFullPage` 가 *같은 값*을 써야
  * box 역변환이 정확. 한 곳에서만 정의(둘이 어긋나면 위치 배치가 미세하게 틀어짐).
  */
-const CROP_MARGIN = 0.02;
 
 /** Gemini transcribes every question; only isolated figure crops go to Opus 5. */
 const pickPass1Chain = (): OCRModel[] => [GEMINI_3_8_FLASH];
@@ -209,7 +209,7 @@ export const usePageOcr = () => {
             const byNumber = r.items.find((it) => it.number === box.number);
             let matched = byNumber ?? r.items[0];
             if (!matched) return null;
-            matched = await redrawQuestionFigures(crop, matched, () => isCancelled(page.id));
+            matched = await redrawQuestionFigures(crop, matched, () => isCancelled(page.id), figuresForQuestionCrop(box));
             if (isCancelled(page.id)) return null;
             const ambiguous = !byNumber && r.items.length > 1;
             if (ambiguous) {
@@ -328,9 +328,18 @@ export const usePageOcr = () => {
           }
           if (isCancelled(page.id)) return;
 
-          let problemBoxes = (page.cropBoxes ?? []).filter(
-            (b): b is ProblemBox => b.class === "problem" && typeof b.number === "number",
-          );
+          const supplied = (page.cropBoxes ?? []).filter(b => b.class === "problem");
+          let nextNumber = Math.max(0, ...supplied.map(b => b.number ?? 0)) + 1;
+          let problemBoxes: ProblemBox[] = supplied.map(b => ({ ...b, number: b.number ?? nextNumber++ }));
+          if (supplied.some(b => b.number === undefined)) useWizardStore.getState().setPageCropBoxes(page.id,
+            (page.cropBoxes ?? []).map(b => problemBoxes.find(numbered => numbered.id === b.id) ?? b));
+
+          // 검수에서 문항 없음으로 확인한 표지/빈 페이지는 재검출/OCR하지 않는다.
+          if (page.cropInspected && page.cropBoxes !== undefined && supplied.length === 0) {
+            setPageOCR(page.id, { ocrResult: [], ocrComplete: true, ocrError: undefined,
+              ocrInflightModel: undefined, ocrStartedAt: undefined });
+            return;
+          }
 
           if (problemBoxes.length === 0) {
             const detected = await detectCropBoxes(rotated);

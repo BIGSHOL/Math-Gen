@@ -6,6 +6,7 @@ import { parseJsonOrThrow } from "../src/services/ai/ocr.js";
 import catalog from "../scripts/figure/engine-catalog.json" with { type: "json" };
 import { logAiUsage } from "./_logUsage.js";
 import { normalizeAnthropicUsage } from "../src/lib/pricing.js";
+import { withLabelMetrics } from "../scripts/figure/mathjaxSubstitute.js";
 
 export const FIGURE_MODEL = "claude-opus-5";
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -13,20 +14,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = await requireAuth(req, res);
   if (!auth) return;
   // The only image input is the SECOND crop. No page/question image field exists.
-  const { figureCrop, previousSpec, renderError } = (req.body ?? {}) as {
-    figureCrop?: unknown; previousSpec?: object; renderError?: string;
+  const { figureCrop, previousSpec, renderError, instructions } = (req.body ?? {}) as {
+    figureCrop?: unknown; previousSpec?: object; renderError?: string; instructions?: string;
   };
   if (typeof figureCrop !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(figureCrop) || figureCrop.length > 5_500_000)
     return res.status(400).json({ error: "분리한 그림 크롭 이미지가 필요합니다." });
   const t0 = Date.now();
   try {
     const { data, mediaType } = parseDataUrl(figureCrop);
-    const repair = previousSpec && renderError
-      ? `\nPrevious engine spec: ${JSON.stringify(previousSpec).slice(0, 65536)}\nEngine error: ${String(renderError).slice(0, 500)}\nCorrect the spec using the same original figure; preserve all visible labels and geometry.` : "";
+    const repair = "\nExamples in the contract show API syntax only. NEVER copy their coordinates or geometry. Estimate all unlabelled positions from THIS crop; preserve relative chord heights, slopes and proportions. For an inscribed polygon, include ALL visible polygon edges as finite segments, including legs that run near a curve."
+      + (previousSpec && renderError
+      ? `\nPrevious engine spec: ${JSON.stringify(previousSpec).slice(0, 65536)}\nEngine error: ${String(renderError).slice(0, 1500)}\nCorrect the spec using the same original figure; preserve printed labels and geometry.` : "")
+      + `\nQuality requirements: Restore ONLY original PRINTED diagram content. Ignore student handwriting, worked solutions, crossed-out annotations and colored pen strokes, including irregular handwritten coordinate text. Preserve every straight geometric construction segment, even if faint or grey: a horizontal chord joining two curve branches, an inscribed polygon edge, or a dashed projection is diagram content, NOT handwriting. Do not erase geometric lines based only on ink lightness. Preserve printed math labels exactly. Use consistent textbook line weights, readable labels with clear separation, correct solid/dashed distinctions, and generous outer padding so every label fits inside the viewBox. Never replace a plotted curve with a polygon; use the engine curve renderer.\nUser correction request: ${String(instructions ?? "").slice(0, 1500)}`;
     const response = await anthropic.messages.stream({
       model: FIGURE_MODEL, max_tokens: 16000,
       output_config: { effort: "medium" },
-      system: `Reconstruct ONLY the supplied cropped math diagram using the deterministic todays-math Python figure engine. Output JSON {"spec": <FigureSpec>, "note": ""}. If the engine cannot faithfully represent it, return {"spec":null,"note":"short Korean reason"}. Never output SVG, Python, JavaScript, or a solved answer. Reproduce visible labels exactly; do not invent dimensions, points, extra construction lines or labels. Preserve aspect ratio, angle marks, dashed lines and shading. Do not infer missing labels from a familiar problem. Coordinates use screen y downward. Prefer FigureSpec v2 for geometry; elem-1 for supported charts, curves, solids and elementary figures. For elem-1, use version:"elem-1" and kind with exactly the catalog's required/optional fields. A right:true marker REQUIRES perpendicular coordinates. A construction circle must be visible only if drawn in the crop. Engine validation is authoritative; unsupported content should remain the original crop.\nENGINE CONTRACT:\n${JSON.stringify(catalog)}`,
+      system: `Reconstruct ONLY the supplied cropped math diagram using the deterministic todays-math Python figure engine. Output JSON {"spec": <FigureSpec>, "note": ""}. If the engine cannot faithfully represent it, return {"spec":null,"note":"short Korean reason"}. Never output SVG, Python, JavaScript, or a solved answer. Reproduce visible labels exactly; do not invent dimensions, points, extra construction lines or labels. Preserve aspect ratio, angle marks, dashed lines and shading. Do not infer missing labels from a familiar problem. FigureSpec v2 uses screen y downward. graph-1 uses mathematical y UP. Prefer FigureSpec v2 for geometry; graph-1 for function graphs with any annotations, finite/horizontal segments, inscribed polygons or custom axis labels; elem-1 for supported charts, solids and elementary figures. Use the graph-1 contract exactly, including polynomial coefficients in descending power order. For elem-1, use version:"elem-1" and kind with exactly the catalog's required/optional fields. A right:true marker REQUIRES perpendicular coordinates. A construction circle must be visible only if drawn in the crop. Engine validation is authoritative; unsupported content should remain the original crop.\nENGINE CONTRACT:\n${JSON.stringify(catalog)}`,
       messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: mediaType, data } },
         { type: "text", text: `Recreate this isolated figure. Return the JSON spec only. For v2, points, segments, circles, angles, dimensions and labels MUST be named OBJECT maps, never anonymous arrays. Example: segments:{"AB":["A","B"]}, labels:{"A":"A"}. IMPORTANT: dimensions creates dashed measurement bows. Use dimensions ONLY if a measurement bow/arrow exists in the original. For a bare number beside a side, add an unconnected anchor point at the number's position and labels:{"value3":{"text":"3","dx":0,"dy":0}}. Anchor points have no visible dot; do not connect them. Keep the diagram's visual proportions, even if the printed values imply a different scale. Use only visible labels from the crop, not labels from the example.${repair}` },
@@ -38,6 +41,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (parsed.spec !== null && (!parsed.spec || typeof parsed.spec !== "object" || Array.isArray(parsed.spec))) throw new Error("Opus 도형 스펙이 올바르지 않습니다.");
     logAiUsage({ ...auth, endpoint: "ai-figure", provider: "anthropic", model: FIGURE_MODEL,
       usage: normalizeAnthropicUsage(response.usage), latencyMs: Date.now() - t0, error: null });
-    return res.status(200).json({ ...parsed, model: FIGURE_MODEL });
+    return res.status(200).json({ ...parsed, spec: withLabelMetrics(parsed.spec), model: FIGURE_MODEL });
   } catch (err) { return res.status(502).json({ error: (err as Error).message }); }
 }

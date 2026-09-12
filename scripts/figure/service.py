@@ -10,7 +10,11 @@ def render(spec):
     from core.figure_scene import render_figure_spec
     from core.figure_quality import sanitize_svg
     from elementary import render_elementary
-    svg = render_elementary(spec) if spec.get('version') == 'elem-1' else render_figure_spec(spec)
+    if spec.get('version') == 'graph-1':
+        from graph_scene import render_graph
+        svg = render_graph(spec)
+    else:
+        svg = render_elementary(spec) if spec.get('version') == 'elem-1' else render_figure_spec(spec)
     svg = sanitize_svg(svg)
     # A viewBox-only SVG can expand/collapse differently in img/print contexts.
     def sized_root(match):

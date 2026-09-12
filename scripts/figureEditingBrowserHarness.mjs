@@ -1,0 +1,74 @@
+import puppeteer from 'puppeteer-core';
+import fs from 'node:fs/promises';
+const browser = await puppeteer.launch({ executablePath: process.env.EDGE_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+const checks=[];
+const assert=(value,label)=>{if(!value)throw new Error(label);checks.push(label);console.log('PASS',label);};
+try {
+ const page=await browser.newPage();await page.setViewport({width:1500,height:1000});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.DEV_URL || 'http://localhost:3005/',{waitUntil:'networkidle0'});
+ await page.evaluate(async()=>{
+   window.__detectCalls=0;
+   const native=window.fetch;
+   window.fetch=async(url,options)=>{
+    if(url==='/api/ai-figure-labels') return Response.json({labels:JSON.parse(options.body).labels.map(()=>null)});
+    if(url==='/api/ai-figure-detect'){
+     window.__detectCalls++;
+     const image=new Image();image.src=JSON.parse(options.body).questionCrop;await image.decode();
+     return Response.json({figures:image.height>200?[{box:[250,90,790,400],label:'삼각형 A',kind:'diagram'},{box:[250,540,790,860],label:'삼각형 B',kind:'diagram'}]:[]});
+    }
+    return native(url,options);
+   };
+   const {mountEditingHarness}=await import('/scripts/figureEditingHarnessEntry.tsx');await mountEditingHarness('crop');
+ });
+ await page.waitForFunction(()=>document.querySelectorAll('[data-crop-kind="inner-figure"]').length===2);
+ assert(await page.evaluate(()=>window.__detectCalls===2),'StrictMode detects each question once and shows two inner figures');
+ assert(await page.$eval('[data-crop-kind="inner-figure"]',e=>getComputedStyle(e).borderColor)==='rgb(234, 88, 12)','Inner figure boxes use orange borders');
+ await page.click('[data-crop-id="question-1"]');
+ await page.click('[data-crop-kind="inner-figure"]');
+ assert(await page.$eval('[data-crop-kind="inner-figure"]',e=>e.getAttribute('aria-pressed'))==='true','Inner figure remains selectable above its selected parent');
+ const before=await page.evaluate(async()=>{const{s}= {s:(await import('/src/stores/wizardStore.ts')).useWizardStore};return s.getState().pages[0].cropBoxes[0].figureCrops[0].bbox;});
+ const target=await page.$('[data-crop-kind="inner-figure"]');const rect=await target.boundingBox();
+ await page.mouse.move(rect.x+40,rect.y+40);await page.mouse.down();await page.mouse.move(rect.x+70,rect.y+55,{steps:5});await page.mouse.up();
+ const after=await page.evaluate(async()=>{const{s}= {s:(await import('/src/stores/wizardStore.ts')).useWizardStore};return s.getState().pages[0].cropBoxes[0].figureCrops[0].bbox;});
+ assert(after[0]>before[0]&&after[1]>before[1],'Dragging an inner figure persists edited coordinates');
+ await fs.mkdir('.checks.local',{recursive:true});await page.screenshot({path:'.checks.local/inner-figure-crop.png'});
+ await page.evaluate(async()=>{const{mountEditingHarness}=await import('/scripts/figureEditingHarnessEntry.tsx');await mountEditingHarness('ocr');});
+ await page.waitForSelector('[aria-label="문제 편집"]');await page.click('[aria-label="문제 편집"]');
+ await page.waitForSelector('[aria-label="수식 삽입"]');
+ assert(await page.$$eval('#editing-harness img',els=>els.some(e=>e.src.startsWith('data:image/svg'))),'Edit preview includes the diagram instead of a raw marker');
+ const textarea=await page.$('textarea[aria-label="문제 본문 (Markdown + LaTeX)"]');
+ await textarea.focus();await page.keyboard.down('Control');await page.keyboard.press('Home');await page.keyboard.up('Control');
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="수식 삽입"] button')].find(b=>b.textContent==='분수').click());
+ assert((await textarea.evaluate(e=>e.value)).startsWith('$\\frac{□}{□}$'),'Fraction input inserts LaTeX at the caret');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='그림 편집').click());
+ await page.waitForSelector('[aria-label="도형 1 편집기"]');
+ assert(await page.$eval('#figure-editor-canvas',e=>Math.abs(e.getBoundingClientRect().width-e.querySelector('svg').getBoundingClientRect().width)<1),'Editor SVG fills its canvas without the document figure size cap');
+ const n=await page.$$eval('#figure-editor-canvas [data-object-id]',els=>els.length);
+ assert(n===3,'Editor exposes line and text objects from engine SVG');
+ await page.click('#figure-editor-canvas text');await page.waitForSelector('[aria-label="선택한 도형 글자"]');
+ await page.$eval('[aria-label="선택한 도형 글자"]',e=>e.select());await page.type('[aria-label="선택한 도형 글자"]','Z');
+ assert(await page.$eval('#figure-editor-canvas text',e=>e.textContent)==='Z','Text labels can be edited directly');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('되돌리기')).click());
+ assert(await page.$eval('#figure-editor-canvas text',e=>e.textContent)==='A','Undo restores the previous figure');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('다시 실행')).click());
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="도형 편집 도구"] button')].find(b=>b.textContent.trim()==='○원').click());
+ const surface=await page.$('#figure-editor-canvas');const area=await surface.boundingBox();
+ await page.mouse.move(area.x+350,area.y+250);await page.mouse.down();await page.mouse.move(area.x+395,area.y+295,{steps:4});await page.mouse.up();
+ assert(await page.$$eval('#figure-editor-canvas circle',els=>els.length)===1,'Users can draw a new circle on the vector canvas');
+ await page.waitForSelector('[aria-label="반지름"]');
+ await page.$eval('[aria-label="반지름"]',e=>e.select());await page.type('[aria-label="반지름"]','25');
+ assert(await page.$eval('#figure-editor-canvas circle',e=>e.getAttribute('r'))==='25','Numeric geometry controls resize the selected circle');
+ await page.evaluate(()=>[...document.querySelectorAll('label')].find(l=>l.textContent==='점선').querySelector('input').click());
+ assert(await page.$eval('#figure-editor-canvas circle',e=>e.getAttribute('stroke-dasharray'))==='5 4','Selected objects support dashed strokes');
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="도형 편집 도구"] button')].find(b=>b.textContent==='삭제').click());
+ assert(await page.$$eval('#figure-editor-canvas circle',els=>els.length)===0,'Delete removes only the selected object');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.includes('되돌리기')).click());
+ await page.screenshot({path:'.checks.local/figure-editor.png'});
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='도형 적용').click());
+ await page.waitForFunction(()=>!document.querySelector('[aria-label="도형 1 편집기"]'));
+ await page.evaluate(()=>[...document.querySelectorAll('#editing-harness button')].find(b=>b.textContent.trim()==='저장').click());
+ assert(await page.evaluate(async()=>{const{s}= {s:(await import('/src/stores/wizardStore.ts')).useWizardStore};const svg=s.getState().pages[0].ocrResult[0].images[0].engineSvg;return svg.includes('>Z</text>')&&svg.includes('<circle');}),'Applying and saving preserves edited SVG in the question');
+ assert(errors.length===0,'No browser runtime errors');
+ console.log(`${checks.length} editing checks passed`);
+}finally{await browser.close();}

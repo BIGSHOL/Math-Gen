@@ -7,8 +7,11 @@ from engine_path import ensure_on_path
 ensure_on_path()
 import elementary
 from core.figure_scene import compile_figure_spec
+from graph_scene import CONTRACT
 
 catalog = {
+    'graph-1': CONTRACT,
+    'curveGraph_contract': 'curves quadratic uses {type:"quadratic",a,p,q,label?} for y=a(x-p)^2+q, NEVER b/c; inverse uses {type:"inverse",k,label?}. lines uses slope/yIntercept/label and cannot be horizontal; marks is [[x,y],...] integers on graph. For annotated curves, horizontal segments, inscribed shapes or custom labels use graph-1 instead.',
     'v2': inspect.getdoc(compile_figure_spec),
     'v2_example': {
         'version': 2,

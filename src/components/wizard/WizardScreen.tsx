@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { figureDetectionReady } from "@app/lib/figureCrops";
 import {
   Btn,
   Card,
@@ -186,7 +187,7 @@ export const WizardScreen = () => {
   const allCropInspected = problemPageList.every((p) => p.cropInspected);
   // 검출이 끝난(=결과가 있고 진행 중 아님) 상태여야 검토 완료 가능.
   const allCropDetected = problemPageList.every(
-    (p) => p.cropBoxes !== undefined && !p.cropDetectInflight,
+    (p) => p.cropBoxes !== undefined && !p.cropDetectInflight && p.cropBoxes.every(figureDetectionReady),
   );
   // 해설(step 3): 적격 문항(text 있고 bodyMissing 아님)의 해설이 *모두 끝났는지*
   // (solution 또는 solutionError). 생성 중이면 false → 스킵 허용. 모두 끝나면
@@ -202,7 +203,7 @@ export const WizardScreen = () => {
       case 0:
         return pages.length > 0;
       case 1:
-        return allCropInspected;
+        return allCropInspected && allCropDetected;
       case 2:
         // 확인 후 페이지 재OCR 로 미완료가 생기면 재차단 (allProblemOcrDone).
         return ocrConfirmed && allProblemOcrDone;
@@ -237,7 +238,7 @@ export const WizardScreen = () => {
     : step === 0
       ? "PDF를 먼저 업로드해주세요"
       : step === 1 && !allCropDetected
-        ? "문항 검출이 끝나면 진행할 수 있어요"
+        ? "문제와 내부 그림 검출이 끝나면 진행할 수 있어요"
         : step === 2 && !allProblemOcrDone
           ? "모든 페이지 OCR 완료 후 진행할 수 있어요"
           : undefined;
@@ -254,7 +255,7 @@ export const WizardScreen = () => {
       // 검출이 모두 끝나면 needsCropConfirm 분기로 footer 버튼이 곧 검토 완료
       // 버튼 — 체크리스트 불필요. 검출 진행 중인 페이지만 안내.
       const detecting = problemPages.filter(
-        ({ p }) => p.cropBoxes === undefined || p.cropDetectInflight,
+        ({ p }) => p.cropBoxes === undefined || p.cropDetectInflight || p.cropBoxes.some(b => !figureDetectionReady(b)),
       );
       if (detecting.length > 0) {
         return `문항 검출이 끝나야 진행할 수 있어요:\n${detecting

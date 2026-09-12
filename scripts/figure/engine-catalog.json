@@ -1,4 +1,102 @@
 {
+  "graph-1": {
+    "version": "graph-1",
+    "coordinates": "Mathematical x right, y UP. Explicit xRange/yRange, each [min,max]. No eval/code.",
+    "fields": {
+      "xRange": "required [min,max]",
+      "yRange": "required [min,max]",
+      "width": "optional 240..640 default 520",
+      "height": "optional 200..640 default 460",
+      "axes": "optional boolean default true; arrows + x,y labels only, NO automatic ticks or O label",
+      "curves": "list of {coefficients:[a,b,c,...],domain:[xmin,xmax]} for polynomial a*x^n+b*x^(n-1)+...; OR {type:\"inverse\",k:number,domain:[xmin,xmax]}; optional dashed:boolean",
+      "segments": "list of {from:[x,y],to:[x,y],dashed?:boolean,arrow?:boolean}; finite visible segments only",
+      "polygons": "list of {points:[[x,y],...],fill?:\"#eeeeee\",dashed?:boolean}; optional shading",
+      "circles": "list of {center:[x,y],radius:number,dashed?:boolean}",
+      "labels": "list of {at:[x,y],text:string,dx?:pixels,dy?:pixels,size?:pixels,anchor?:\"start\"|\"middle\"|\"end\"}; only printed labels; math can use $...$ LaTeX and is typeset as vector glyphs"
+    },
+    "example": {
+      "version": "graph-1",
+      "xRange": [
+        -4,
+        4
+      ],
+      "yRange": [
+        -2,
+        11
+      ],
+      "curves": [
+        {
+          "coefficients": [
+            -1,
+            0,
+            9
+          ],
+          "domain": [
+            -3.4,
+            3.4
+          ]
+        }
+      ],
+      "segments": [
+        {
+          "from": [
+            -2,
+            5
+          ],
+          "to": [
+            2,
+            5
+          ]
+        }
+      ],
+      "labels": [
+        {
+          "at": [
+            0,
+            9
+          ],
+          "text": "9",
+          "dx": -16,
+          "dy": -3
+        },
+        {
+          "at": [
+            -3,
+            0
+          ],
+          "text": "−3",
+          "dy": 22
+        },
+        {
+          "at": [
+            3,
+            0
+          ],
+          "text": "3",
+          "dy": 22
+        },
+        {
+          "at": [
+            0,
+            0
+          ],
+          "text": "O",
+          "dx": -16,
+          "dy": 22
+        },
+        {
+          "at": [
+            1.5,
+            9
+          ],
+          "text": "y = 9 − x²",
+          "dx": 22,
+          "dy": -8
+        }
+      ]
+    }
+  },
+  "curveGraph_contract": "curves quadratic uses {type:\"quadratic\",a,p,q,label?} for y=a(x-p)^2+q, NEVER b/c; inverse uses {type:\"inverse\",k,label?}. lines uses slope/yIntercept/label and cannot be horizontal; marks is [[x,y],...] integers on graph. For annotated curves, horizontal segments, inscribed shapes or custom labels use graph-1 instead.",
   "v2": "Compile a strict declarative v2 FigureSpec mapping.\n\nSupported construction objects are deliberately small and deterministic::\n\n    {\n      \"version\": 2,\n      \"theme\": \"exam-thin\",\n      \"points\": {\n        \"O\": {\"type\": \"raw\", \"x\": 94, \"y\": 78},\n        \"A\": {\"type\": \"on_circle\", \"circle\": \"omega\", \"angle\": 130},\n        \"P\": {\"type\": \"intersection\", \"segments\": [\"AC\", \"BD\"]}\n      },\n      \"circles\": {\"omega\": {\"center\": \"O\", \"radius\": 68}},\n      \"segments\": {\"AC\": [\"A\", \"C\"], \"BD\": [\"B\", \"D\"]},\n      \"angles\": {\"x\": {\"vertex\": \"P\", \"points\": [\"D\", \"C\"],\n                          \"label\": \"x°\"}},\n\nMark grammar (합동·평행·직각 표기)::\n\n    \"segments\": {\n      \"AB\": [\"A\", \"B\"],                              // 기존 배열형 그대로\n      \"AC\": {\"points\": [\"A\", \"C\"], \"ticks\": 2},      // 같음 표시 1~3\n      \"l1\": {\"points\": [\"P\", \"Q\"], \"parallel\": 1}    // 평행 » 1~2 (p1→p2 방향)\n    },\n    \"angles\": {\n      \"a\": {\"vertex\": \"C\", \"points\": [\"A\", \"D\"], \"arcs\": 2},   // 이중 호\n      \"r\": {\"vertex\": \"T\", \"points\": [\"O\", \"P\"], \"right\": true} // 직각기호\n    }\n\n``right: true`` replaces the arc with the small square (호와 함께 못 쓴다)\nand doubles as a check — the rays must actually be perpendicular.\n      \"dimensions\": {\"AC_len\": {\"points\": [\"A\", \"C\"],\n                                   \"label\": \"12 cm\", \"side\": \"auto\"}},\n      \"labels\": {\"A\": \"A\", \"B\": \"B\"}\n    }\n\nShaded-region figures add ``arcs`` (stroked arc pieces), ``regions``\n(light fills bounded by a closed seg/arc chain), and construction circles\nwith ``draw: false``::\n\n    {\n      \"circles\": {\"c\": {\"center\": \"O\", \"radius\": 60, \"draw\": false}},\n      \"arcs\": {\"arcAB\": {\"circle\": \"c\", \"from\": \"A\", \"to\": \"B\",\n                         \"dir\": \"ccw\"}},\n      \"regions\": {\"shade\": {\"boundary\": [\n          {\"seg\": [\"O\", \"A\"]},\n          {\"arc\": {\"circle\": \"c\", \"from\": \"A\", \"to\": \"B\", \"dir\": \"ccw\"}},\n          {\"seg\": [\"B\", \"O\"]}],\n        \"fill\": \"#f2d5c8\"}}\n    }\n\nRegion boundaries must connect end-to-start by point name and close; a\nbroken chain raises.  Fills must be light (:data:`REGION_MIN_LUMINANCE`).\nUnknown fields and references are errors; no placeholder geometry is made.",
   "v2_example": {
     "version": 2,

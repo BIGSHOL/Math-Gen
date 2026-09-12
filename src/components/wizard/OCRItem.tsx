@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MathTextEditor } from "@app/components/math/MathTextEditor";
+import { FigureEditor } from "@app/components/math/FigureEditor";
+import { DiagramCropOverlay } from "./DiagramCropOverlay";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
 import MarkdownRenderer, {
   type DiagramSvgItem,
@@ -19,7 +22,6 @@ import {
 } from "@app/stores/wizardStore";
 import { cn } from "@app/lib/tailwind";
 import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
-import { DiagramFallbackPanel } from "./DiagramFallbackPanel";
 
 /**
  * Step 2 — a single extracted problem card.
@@ -246,10 +248,12 @@ export const OCRItem = ({
   const [draftText, setDraftText] = useState(item.text);
   const [draftNumber, setDraftNumber] = useState(String(item.number));
   const [draftTopic, setDraftTopic] = useState(item.topic ?? "");
+  const [draftImages, setDraftImages] = useState(item.images);
+  const [figureEditor, setFigureEditor] = useState<number | null>(null);
+  const [cropEditor, setCropEditor] = useState<number | null>(null);
 
-  // Phase #12/#13: "원본 보기" toggle — true 일 때 사용자 크롭 / AI 생성 무시,
-  // 원본 (ai-crop bbox) 만 표시. DiagramFallbackPanel 이 setShowOriginal 호출.
-  const [showOriginal, setShowOriginal] = useState(false);
+  // 재작도를 기본 표시하고 별도 원본 비교/편집에서 크롭을 함께 보여준다.
+  const showOriginal = false;
 
   // ai-crop freeze — 편집 가능(Step2, !readonly) + persisted test 일 때만. Detail
   // (readonly) 의 OCRItem 은 useDetailData 기반이라 updateOCRItem 이 no-op → canPersist
@@ -316,6 +320,7 @@ export const OCRItem = ({
     setDraftText(item.text);
     setDraftNumber(String(item.number));
     setDraftTopic(item.topic ?? "");
+    setDraftImages(item.images);
     setEditing(true);
   };
 
@@ -329,11 +334,26 @@ export const OCRItem = ({
       topic: draftTopic.trim() || undefined,
       status: "ok",
       reviewed: true,
+      images: draftImages,
+      ...(draftImages !== item.images ? { diagramParams: undefined, figureWarnings: undefined,
+        figures: draftImages?.map(im => ({ box: im.box, label: im.label, kind: "crop" as const })) } : {}),
     });
     setEditing(false);
   };
 
   const isWarn = item.status === "warn" && !item.reviewed;
+  const editableImages = editing ? draftImages : item.images;
+  const imageForEdit = (index: number) => {
+    const image = editableImages?.[index];
+    return image ? { ...image, dataUrl: image.dataUrl ?? crops[index]?.src,
+      engineSvg: image.engineSvg ?? (draftImages === item.images ? vectorDiagrams?.[index]?.svg : undefined) } : undefined;
+  };
+  const updateFigure = (index: number, image: NonNullable<typeof item.images>[number]) => {
+    const images = [...(editableImages ?? [])]; images[index] = image;
+    if (editing) setDraftImages(images);
+    else updateOCRItem(pageId, item.id, { images, diagramParams: undefined, figureWarnings: undefined,
+      figures: images.map(im => ({ box: im.box, label: im.label, kind: "crop" })) });
+  };
 
   return (
     <Card
@@ -434,15 +454,12 @@ export const OCRItem = ({
 
       {editing ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <textarea
-            value={draftText}
-            onChange={(e) => setDraftText(e.target.value)}
-            className="min-h-[140px] px-3 py-2 rounded-r2 border border-line-strong bg-surface text-body font-mono leading-relaxed resize-y focus:outline-none focus:border-accent focus:shadow-accent-glow"
-            spellCheck={false}
-            aria-label="문제 본문 (Markdown + LaTeX)"
-          />
+          <MathTextEditor value={draftText} onChange={setDraftText} />
           <div className="min-h-[140px] px-3 py-2 rounded-r2 border border-line bg-surface2 overflow-auto">
-            <MarkdownRenderer content={draftText} />
+            <p className="text-caption text-muted mb-2">미리보기</p>
+            <MarkdownRenderer content={draftText} choicesLayout={item.choicesLayout}
+              diagramSvgs={draftImages === item.images ? vectorDiagrams : undefined}
+              imageCrops={draftImages?.map((im, i) => ({ src: im.dataUrl ?? crops[i]?.src ?? "", label: im.label, box: im.box }))} />
           </div>
         </div>
       ) : (
@@ -568,20 +585,20 @@ export const OCRItem = ({
         );
       })()}
 
-      {/* DiagramFallbackPanel — 도형 액션 toolbar (박스 편집 / AI 생성 / 원본 toggle) */}
-      {!editing && !readonly && (item.images || hasMarker(item.text)) && (
-        <DiagramFallbackPanel
-          item={item}
-          pageImageDataUrl={pageImageDataUrl ?? null}
-          testId={testId ?? null}
-          hasValidVector={!!vectorDiagrams}
-          showOriginal={showOriginal}
-          onToggleOriginal={setShowOriginal}
-          onUpdateImages={(next) =>
-            updateOCRItem(pageId, item.id, { images: next })
-          }
-        />
-      )}
+      {!readonly && !!editableImages?.length && <div className="mt-3 pt-3 border-t border-line space-y-2">
+        <p className="text-small font-semibold text-orange-800">도형 수정</p>
+        {editableImages.map((im, index) => <div key={index} className="flex items-center gap-3 rounded-r2 border border-orange-200 bg-orange-50/40 px-3 py-2">
+          {editing && <img src={im.dataUrl ?? crops[index]?.src} alt={`편집할 도형 ${index + 1}`} className="w-20 h-16 object-contain bg-white" />}
+          <span className="text-small">도형 {index + 1}</span>
+          <div className="ml-auto flex gap-1"><Btn kind="ghost" size="sm" icon="crop" disabled={!pageImageDataUrl} onClick={() => setCropEditor(index)}>영역 수정</Btn>
+            <Btn kind="ghost" size="sm" icon="pencil-simple" onClick={() => setFigureEditor(index)}>그림 편집</Btn></div>
+        </div>)}
+      </div>}
+      {figureEditor !== null && imageForEdit(figureEditor) && <FigureEditor image={imageForEdit(figureEditor)!} index={figureEditor}
+        onSave={image => updateFigure(figureEditor, image)} onClose={() => setFigureEditor(null)} />}
+      {cropEditor !== null && imageForEdit(cropEditor) && <DiagramCropOverlay open pageImageDataUrl={pageImageDataUrl ?? null}
+        initialImage={imageForEdit(cropEditor)!} imageIndex={cropEditor} totalImages={editableImages?.length ?? 1}
+        onSave={image => updateFigure(cropEditor, image)} onClose={() => setCropEditor(null)} />}
 
       {isWarn && !editing && (
         <div className="mt-2.5 px-2.5 py-2 rounded-r1 bg-warn-soft text-warn-ink flex items-center gap-1.5 text-small">

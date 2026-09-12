@@ -1311,11 +1311,9 @@ const extractPageProblemsViaApi = async (
   const { signal, ...body } = input;
   // Phase B — Authorization Bearer 첨부 → server-side 가 user_id 추출 → ai_usage
   // 에 정확한 user/tenant 기록. 로그인 안 됐으면 token null → anon 으로 진행.
-  const { currentAccessToken } = await import("../api/supabase.js");
-  const token = await currentAccessToken();
+  const { fetchWithAuth } = await import("../api/supabase.js");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch("/api/ai-ocr", {
+  const res = await fetchWithAuth("/api/ai-ocr", {
     method: "POST",
     headers,
     body: JSON.stringify(body),

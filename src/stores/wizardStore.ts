@@ -5,6 +5,7 @@ import type { ContentBlock, ChoiceGroup, SubQuestion } from "@app/types/ocrBlock
 import type { GradeKey } from "@app/services/ai/mathDefense";
 import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
 import type { FontPackId } from "@app/lib/printFontPacks";
+import { fitFigureCrops } from "@app/lib/figureCrops";
 
 /**
  * 5-step Wizard state.
@@ -162,6 +163,15 @@ export const DEFAULT_EXPORT_FILENAME = "변형시험지";
  *              AI 결과를 편집 (bbox 또는 class 변경 시 "ai"→"edited" 자동 전환).
  *  - number  : 인쇄된 문항 번호 — Pass 2 결과 merge 시 OCRProblem.number 매칭 key.
  */
+export interface FigureCrop {
+  id: string;
+  /** 문제에 속한 내부 그림. 좌표는 회전된 전체 페이지 기준. */
+  bbox: [number, number, number, number];
+  kind: "diagram" | "table" | "artwork";
+  label: string;
+  source: "ai" | "user" | "edited";
+}
+
 export interface CropBox {
   id: string;
   /**
@@ -188,6 +198,9 @@ export interface CropBox {
   verified: boolean;
   source: "ai" | "user" | "edited";
   number?: number;
+  /** undefined = 아직 검출 전, [] = 그림 없음(사용자 삭제 포함). */
+  figureCrops?: FigureCrop[];
+  figureDetectError?: string;
 }
 
 export interface WizardPage {
@@ -783,6 +796,9 @@ export const useWizardStore = create<WizardState>()(
                       : {
                           ...b,
                           ...patch,
+                          ...(patch.bbox && b.figureCrops ? {
+                            figureCrops: fitFigureCrops(patch.figureCrops ?? b.figureCrops, patch.bbox),
+                          } : {}),
                           // bbox/class 편집 시 source 자동 전환 (ai → edited).
                           source:
                             b.source === "ai" && (patch.bbox || patch.class)

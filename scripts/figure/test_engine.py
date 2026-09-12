@@ -55,6 +55,24 @@ class EngineTests(unittest.TestCase):
     def test_oversized_input_is_rejected(self):
         with self.assertRaises(ValueError): render({'version':2,'extra':'x'*65536})
 
+    def test_annotated_parabola_with_finite_horizontal_segment(self):
+        from graph_scene import CONTRACT
+        svg = self.check_svg(CONTRACT['example'])
+        self.assertIn('y = 9', svg)
+        self.assertIn('−3', svg)
+        self.assertGreater(svg.count('<line'), 2)
+        self.assertNotIn('<marker', svg)
+
+    def test_graph_rejects_nonfinite_coordinates_and_escapes_labels(self):
+        from graph_scene import CONTRACT
+        spec = copy.deepcopy(CONTRACT['example'])
+        spec['curves'][0]['coefficients'] = [float('nan')]
+        with self.assertRaises(ValueError): render(spec)
+        spec = copy.deepcopy(CONTRACT['example'])
+        spec['labels'][0]['text'] = '<script>alert(1)</script>'
+        svg = self.check_svg(spec)
+        self.assertNotIn('<script>', svg)
+
     def test_no_code_or_external_image_escape(self):
         with self.assertRaises(ValueError): render({'version':2,'svg':'<script>alert(1)</script>'})
 

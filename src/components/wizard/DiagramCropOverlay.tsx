@@ -45,7 +45,7 @@ export interface DiagramCropOverlayProps {
   onClose: () => void;
 }
 
-const STORAGE_CROP_MARGIN = 0.04;
+const STORAGE_CROP_MARGIN = 0;
 
 export const DiagramCropOverlay = ({
   open,
@@ -117,6 +117,11 @@ export const DiagramCropOverlay = ({
         box: box.bbox,
         source: "user-crop",
         dataUrl,
+        originalDataUrl: dataUrl,
+        engineSvg: undefined,
+        engineSpec: undefined,
+        engineModel: undefined,
+        storagePath: undefined,
         // user-crop 는 ai-gen 필드 strip
         url: undefined,
         prompt: undefined,

@@ -32,8 +32,10 @@ class handler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(request, timeout=10) as response:
                 if not json.load(response).get('id'):
                     return self.reply(401, {'error': '로그인이 필요합니다.'})
-        except urllib.error.HTTPError:
-            return self.reply(401, {'error': '로그인이 필요합니다.'})
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                return self.reply(401, {'error': '로그인이 필요합니다.'})
+            return self.reply(503, {'error': '인증 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.'})
         except Exception:
             return self.reply(503, {'error': '인증 서버에 연결하지 못했습니다.'})
         try:

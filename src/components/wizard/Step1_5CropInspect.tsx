@@ -18,6 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, Eyebrow, Icon } from "@app/components/ui";
 import { useWizardStore } from "@app/stores/wizardStore";
 import type { CropBox } from "@app/stores/wizardStore";
+import { useFigureCropDetect } from "@app/hooks/useFigureCropDetect";
+import { figureDetectionReady, intersectFigureBox } from "@app/lib/figureCrops";
 
 import { CropEditTools, type CropTool } from "./CropEditTools";
 import { EditableCropBox } from "./EditableCropBox";
@@ -116,6 +118,7 @@ const useDrawNewBox = ({
         bbox: [yMin, xMin, yMax, xMax],
         verified: false,
         source: "user",
+        number: Math.max(0, ...useWizardStore.getState().pages.flatMap(p => p.cropBoxes ?? []).filter(b => b.class === "problem").map(b => b.number ?? 0)) + 1,
       });
     };
     window.addEventListener("pointermove", handleMove);
@@ -139,9 +142,11 @@ export const Step1_5CropInspect = () => {
   const deleteCropBox = useWizardStore((s) => s.deleteCropBox);
 
   useCropDetect(); // mount → 자동 검출 시작
+  useFigureCropDetect();
 
   const [tool, setTool] = useState<CropTool>("select");
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
+  const [addKind, setAddKind] = useState<"problem" | "figure">("problem");
 
   const activePage = pages[activeIndex];
   // 페이지 전환 시 url 이 즉시 null + loading=true 로 리셋 → 로딩 중엔 크롭
@@ -217,7 +222,18 @@ export const Step1_5CropInspect = () => {
     pageWidth: containerSize.width,
     pageHeight: containerSize.height,
     enabled: tool === "create" && Boolean(activePage),
-    addCropBox,
+    addCropBox: (pageId, next) => {
+      if (addKind === "problem") { addCropBox(pageId, next); return; }
+      const parent = activePage?.cropBoxes?.find(b => b.class === "problem" && b.id === selectedBoxId)
+        ?? activePage?.cropBoxes?.find(b => b.class === "problem" && next.bbox[0] >= b.bbox[0]
+          && next.bbox[1] >= b.bbox[1] && next.bbox[2] <= b.bbox[2] && next.bbox[3] <= b.bbox[3]);
+      if (!parent) return;
+      const bbox = intersectFigureBox(next.bbox, parent.bbox);
+      if (!bbox) return;
+      updateCropBox(pageId, parent.id, { figureDetectError: undefined, figureCrops: [...(parent.figureCrops ?? []), {
+        id: crypto.randomUUID(), bbox, kind: "diagram", label: "도형", source: "user",
+      }] });
+    },
   });
 
   // 통계 — 전체 페이지 진행 상태 + 총 검출 문항.
@@ -242,6 +258,9 @@ export const Step1_5CropInspect = () => {
   }
 
   const boxes = activePage.cropBoxes ?? [];
+  const problemBoxes = boxes.filter(b => b.class === "problem");
+  const pendingFigures = problemBoxes.filter(b => !figureDetectionReady(b)).length;
+  const figureCount = problemBoxes.reduce((sum, b) => sum + (b.figureCrops?.length ?? 0), 0);
 
   return (
     // px-6 py-5 — 다른 단계(Step2OCRReview)와 동일한 바깥 여백. 없으면 좌측
@@ -288,7 +307,7 @@ export const Step1_5CropInspect = () => {
           ) : activePage.cropBoxes ? (
             <span className="inline-flex items-center gap-1 text-caption text-muted">
               <Icon name="check-circle" size={12} weight="fill" className="text-ok" />
-              박스 {boxes.length}개 검출
+              문제 {problemBoxes.length}개 · 내부 그림 {figureCount}개
             </span>
           ) : null}
         </div>
@@ -411,6 +430,23 @@ export const Step1_5CropInspect = () => {
                     }}
                   />
                 ))}
+              {containerSize.width > 0 && problemBoxes.flatMap(parent => (parent.figureCrops ?? []).map((figure, index) => (
+                <EditableCropBox key={figure.id}
+                  box={{ id: figure.id, class: figure.kind === "diagram" ? "figure" : figure.kind, bbox: figure.bbox, source: figure.source, verified: false }}
+                  label={`${figure.kind === "table" ? "표" : figure.kind === "artwork" ? "이미지" : "도형"} ${index + 1}`}
+                  bounds={parent.bbox} nested
+                  pageWidth={containerSize.width} pageHeight={containerSize.height} currentTool={tool}
+                  selected={selectedBoxId === figure.id} onSelect={setSelectedBoxId}
+                  onUpdate={(id, patch) => {
+                    const current = useWizardStore.getState().pages.find(p => p.id === activePage.id)?.cropBoxes?.find(b => b.id === parent.id);
+                    if (current) updateCropBox(activePage.id, parent.id, { figureCrops: current.figureCrops?.map(f => f.id === id ? { ...f, bbox: patch.bbox ?? f.bbox, source: "edited" } : f) });
+                  }}
+                  onDelete={id => {
+                    updateCropBox(activePage.id, parent.id, { figureCrops: parent.figureCrops?.filter(f => f.id !== id) });
+                    setSelectedBoxId(null);
+                  }}
+                />
+              )))}
               {/* 신규 박스 drag 프리뷰 */}
               {preview && (
                 <div
@@ -420,8 +456,8 @@ export const Step1_5CropInspect = () => {
                     left: preview.left,
                     width: preview.width,
                     height: preview.height,
-                    border: "2px dashed #0EA5E9",
-                    background: "rgba(14,165,233,0.1)",
+                    border: `2px dashed ${addKind === "figure" ? "#EA580C" : "#0EA5E9"}`,
+                    background: addKind === "figure" ? "rgba(249,115,22,0.1)" : "rgba(14,165,233,0.1)",
                     pointerEvents: "none",
                   }}
                 />
@@ -443,6 +479,39 @@ export const Step1_5CropInspect = () => {
       <aside className="w-[240px] flex-shrink-0 flex flex-col gap-3 pl-3 border-l border-line">
         <Eyebrow>편집 도구</Eyebrow>
         <CropEditTools currentTool={tool} onChangeTool={setTool} boxCount={boxes.length} />
+        <div className="flex gap-2 text-caption">
+          <span className="text-sky-600">▣ 문제 영역</span><span className="text-orange-600">▣ 내부 도형</span>
+        </div>
+        {tool === "create" && <div className="space-y-2">
+          <div className="flex gap-2">
+            {(["problem", "figure"] as const).map(kind => <button key={kind} type="button" aria-pressed={addKind === kind}
+              onClick={() => setAddKind(kind)} className={`flex-1 rounded border px-2 py-1 text-small ${addKind === kind ? "border-orange-500 bg-orange-50 text-orange-700" : "border-line"}`}>
+              {kind === "problem" ? "문제 추가" : "도형 추가"}
+            </button>)}
+          </div>
+          {addKind === "figure" && <p className="text-caption text-orange-700">문제 안에서 드래그해 도형 영역을 추가하세요.</p>}
+        </div>}
+        <div className="min-h-0 overflow-auto space-y-2 max-h-[40vh]">
+          {pendingFigures > 0 && <p role="status" className="text-small text-orange-700 flex items-center gap-2"><Icon name="circle-notch" className="animate-spin" /> 내부 그림 찾는 중 · {pendingFigures}문항</p>}
+          {problemBoxes.map(box => <div key={box.id} className="rounded-r2 border border-line bg-surface px-3 py-2">
+            <button type="button" className="text-small font-semibold" onClick={() => { setTool("select"); setSelectedBoxId(box.id); }}>{box.number ?? "?"}번 문제</button>
+            {selectedBoxId === box.id && <label className="ml-2 text-caption">번호 <input type="number" min={1} aria-label="크롭 문제 번호" value={box.number ?? ""}
+              onChange={e => { const number = Number(e.target.value); if (number > 0 && Number.isInteger(number)) updateCropBox(activePage.id, box.id, { number }); }}
+              className="w-12 rounded border border-line px-1" /></label>}
+            <div className="mt-1 flex flex-wrap gap-1">
+              {box.figureCrops?.map((figure, index) => <button key={figure.id} type="button"
+                onClick={() => { setTool("select"); setSelectedBoxId(figure.id); }}
+                className={`rounded px-2 py-1 text-caption border ${selectedBoxId === figure.id ? "border-orange-600 bg-orange-100" : "border-orange-200 bg-orange-50"} text-orange-800`}>
+                {figure.kind === "table" ? "표" : figure.kind === "artwork" ? "이미지" : "도형"} {index + 1}
+              </button>)}
+              {box.figureCrops?.length === 0 && <span className="text-caption text-muted">그림 없음</span>}
+            </div>
+            {box.figureDetectError && <p className="text-caption text-warn mt-1">그림 검출 실패: {box.figureDetectError}</p>}
+            {figureDetectionReady(box) && <button type="button" className="mt-1 text-caption text-muted underline"
+              onClick={() => updateCropBox(activePage.id, box.id, { figureCrops: undefined, figureDetectError: undefined })}>그림 다시 찾기</button>}
+          </div>)}
+        </div>
+        {!activePage.cropDetectInflight && boxes.length === 0 && <p className="text-caption text-warnInk">검출된 문항이 없습니다. 문제 페이지라면 ‘추가’로 영역을 지정하세요. 빈 페이지는 검토 완료 시 건너뜁니다.</p>}
 
         <Card pad={12} className="bg-surface2">
           <Eyebrow className="mb-2">진행 상태</Eyebrow>

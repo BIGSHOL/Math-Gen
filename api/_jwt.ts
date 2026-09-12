@@ -19,6 +19,7 @@ import { getServiceClient } from "./_supabase.js";
 export interface AuthContext {
   userId: string | null;
   tenantId: string | null;
+  unavailable?: boolean;
 }
 
 export interface RequiredAuthContext extends AuthContext {
@@ -46,7 +47,12 @@ export const resolveAuth = async (
 
   try {
     const { data, error } = await client.auth.getUser(jwt);
-    if (error || !data.user) return EMPTY_CONTEXT;
+    if (error) {
+      const status = error.status ?? 0;
+      console.warn(`[auth] verification failed: status=${status} code=${error.code ?? "unknown"}`);
+      return status === 429 || status >= 500 || status === 0 ? { ...EMPTY_CONTEXT, unavailable: true } : EMPTY_CONTEXT;
+    }
+    if (!data.user) return EMPTY_CONTEXT;
     const userId = data.user.id;
     // testchange의 기존 인증을 그대로 사용한다. MathGen 전용 profiles는 없는 스키마다.
     if (process.env.VITE_TESTCHANGE_ENABLED === 'true') return { userId, tenantId: null };
@@ -63,7 +69,7 @@ export const resolveAuth = async (
     };
   } catch {
     // JWT 만료 / 위조 등 — 인증 실패는 silent (anon 으로 진행).
-    return EMPTY_CONTEXT;
+    return { ...EMPTY_CONTEXT, unavailable: true };
   }
 };
 
@@ -76,6 +82,11 @@ export const requireAuth = async (
   res: VercelResponse,
 ): Promise<RequiredAuthContext | null> => {
   const auth = await resolveAuth(req);
+  if (auth.unavailable) {
+    res.setHeader("Retry-After", "3");
+    res.status(503).json({ error: "인증 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요." });
+    return null;
+  }
   if (!auth.userId) {
     res.status(401).json({ error: "로그인이 필요합니다." });
     return null;
