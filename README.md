@@ -60,7 +60,7 @@ PDF.js 수정 버전은 major 업데이트가 필요하므로 별도 호환성 �
 `todays-math`의 MathJax 조판기(`scripts/figure`)와 라벨 실측을 연결해 분수·루트·각도를 벡터로 출력한다.
 편집용 글자와 출력용 글리프를 분리하므로 조판 후에도 라벨을 수정할 수 있다.
 조판기 원본은 todays-math `1babaf20`의 `src/lib/figure/mathjaxLabel.ts`, `mathjaxSubstitute.ts`이며,
-이 프로젝트에서는 서버 import 확장자, Unicode 위첨자, 입력·캐시 상한을 추가했다.
+이 프로젝트에서는 서버 import 확장자, Unicode 위첨자, 수동 기울임, 입력·캐시 상한을 추가했다.
 
 첫 크롭 검수에서 내부 그림을 미리 검출해 주황색 ‘도형 1·2’ 박스로 표시한다.
 검수한 좌표는 OCR 이후 재작도에도 그대로 사용한다. 문제 수정 모드에는 수식 입력기와

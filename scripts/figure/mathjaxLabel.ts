@@ -82,7 +82,7 @@ function ensure(): void {
  * 홑 **소문자**(`x`·`a`·`l`)는 변수라 이탤릭 그대로 두고, 홑 **대문자**(`A`·`O`)는
  * **점 이름이라 정자체**로 돌린다 — 근거는 아래 주석에 실측으로 적었다.
  */
-function toTex(label: string): string {
+function toTex(label: string, italic = false): string {
   let text = label.trim().replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g,
     digits => `^{${[...digits].map(d => "⁰¹²³⁴⁵⁶⁷⁸⁹".indexOf(d)).join("")}}`);
   // `$…$` 로 감싼 것은 **「이건 수식이다」는 뜻**이다 — 아래 «점 이름은 정자체»
@@ -105,7 +105,7 @@ function toTex(label: string): string {
   //    `A`(정자체 145/153)·`B`·`C`·`D`·`O`(29/37) 가 **`EHsang-Plain`(정자체)**,
   //    소문자 `a`·`b`·`c`·`l`·`m`·`n`·`x`·`y` 는 **`EHsang-Italic`(이탤릭) 100%**.
   //    그래서 대문자만 정자체로 돌리고 소문자는 그대로 둔다.
-  const romanized = wasMath
+  const romanized = italic ? text : wasMath
     ? text.replace(/[A-Za-z]{2,}/g, (word) => `\\mathrm{${word}}`)
     : text.replace(/[A-Za-z]{2,}|[A-Z]/g, (word) => `\\mathrm{${word}}`);
   return romanized.replace(/ +/g, "\\,").replace(/°/g, "^\\circ ");
@@ -116,15 +116,16 @@ function toTex(label: string): string {
  * 라벨은 사람이 쓴 글이라 언제든 TeX 로 안 읽힐 수 있고, 그때 그림 하나가
  * 통째로 죽으면 안 된다(부르는 쪽이 옛 `<text>` 로 물러선다).
  */
-export function typesetLabel(label: string, bold = false): TypesetLabel | null {
+export function typesetLabel(label: string, bold = false, italic = false): TypesetLabel | null {
   if (CJK_RE.test(label)) return null;
   if (label.length > 300) return null;
-  const key = `${bold ? "1" : "0"}${label}`;
+  const key = `${bold ? "1" : "0"}${italic ? "1" : "0"}${label}`;
   if (cache.has(key)) return cache.get(key) ?? null;
   let result: TypesetLabel | null = null;
   try {
     ensure();
-    const tex = bold ? `\\boldsymbol{${toTex(label)}}` : toTex(label);
+    const styled = italic ? `\\mathit{${toTex(label, true)}}` : toTex(label);
+    const tex = bold ? `\\boldsymbol{${styled}}` : styled;
     const node = doc!.convert(tex, { display: false });
     const outer = adaptor!.outerHTML(adaptor!.firstChild(node) as never);
     const box = /viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/.exec(outer);

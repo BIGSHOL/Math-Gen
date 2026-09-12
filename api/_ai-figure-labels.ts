@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "도형 라벨 속성이 올바르지 않습니다." });
   }
   const svg = labels.map(l => {
-    const laid = typesetLabel(l.text, l.bold === true);
+    const laid = typesetLabel(l.text, l.bold === true, l.italic === true);
     return laid ? placeLabel(laid, l.text, l.x, l.y, l.size, l.color, l.halo,
       { anchor: l.anchor, centerY: l.centerY === true }) : null;
   });

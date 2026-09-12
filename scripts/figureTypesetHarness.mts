@@ -12,6 +12,8 @@ for (const text of ["A", "24 cm", "70°", "y = 9 − x²", String.raw`$\frac{\sq
 }
 assert.equal(typesetLabel("가로"), null);
 console.log("PASS Korean labels retain readable native text");
+assert.notEqual(typesetLabel("A", false, true)?.inner, typesetLabel("A")?.inner);
+console.log("PASS manual italic styling survives vector typesetting");
 const spec = { version: 2, labels: { A: "A", number: { text: "24 cm" } } };
 const measured = withLabelMetrics(spec) as typeof spec & { label_metrics: object };
 assert.equal(Object.keys(measured.label_metrics).length, 2);

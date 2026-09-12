@@ -18,6 +18,7 @@ export async function typesetFigureSvg(source: string, preserveObjectIds = false
     const entry = { text: node.getAttribute("data-mj") ?? node.textContent ?? "", x: Number(node.getAttribute("x") ?? 0), y: Number(node.getAttribute("y") ?? 0),
       size: Number(node.getAttribute("font-size") ?? 18), color: color(node.getAttribute("fill"), "#111111"),
       anchor: node.getAttribute("text-anchor") ?? "start", bold: weight === "bold" || Number(weight) >= 600,
+      italic: node.getAttribute("font-style") === "italic",
       centerY: ["middle", "central"].includes(node.getAttribute("dominant-baseline") ?? ""),
       ...(halo > 0 && node.getAttribute("stroke") !== "none" ? { halo: { color: color(node.getAttribute("stroke"), "#ffffff"), width: halo } } : {}),
     };
