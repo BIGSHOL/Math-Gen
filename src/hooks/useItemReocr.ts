@@ -1,11 +1,11 @@
-import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
-import { figuresForQuestionCrop, QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
+import { QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
+import { cancelItemFigures, completeQuestionFigures, remapQuestionFigures } from "@app/lib/ocrFigureProgress";
+import { withDeadline } from "@app/lib/deadline";
 import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useCallback, useState } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
-import { remapBoxToFullPage } from "@app/lib/figureBoxRemap";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
@@ -50,6 +50,8 @@ export const useItemReocr = () => {
       }
 
       setInflight((s) => new Set(s).add(key));
+      cancelItemFigures(page.id, item.id);
+      useWizardStore.getState().updateOCRItem(page.id, item.id, { figureProgress: undefined });
       try {
         // 1. 페이지 이미지 로드(IndexedDB → Storage fallback) + 회전.
         let dataUrl: string;
@@ -76,7 +78,8 @@ export const useItemReocr = () => {
         for (const model of chain) {
           try {
             const result = await withRetry(() =>
-              extractPageProblems({ pageBase64: crop, textLayer: "", model, crop: true }),
+              withDeadline(extractPageProblems({ pageBase64: crop, textLayer: "", model, crop: true }),
+                110_000, "문항 인식 응답이 지연되었습니다. 다시 시도해 주세요."),
             );
             matched = result.items.find((it) => it.number === item.number) ?? result.items[0] ?? null;
             modelUsed = model;
@@ -87,31 +90,31 @@ export const useItemReocr = () => {
         }
         if (!matched || !modelUsed) throw lastErr ?? new Error("문항 OCR 에 실패했습니다.");
 
-        matched = await redrawQuestionFigures(crop, matched, undefined, figuresForQuestionCrop(box));
-
         // 4. crop-local box → full-page 역변환(usePageOcr Pass 2 와 동일).
-        const remap = (b: [number, number, number, number]) =>
-          remapBoxToFullPage(b, box.bbox, CROP_MARGIN);
-        const newItem: OCRProblem = {
+        const local: OCRProblem = {
           ...matched,
           id: item.id, // React key·참조 보존
           number: item.number, // 검출 번호 강제(모델 오독 정정)
           reviewed: false, // 재인식했으니 재검토
           ocrModel: modelUsed,
-          images: matched.images?.map((im) => {
-            const { storagePath: _drop, ...rest } = im;
-            void _drop;
-            return { ...rest, box: remap(im.box) };
-          }),
-          figures: matched.figures?.map((f) => ({ ...f, box: remap(f.box) })),
+          figureProgress: "그림 확인 대기 중",
         };
+        const newItem = remapQuestionFigures(local, box);
 
         // 5. 그 항목만 교체(최신 store 기준 — stale 방지).
         const fresh = useWizardStore.getState().pages.find((p) => p.id === page.id);
+        const current = fresh?.ocrResult.find(it => it.id === item.id);
+        if (!current) return;
+        if (current.text !== item.text || current.images !== item.images || current.reviewed !== item.reviewed) {
+          showToast({ kind: "warn", message: "재인식 중 수정한 내용을 유지했습니다." });
+          return;
+        }
         const nextResult = (fresh?.ocrResult ?? []).map((it) =>
           it.id === item.id ? newItem : it,
         );
         setPageOCR(page.id, { ocrResult: nextResult });
+        await completeQuestionFigures(page.id, { crop, box, problem: local }, () =>
+          !useWizardStore.getState().pages.some(p => p.id === page.id && p.ocrResult.some(it => it.id === item.id)));
         showToast({ kind: "success", message: `${item.number}번 문항을 다시 인식했습니다.` });
       } catch (err) {
         showToast({ kind: "error", message: `재인식 실패 — ${friendlyError(err)}` });

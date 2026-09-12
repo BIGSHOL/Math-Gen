@@ -73,7 +73,10 @@ export const pLimitWithGap = (n: number, minGapMs: number) => {
 /** Heuristic: error message indicates a transient rate-limit / overload? */
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
-  return /429|529|503|502|rate|limit|quota|overloaded|temporarily|gateway|timeout/i.test(
+  if (err.name === "AbortError" || (err as { retryable?: boolean }).retryable === false) return false;
+  const status = (err as { status?: number }).status;
+  if (status) return status === 429 || status >= 500;
+  return /429|529|503|502|504|rate|limit|quota|overloaded|temporarily|gateway|timeout/i.test(
     err.message,
   );
 };

@@ -1,7 +1,11 @@
 import puppeteer from 'puppeteer-core';
+import { startBrowserFixture } from './browserFixture.mjs';
+const fixture = await startBrowserFixture({ '/src/services/api/supabase.ts': 'src/services/api/supabase.ts' }, {
+ VITE_SUPABASE_ENABLED: 'true', VITE_SUPABASE_URL: 'http://127.0.0.1:1', VITE_SUPABASE_ANON_KEY: 'test-fixture-key',
+});
 const browser=await puppeteer.launch({executablePath:process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
 try {
- const page=await browser.newPage();await page.goto(process.env.DEV_URL||'http://localhost:3005/',{waitUntil:'networkidle0'});
+ const page=await browser.newPage();await page.goto(fixture.url,{waitUntil:'networkidle0'});
  const results=await page.evaluate(async()=>{
   const {authClient,fetchWithAuth}=await import('/src/services/api/supabase.ts');
   const originalFetch=window.fetch, getSession=authClient.auth.getSession, refreshSession=authClient.auth.refreshSession;
@@ -21,4 +25,4 @@ try {
   return results;
  });
  results.forEach(r=>console.log('PASS',r));
-} finally {await browser.close();}
+} finally {await browser.close(); await fixture.close();}

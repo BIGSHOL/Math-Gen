@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ModalShell } from "@app/components/modal";
 import { Btn } from "@app/components/ui";
@@ -6,10 +6,11 @@ import type { OCRImage } from "@app/stores/wizardStore";
 import { redrawFigureCrop, svgDataUrl } from "@app/services/ai/figurePipeline";
 import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, removeFigureObject, fitFigureViewport } from "@app/lib/figureSvgEditing";
 import { typesetFigureSvg } from "@app/lib/figureTypeset";
+import { figureHandles, hitFigureObject, moveFigureHandle } from "@app/lib/figureHandles";
 
-type Tool = "select" | "line" | "arrow" | "curve" | "circle" | "rect" | "text";
+type Tool = "select" | "pan" | "line" | "arrow" | "curve" | "circle" | "rect" | "text";
 const TOOLS: { id: Tool; label: string; glyph: string }[] = [
-  { id: "select", label: "선택·이동", glyph: "↖" }, { id: "line", label: "선분", glyph: "╱" },
+  { id: "select", label: "선택·이동", glyph: "↖" }, { id: "pan", label: "화면 이동", glyph: "✋" }, { id: "line", label: "선분", glyph: "╱" },
   { id: "arrow", label: "화살표", glyph: "↗" },
   { id: "curve", label: "곡선", glyph: "⌒" }, { id: "circle", label: "원", glyph: "○" },
   { id: "rect", label: "사각형", glyph: "□" }, { id: "text", label: "글자", glyph: "T" },
@@ -32,14 +33,25 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [sourceOverlay, setSourceOverlay] = useState(false);
   const [history, setHistory] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
   const canvas = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ original: string; start: DOMPoint; transform: string; id?: string; inverse: DOMMatrix } | null>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const spaceDown = useRef(false);
+  const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const liveSvg = useRef(svg);
+  liveSvg.current = svg;
+  const [available, setAvailable] = useState({ width: 560, height: 520 });
+  const [selection, setSelection] = useState<{ matrix: DOMMatrix; bounds: DOMRect; scale: number } | null>(null);
+  const drag = useRef<{ original: string; start: DOMPoint; transform: string; id?: string; inverse: DOMMatrix;
+    handle?: string; bounds?: DOMRect; moved?: boolean } | null>(null);
   const original = image.originalDataUrl ?? (!image.dataUrl?.startsWith("data:image/svg") ? image.dataUrl : undefined);
   const objects = useMemo(() => figureObjects(svg), [svg]);
   const current = objects.find(o => o.id === selected);
+  const handles = useMemo(() => current ? figureHandles(current) : [], [current]);
   const curvePoints = current?.type === "path" && /^M[^A-Za-z]*Q[^A-Za-z]*$/i.test(current.attrs.d ?? "")
     ? current.attrs.d.match(/-?(?:\d*\.)?\d+/g)?.map(Number) : undefined;
   const viewBox = svg.match(/viewBox=["']([^"']+)/)?.[1].trim().split(/[\s,]+/).map(Number) ?? [0, 0, 480, 360];
   const ratio = viewBox[2] / viewBox[3] || 4 / 3;
+  const fittedWidth = Math.max(120, Math.min(available.width, available.height * ratio));
   const commit = (next: string) => {
     if (next === svg) return;
     setHistory(h => ({ past: [...h.past.slice(-59), svg], future: [] }));
@@ -55,19 +67,39 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   };
   const change = (attrs: Record<string, string>, text?: string) => { if (selected) commit(editFigureObject(svg, selected, attrs, text)); };
   const remove = () => { if (selected) { commit(removeFigureObject(svg, selected)); setSelected(null); } };
+  useLayoutEffect(() => {
+    const node = viewport.current; if (!node) return;
+    const observer = new ResizeObserver(() => setAvailable({ width: node.clientWidth - 48, height: node.clientHeight - 48 }));
+    observer.observe(node); return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const node = viewport.current; if (!node) return;
+    const wheel = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom(z => Math.max(0.3, Math.min(3, z * Math.exp(-e.deltaY * 0.002)))); } };
+    const release = () => { spaceDown.current = false; };
+    node.addEventListener("wheel", wheel, { passive: false });
+    window.addEventListener("keyup", release); window.addEventListener("blur", release);
+    return () => { node.removeEventListener("wheel", wheel); window.removeEventListener("keyup", release); window.removeEventListener("blur", release); };
+  }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea,select")) return;
+      if (busy) return;
+      if (e.code === "Space") { e.preventDefault(); spaceDown.current = true; }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+      const directions: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (selected && directions[e.key]) { e.preventDefault(); const [x, y] = directions[e.key], step = e.shiftKey ? 10 : 1;
+        change({ transform: `translate(${x * step} ${y * step}) ${current?.attrs.transform ?? ""}` }); }
     };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = canvas.current?.querySelector("svg");
-    if (root) { root.style.width = "100%"; root.style.height = "100%"; root.style.maxWidth = "none";
-      root.style.maxHeight = "none"; root.style.margin = "0"; root.style.display = "block"; }
-  }, [displaySvg]);
+    const node = root?.querySelector<SVGGraphicsElement>(`[data-object-id="${selected}"]`);
+    const rootMatrix = root?.getScreenCTM(), matrix = node?.getScreenCTM();
+    if (!rootMatrix || !matrix || !node) { setSelection(null); return; }
+    setSelection({ matrix: rootMatrix.inverse().multiply(matrix), bounds: node.getBBox(), scale: Math.hypot(rootMatrix.a, rootMatrix.b) });
+  }, [displaySvg, selected, zoom, available]);
   useEffect(() => {
     let active = true;
     setDisplaySvg(svg);
@@ -79,8 +111,9 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const point = (e: React.PointerEvent, inverse: DOMMatrix) => new DOMPoint(e.clientX, e.clientY).matrixTransform(inverse);
   const down = (e: React.PointerEvent) => {
     if (busy || e.button !== 0) return;
+    surface.current?.focus({ preventScroll: true });
     const root = canvas.current?.querySelector("svg"); if (!root) return;
-    const target = (e.target as Element).closest<SVGGraphicsElement>("[data-object-id]");
+    const target = (e.target as Element).closest<SVGGraphicsElement>("[data-object-id]") ?? hitFigureObject(root, e.clientX, e.clientY);
     const matrix = (tool === "select" && target ? (target.parentElement as unknown as SVGGraphicsElement).getScreenCTM?.() : root.getScreenCTM()) ?? root.getScreenCTM();
     if (!matrix) return;
     const inverse = matrix.inverse(); const start = point(e, inverse);
@@ -92,20 +125,48 @@ export function FigureEditor({ image, index, onSave, onClose }: {
       const result = addFigureObject(svg, "text", start, start, label);
       commit(result.svg); setSelected(result.id); setTool("select"); return;
     } else { drag.current = { original: svg, start, inverse, transform: "" }; }
-    e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault(); surface.current?.setPointerCapture(e.pointerId);
+  };
+  const handleDown = (e: React.PointerEvent, handle: string) => {
+    if (busy || e.button !== 0 || !selected || !selection) return;
+    surface.current?.focus({ preventScroll: true });
+    const node = canvas.current?.querySelector<SVGGraphicsElement>(`[data-object-id="${selected}"]`);
+    const matrix = node?.getScreenCTM(); if (!matrix) return;
+    const inverse = matrix.inverse();
+    drag.current = { original: svg, start: point(e, inverse), inverse, id: selected, handle,
+      transform: current?.attrs.transform ?? "", bounds: selection.bounds };
+    e.preventDefault(); e.stopPropagation(); surface.current?.setPointerCapture(e.pointerId);
   };
   const move = (e: React.PointerEvent) => {
     const d = drag.current; if (!d) return;
     const to = point(e, d.inverse);
-    if (d.id) setSvg(editFigureObject(d.original, d.id, { transform: `translate(${to.x - d.start.x} ${to.y - d.start.y}) ${d.transform}` }));
-    else {
+    if (Math.hypot(to.x - d.start.x, to.y - d.start.y) < 0.5 && !d.moved) return;
+    d.moved = true;
+    let next: string;
+    if (d.id && d.handle?.startsWith("resize-") && d.bounds) {
+      const b = d.bounds, index = Number(d.handle.slice(-1));
+      const opposite = [[b.x + b.width, b.y + b.height], [b.x, b.y + b.height], [b.x, b.y], [b.x + b.width, b.y]][index];
+      let sx = Math.max(0.02, (to.x - opposite[0]) / (d.start.x - opposite[0] || 1));
+      let sy = Math.max(0.02, (to.y - opposite[1]) / (d.start.y - opposite[1] || 1));
+      if (e.shiftKey) sx = sy = Math.max(sx, sy);
+      next = editFigureObject(d.original, d.id, { transform: `${d.transform} translate(${opposite[0]} ${opposite[1]}) scale(${sx} ${sy}) translate(${-opposite[0]} ${-opposite[1]})` });
+    } else if (d.id && d.handle) next = moveFigureHandle(d.original, d.id, d.handle, to);
+    else if (d.id) {
+      let dx = to.x - d.start.x, dy = to.y - d.start.y;
+      if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+      next = editFigureObject(d.original, d.id, { transform: `translate(${dx} ${dy}) ${d.transform}` });
+    } else {
       const added = addFigureObject(d.original, tool, d.start, to, label);
-      setSvg(added.svg); setSelected(added.id);
+      next = added.svg; setSelected(added.id);
     }
+    liveSvg.current = next; setSvg(next);
   };
   const up = () => {
     const d = drag.current; drag.current = null;
-    if (d && d.original !== svg) setHistory(h => ({ past: [...h.past.slice(-59), d.original], future: [] }));
+    if (d?.moved && d.original !== liveSvg.current) {
+      setHistory(h => ({ past: [...h.past.slice(-59), d.original], future: [] }));
+      setTool("select");
+    }
   };
   const regenerate = async () => {
     if (!original || busy) return;
@@ -127,6 +188,8 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   };
 
   return createPortal(<ModalShell open onClose={busy ? () => {} : onClose} aria-label={`도형 ${index + 1} 편집기`} className="w-[96vw] max-w-[1550px] h-[90vh]">
+    <style>{`#figure-editor-canvas > svg { width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; margin:0 !important; display:block; }
+      #figure-editor-canvas [data-object-id] { cursor:inherit; }`}</style>
     <header className="px-5 py-3 border-b border-line flex items-center gap-3">
       <span className="rounded bg-orange-100 text-orange-800 px-2 py-1 text-caption font-semibold">도형 {index + 1}</span>
       <h2 className="text-subhead font-semibold">도형 편집</h2>
@@ -162,41 +225,68 @@ export function FigureEditor({ image, index, onSave, onClose }: {
           <button type="button" aria-label="도형 축소" onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}>−</button><span>{Math.round(zoom * 100)}%</span>
           <button type="button" aria-label="도형 확대" onClick={() => setZoom(z => Math.min(3, z + 0.1))}>＋</button><button type="button" onClick={() => setZoom(1)}>맞춤</button>
           {tool === "text" ? <label className="ml-3">넣을 글자 <input value={label} aria-label="추가할 도형 글자" onChange={e => setLabel(e.target.value)} className="w-28 border border-line rounded px-2 py-1" /></label>
-            : <span className="ml-auto text-muted">{tool === "select" ? "요소를 선택해 이동하거나 오른쪽 속성을 수정하세요" : "캔버스에서 드래그해 그리세요"}</span>}
+            : <span className="ml-auto text-muted">{tool === "select" ? "끌어서 이동 · 주황색 점으로 모양 조절 · Shift로 방향 고정" : tool === "pan" ? "드래그로 화면 이동 · Ctrl+휠로 확대/축소" : "캔버스에서 드래그해 그리세요"}</span>}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto p-6">
-          <div style={{ width: `${Math.min(560, 560 * ratio) * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", background: "white", boxShadow: "0 1px 6px #0001" }}>
-            {sourceOverlay && original && <img src={original} alt="원본 겹쳐 보기" className="absolute inset-0 w-full h-full object-contain opacity-25 pointer-events-none" />}
-            {selected && <style>{`#figure-editor-canvas [data-object-id="${selected}"] { outline: 1.5px dashed #f97316; outline-offset: 3px; }`}</style>}
-            <div id="figure-editor-canvas" ref={canvas} style={{ width: "100%", height: "100%", position: "relative", touchAction: "none", cursor: tool === "select" ? "default" : "crosshair" }}
-              onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { if (drag.current) setSvg(drag.current.original); drag.current = null; }}
+        <div ref={viewport} className="flex-1 min-h-0 overflow-auto p-6" style={{ cursor: tool === "pan" ? "grab" : undefined }}
+          onPointerDownCapture={e => { if ((tool === "pan" || spaceDown.current) && e.button === 0) {
+            const node = viewport.current!; pan.current = { x: e.clientX, y: e.clientY, left: node.scrollLeft, top: node.scrollTop };
+            node.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); surface.current?.focus({ preventScroll: true });
+          } }}
+          onPointerMove={e => { if (pan.current) { const p = pan.current; viewport.current!.scrollTo(p.left - e.clientX + p.x, p.top - e.clientY + p.y); } }}
+          onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
+          <div ref={surface} tabIndex={0} aria-label="도형 편집 캔버스" className="outline-none" onPointerMove={move} onPointerUp={up} onPointerCancel={() => { if (drag.current) { liveSvg.current = drag.current.original; setSvg(drag.current.original); } drag.current = null; }}
+            style={{ width: `${fittedWidth * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", touchAction: "none", background: "white", boxShadow: "0 1px 6px #0001" }}>
+            <div id="figure-editor-canvas" ref={canvas} style={{ width: "100%", height: "100%", position: "relative", touchAction: "none", cursor: tool === "select" || tool === "pan" ? "grab" : "crosshair" }}
+              onPointerDown={down} onDoubleClick={() => { if (current?.type === "text") { const input = document.querySelector<HTMLInputElement>('[aria-label="선택한 도형 글자"]'); input?.focus(); input?.select(); } }}
               dangerouslySetInnerHTML={{ __html: displaySvg }} />
+            {sourceOverlay && original && <img src={original} alt="원본 겹쳐 보기" className="absolute inset-0 w-full h-full object-contain opacity-25 pointer-events-none" />}
+            {selection && selected && tool === "select" && (() => {
+              const at = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(selection.matrix);
+              const b = selection.bounds;
+              const corners = [[b.x, b.y], [b.x + b.width, b.y], [b.x + b.width, b.y + b.height], [b.x, b.y + b.height]];
+              const controls = handles.length ? handles : current?.type !== "text" ? corners.map(([x, y], i) => ({ key: `resize-${i}`, x, y, label: `크기 조절 ${i + 1}`, control: false })) : [];
+              const radius = 6 / selection.scale;
+              return <svg aria-label="도형 마우스 조절점" viewBox={viewBox.join(" ")} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", margin: 0, overflow: "visible", pointerEvents: "none" }}>
+                <polygon points={corners.map(([x, y]) => { const p = at(x, y); return `${p.x},${p.y}`; }).join(" ")} fill="none" stroke="#f97316" strokeWidth={1 / selection.scale} strokeDasharray={`${4 / selection.scale} ${3 / selection.scale}`} />
+                {handles.map((h, i) => h.control ? [handles[i - 1], handles[i + 1]].filter(Boolean).map((other, j) => {
+                  const a = at(h.x, h.y), z = at(other.x, other.y);
+                  return <line key={`${h.key}-${j}`} x1={a.x} y1={a.y} x2={z.x} y2={z.y} stroke="#fb923c" strokeWidth={1 / selection.scale} strokeDasharray={`${3 / selection.scale} ${3 / selection.scale}`} />;
+                }) : null)}
+                {controls.map(h => { const p = at(h.x, h.y); return <circle key={h.key} data-figure-handle={h.key} aria-label={h.label}
+                  cx={p.x} cy={p.y} r={radius} fill={h.control ? "#ffedd5" : "white"} stroke="#ea580c" strokeWidth={2 / selection.scale}
+                  style={{ pointerEvents: busy ? "none" : "all", cursor: h.key === "center" ? "move" : "crosshair" }} onPointerDown={e => handleDown(e, h.key)}><title>{h.label} · 드래그해서 수정</title></circle>; })}
+              </svg>;
+            })()}
           </div>
         </div>
       </main>
       <aside className="w-[220px] shrink-0 p-4 border-l border-line overflow-auto">
         <h3 className="text-small font-semibold mb-3">{current ? `${NAMES[current.type] ?? current.type} 속성` : "속성"}</h3>
         {current ? <div className="space-y-3 text-caption">
+          <p className="rounded bg-orange-50 p-2 leading-relaxed text-orange-800">{current.type === "text" ? "글자를 끌어서 옮기세요. 더블클릭하면 내용을 바꿀 수 있습니다." : "주황색 조절점을 끌어 모양을 바꾸세요. 선이나 테두리를 끌면 통째로 이동합니다."}</p>
           {current.type === "text" && <label className="block">글자<input aria-label="선택한 도형 글자" className="w-full mt-1 border border-line rounded px-2 py-1" value={current.text} onChange={e => change({}, e.target.value)} /></label>}
           {current.type === "text" && <div className="flex gap-2">
             <button type="button" className="border border-line rounded px-2 py-1" onClick={() => change({ "font-style": current.attrs["font-style"] === "italic" ? "normal" : "italic" })}>기울임</button>
             <button type="button" className="border border-line rounded px-2 py-1 font-bold" onClick={() => change({ "font-weight": current.attrs["font-weight"] === "bold" ? "normal" : "bold" })}>굵게</button>
           </div>}
           <label className="flex items-center justify-between">{current.type === "text" ? "글자 색" : "선 색"}<input type="color" aria-label="도형 선 색" value={/^#[\da-f]{6}$/i.test(current.attrs[current.type === "text" ? "fill" : "stroke"] ?? "") ? current.attrs[current.type === "text" ? "fill" : "stroke"] : "#111111"} onChange={e => change({ [current.type === "text" ? "fill" : "stroke"]: e.target.value })} /></label>
-          <label className="block">{current.type === "text" ? "글자 크기" : "선 두께"}<input type="number" min={0.2} max={current.type === "text" ? 100 : 20} step={0.2} aria-label="도형 선 두께 또는 글자 크기" value={parseFloat(current.attrs[current.type === "text" ? "font-size" : "stroke-width"] ?? (current.type === "text" ? "18" : "1.5"))}
-            onChange={e => { if (+e.target.value > 0) change({ [current.type === "text" ? "font-size" : "stroke-width"]: e.target.value }); }} className="mt-1 w-full border border-line rounded px-2 py-1" /></label>
+          <label className="block"><span className="flex justify-between">{current.type === "text" ? "글자 크기" : "선 두께"}<output>{parseFloat(current.attrs[current.type === "text" ? "font-size" : "stroke-width"] ?? (current.type === "text" ? "18" : "1.5"))}</output></span>
+            <input type="range" min={current.type === "text" ? 6 : 0.2} max={current.type === "text" ? 100 : 20} step={0.2} aria-label="도형 선 두께 또는 글자 크기" value={parseFloat(current.attrs[current.type === "text" ? "font-size" : "stroke-width"] ?? (current.type === "text" ? "18" : "1.5"))}
+            onChange={e => { if (+e.target.value > 0) change({ [current.type === "text" ? "font-size" : "stroke-width"]: e.target.value }); }} className="mt-2 w-full accent-orange-600" /></label>
           {current.type !== "text" && <>
             <label className="flex gap-2"><input type="checkbox" checked={!!current.attrs["stroke-dasharray"] && current.attrs["stroke-dasharray"] !== "none"} onChange={e => change({ "stroke-dasharray": e.target.checked ? "5 4" : "" })} />점선</label>
             <label className="flex items-center justify-between">채우기<input type="color" aria-label="도형 채우기 색" value={/^#[\da-f]{6}$/i.test(current.attrs.fill ?? "") ? current.attrs.fill : "#ffffff"} onChange={e => change({ fill: e.target.value })} /></label>
             <button type="button" onClick={() => change({ fill: "none" })} className="underline text-muted">채우기 없애기</button>
           </>}
-          <div className="grid grid-cols-2 gap-2">{Object.entries(FIELD_NAMES).filter(([key]) => key in current.attrs).map(([key, name]) => <label key={key}>{name}<input type="number" step={1} value={Number.parseFloat(current.attrs[key]) || 0} aria-label={name}
+          <details className="border-t border-line pt-2"><summary className="cursor-pointer text-muted">정밀 수치 조정</summary>
+          <div className="grid grid-cols-2 gap-2 mt-2">{Object.entries(FIELD_NAMES).filter(([key]) => key in current.attrs).map(([key, name]) => <label key={key}>{name}<input type="number" step={1} value={Number.parseFloat(current.attrs[key]) || 0} aria-label={name}
             onChange={e => { if (e.target.value !== "" && Number.isFinite(+e.target.value)) change({ [key]: e.target.value }); }} className="w-full border border-line rounded px-1 py-1 mt-1" /></label>)}</div>
           <div className="flex gap-1">{[["←", -1, 0], ["↑", 0, -1], ["↓", 0, 1], ["→", 1, 0]].map(([name, x, y]) => <button type="button" key={name} aria-label={`도형 ${name} 미세 이동`} onClick={() => change({ transform: `translate(${x} ${y}) ${current.attrs.transform ?? ""}` })} className="border border-line rounded px-2 py-1">{name}</button>)}</div>
           {curvePoints?.length === 6 && <div className="grid grid-cols-2 gap-2">{["시작 X", "시작 Y", "휘어짐 X", "휘어짐 Y", "끝 X", "끝 Y"].map((name, index) => <label key={name}>{name}<input type="number" value={curvePoints[index]} className="w-full border border-line rounded px-1 py-1" onChange={e => {
             if (e.target.value === "") return; const points = [...curvePoints]; points[index] = Number(e.target.value);
             change({ d: `M ${points[0]} ${points[1]} Q ${points[2]} ${points[3]} ${points[4]} ${points[5]}` });
           }} /></label>)}</div>}
+          </details>
         </div> : <p className="text-caption text-muted">그림의 요소나 아래 목록을 선택하세요.</p>}
         <h3 className="mt-5 pt-3 border-t border-line text-small font-semibold">요소 목록 ({objects.length})</h3>
         <div className="mt-2 space-y-1">{objects.map((o, n) => <button type="button" key={o.id} onClick={() => { setSelected(o.id); setTool("select"); }}

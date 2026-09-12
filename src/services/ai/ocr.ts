@@ -1321,7 +1321,9 @@ const extractPageProblemsViaApi = async (
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    throw Object.assign(new Error(err.error || `HTTP ${res.status}`), {
+      status: res.status, headers: { "retry-after": res.headers.get("retry-after") },
+    });
   }
   return res.json();
 };

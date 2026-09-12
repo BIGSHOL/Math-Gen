@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "./_types.js";
 import { getServiceClient } from "./_supabase.js";
+import { withDeadline } from "../src/lib/deadline.js";
 
 /**
  * Vercel function 의 Authorization header → user_id + tenant_id 해석.
@@ -27,6 +28,28 @@ export interface RequiredAuthContext extends AuthContext {
 }
 
 const EMPTY_CONTEXT: AuthContext = { userId: null, tenantId: null };
+const transient = (status: number) => status === 0 || status === 429 || status >= 500;
+type ServiceClient = NonNullable<ReturnType<typeof getServiceClient>>;
+type Verification = Awaited<ReturnType<ServiceClient["auth"]["getUser"]>>;
+// Share only currently running verification. Never cache an authorization decision.
+const verifications = new Map<string, Promise<Verification>>();
+function verifyUser(client: ServiceClient, jwt: string): Promise<Verification> {
+  const pending = verifications.get(jwt);
+  if (pending) return pending;
+  const request = (async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = await withDeadline(client.auth.getUser(jwt), 8_000, "인증 서버 응답 지연");
+        if (!result.error || !transient(result.error.status ?? 0) || attempt === 1) return result;
+      } catch (error) {
+        if (attempt === 1) throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  })().finally(() => verifications.delete(jwt));
+  verifications.set(jwt, request);
+  return request;
+}
 
 /**
  * Authorization header → AuthContext. 실패 시 EMPTY_CONTEXT — throw 안 함.
@@ -46,11 +69,11 @@ export const resolveAuth = async (
   if (!jwt) return EMPTY_CONTEXT;
 
   try {
-    const { data, error } = await client.auth.getUser(jwt);
+    const { data, error } = await verifyUser(client, jwt);
     if (error) {
       const status = error.status ?? 0;
       console.warn(`[auth] verification failed: status=${status} code=${error.code ?? "unknown"}`);
-      return status === 429 || status >= 500 || status === 0 ? { ...EMPTY_CONTEXT, unavailable: true } : EMPTY_CONTEXT;
+      return transient(status) ? { ...EMPTY_CONTEXT, unavailable: true } : EMPTY_CONTEXT;
     }
     if (!data.user) return EMPTY_CONTEXT;
     const userId = data.user.id;

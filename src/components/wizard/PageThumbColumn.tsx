@@ -59,7 +59,7 @@ export const PageThumbColumn = ({
 
   // 활성 inflight 가 하나라도 있으면 1 초 tick 활성 — 경과 시간 라이브 업데이트.
   const hasInflight = pages.some(
-    (p) => Boolean(p.ocrInflightModel) || Boolean(p.upgrading),
+    (p) => Boolean(p.ocrInflightModel) || Boolean(p.upgrading) || (!!p.ocrTextComplete && !p.ocrComplete),
   );
   useInflightTick(hasInflight);
 
@@ -72,6 +72,7 @@ export const PageThumbColumn = ({
           const isSkipped = !page.isProblemPage && !page.forceOcr;
           const isPending = !page.ocrComplete && (page.isProblemPage || page.forceOcr);
           const isUpgrading = Boolean(page.upgrading);
+          const figuresPending = isPending && page.ocrTextComplete;
           const hasError = Boolean(page.ocrError);
           const originalThumb = thumbs.get(page.thumbRef);
           // Display thumbnail: rotated dataURL if available, else the
@@ -143,13 +144,17 @@ export const PageThumbColumn = ({
               )}
 
               {/* status overlays */}
+              {figuresPending && <span className="absolute bottom-1 left-1 rounded-sm bg-orange-100 px-1 text-[9px] text-orange-800"
+                title="문제 인식 완료 · 그림 처리 중">
+                그림 · {formatElapsed(page.ocrStartedAt)}
+              </span>}
               {isPending && inflight && (
                 <span className="absolute top-1 right-1 grid place-items-center text-accent">
                   <Icon name="circle-notch" size={10} weight="bold" className="animate-spin" />
                 </span>
               )}
               {/* 대기 중 — 큐 슬롯 차서 시작 못 함. inflight 없는 pending. */}
-              {isPending && !inflight && (
+              {isPending && !inflight && !figuresPending && (
                 <span
                   className="absolute top-1 right-1 grid place-items-center text-muted"
                   title="대기 중 (다른 페이지 처리 후 시작)"

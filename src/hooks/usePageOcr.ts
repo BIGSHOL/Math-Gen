@@ -1,13 +1,14 @@
 import { detectCropBoxes } from "@app/services/ai/cropDetect";
-import { redrawQuestionFigures } from "@app/services/ai/figurePipeline";
-import { figuresForQuestionCrop, QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
+import { QUESTION_CROP_MARGIN as CROP_MARGIN } from "@app/lib/figureCrops";
+import { completeQuestionFigures, remapQuestionFigures, type QuestionFigureWork } from "@app/lib/ocrFigureProgress";
+import { finishPendingFigures } from "@app/lib/ocrRecovery";
+import { withDeadline } from "@app/lib/deadline";
 import { GEMINI_3_8_FLASH } from "@app/services/ai/gemini";
 import { useEffect, useMemo, useRef } from "react";
 import { getPageImage } from "@app/lib/imageStore";
 import { ensurePageImage } from "@app/lib/imageRestore";
 import { applyRotation, cropPageImageData } from "@app/lib/pdfProcessor";
 import { checkImageQuality, QC_CLEAN_SCORE } from "@app/lib/imageQuality";
-import { remapBoxToFullPage } from "@app/lib/figureBoxRemap";
 import { getPageStoragePath } from "@app/services/api/wizardHydrate";
 import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
@@ -33,6 +34,9 @@ const pickPass2Chain = (): OCRModel[] => [GEMINI_3_8_FLASH];
 
 /** 검증된 문제 박스 (class="problem" + number 보유). per-crop OCR 의 단위. */
 type ProblemBox = CropBox & { number: number };
+// Remounting review must not duplicate paid work already running in this tab.
+const dispatchedPages = new Set<string>();
+const pageRuns = new Map<string, symbol>();
 
 /**
  * Step 2 의 per-page OCR fan-out 을 구동.
@@ -58,23 +62,25 @@ export const usePageOcr = () => {
   const pages = useWizardStore((s) => s.pages);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
 
-  // 페이지 워커 디스패치 한도 — 각 워커는 자기 페이지의 크롭들을 cropLimit 통해 OCR.
-  // testchange _OCR_WORKERS=6 과 동일 (D30, 엔진 이식).
+  // Text preparation releases its page slot before waiting for any figure work.
   const pageLimit = useMemo(() => pLimit(2), []);
-  // 크롭 OCR 콜 *전역* 한도 — 페이지 수 무관 동시 OCR ≤ 6 (Gemini RPM 보호).
-  // testchange _OCR_WORKERS=6 과 동일. throttle 미관측 환경에서 6 까지 안전(§per-crop 진단).
+  // Across pages, at most two Gemini text requests run concurrently.
   const cropLimit = useMemo(() => pLimit(2), []);
 
   // 현재 in-flight 페이지 id. re-render 가 같은 페이지를 이중 dispatch 하지 않게.
   // 워커 finally 에서 비움 → ocrComplete:false(재인식) / 새 업로드 시 자연 재dispatch.
   // (옛 footgun: "ever-dispatched" Set 은 PDF 재업로드 시 같은 id 재사용으로 0/N hang.)
-  const dispatched = useRef<Set<string>>(new Set());
+  const dispatched = useRef(dispatchedPages);
+  const runIds = useRef(pageRuns);
 
   const pass1Chain = useMemo(pickPass1Chain, []);
   const pass2Chain = useMemo(pickPass2Chain, []);
 
   useEffect(() => {
-    const isCancelled = (pageId: string): boolean => !dispatched.current.has(pageId);
+    const expectedRuns = new Map<string, symbol>();
+    const isCancelled = (pageId: string): boolean => !dispatched.current.has(pageId)
+      || runIds.current.get(pageId) !== expectedRuns.get(pageId)
+      || !useWizardStore.getState().pages.some(p => p.id === pageId && !p.ocrComplete);
 
     /** 페이지 이미지 로드(IndexedDB → Storage fallback) + 회전. cancel 시 null. */
     const loadRotatedImage = async (page: WizardPage): Promise<string | null> => {
@@ -133,14 +139,15 @@ export const usePageOcr = () => {
         const model = chain[i];
         if (isCancelled(page.id)) return null;
         try {
-          const result = await withRetry(() =>
-            extractPageProblems({
+          const result = await withRetry(() => {
+            if (isCancelled(page.id)) throw new DOMException("Cancelled", "AbortError");
+            return withDeadline(extractPageProblems({
               pageBase64: imageBase64,
               textLayer: opts.textLayer,
               model,
               crop: opts.crop,
-            }),
-          );
+            }), 110_000, "문항 인식 응답이 지연되었습니다. 해당 문항을 다시 인식해 주세요.");
+          });
           if (i > 0) {
             // eslint-disable-next-line no-console
             console.info(
@@ -171,10 +178,10 @@ export const usePageOcr = () => {
       rotated: string,
       problemBoxes: ReadonlyArray<ProblemBox>,
       pageChain: OCRModel[],
-    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
+    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel; figureWork: QuestionFigureWork[] } | null> => {
       const results = await Promise.all(
         problemBoxes.map((box) =>
-          cropLimit(async (): Promise<{ item: OCRProblem; model: OCRModel } | null> => {
+          cropLimit(async (): Promise<{ item: OCRProblem; model: OCRModel; work: QuestionFigureWork } | null> => {
             if (isCancelled(page.id)) return null;
             // 박스 영역만 crop. testchange 동일 — 픽셀 전처리(removeColorInk/대비/upscale)
             // 없이 원본 크롭 전송(D01, 엔진 이식). 손글씨 배제는 크롭/OCR 프롬프트가 담당.
@@ -207,9 +214,8 @@ export const usePageOcr = () => {
             // 크롭 = 1 문제. number 매칭 우선. 매칭 실패 + 다중 item 이면 옆 문제
             // 흡수 가능성 → items[0] 채택하되 status="warn" 으로 사용자 검토 유도.
             const byNumber = r.items.find((it) => it.number === box.number);
-            let matched = byNumber ?? r.items[0];
+            const matched = byNumber ?? r.items[0];
             if (!matched) return null;
-            matched = await redrawQuestionFigures(crop, matched, () => isCancelled(page.id), figuresForQuestionCrop(box));
             if (isCancelled(page.id)) return null;
             const ambiguous = !byNumber && r.items.length > 1;
             if (ambiguous) {
@@ -219,26 +225,19 @@ export const usePageOcr = () => {
               );
             }
             // 크롭-로컬 box → full-page 역변환 (box.bbox 기준 + 동일 margin).
-            const remap = (b: [number, number, number, number]) =>
-              remapBoxToFullPage(b, box.bbox, CROP_MARGIN);
-            const item: OCRProblem = {
+            const local: OCRProblem = {
               ...matched,
               number: box.number, // 검출 번호 강제 (모델이 박스 안 번호 오독 정정 — number boost)
               ocrModel: r.modelUsed,
               status: ambiguous ? "warn" : matched.status,
-              images: matched.images?.map((im) => {
-                // box 가 remap 으로 바뀌므로 옛 ai-crop freeze path 무효 → strip.
-                const { storagePath: _drop, ...rest } = im;
-                void _drop;
-                return { ...rest, box: remap(im.box) };
-              }),
-              figures: matched.figures?.map((f) => ({ ...f, box: remap(f.box) })),
+              figureProgress: "그림 확인 대기 중",
             };
+            const item = remapQuestionFigures(local, box);
             if (import.meta.env.DEV) {
               // eslint-disable-next-line no-console
               console.debug(`[usePageOcr] ${page.id} crop box ${box.number} ✓ ${r.modelUsed}`);
             }
-            return { item, model: r.modelUsed };
+            return { item, model: r.modelUsed, work: { crop, box, problem: local } };
           }),
         ),
       );
@@ -287,22 +286,26 @@ export const usePageOcr = () => {
       });
       // 박스 reading-order 유지 — testchange merge 순서(number 정렬 X, D25). 대표 모델.
       const items = deduped;
-      return { items, modelUsed: lastModel ?? pass1Chain[0] };
+      return { items, modelUsed: lastModel ?? pass1Chain[0],
+        figureWork: results.flatMap(r => r && items.includes(r.item) ? [r.work] : []) };
     };
 
     pages.forEach((page) => {
       if (page.ocrComplete || page.ocrError || dispatched.current.has(page.id)) return;
       // 비-문항 페이지 — 빈 결과로 즉시 완료.
       if (!page.isProblemPage && !page.forceOcr) {
-        dispatched.current.add(page.id);
         setPageOCR(page.id, { ocrResult: [], ocrComplete: true });
         return;
       }
       dispatched.current.add(page.id);
+      const run = Symbol(page.id);
+      runIds.current.set(page.id, run);
+      expectedRuns.set(page.id, run);
       const startedAt = Date.now();
       void pageLimit(async () => {
+        if (isCancelled(page.id)) return;
         // 페이지 spinner — in-flight 표시 (per-crop 은 박스별 모델이 섞이므로 대표 모델만).
-        setPageOCR(page.id, { ocrInflightModel: pass1Chain[0], ocrStartedAt: startedAt });
+        setPageOCR(page.id, { ocrTextComplete: false, ocrInflightModel: pass1Chain[0], ocrStartedAt: startedAt });
         try {
           const rotated = await loadRotatedImage(page);
           if (!rotated) return;
@@ -342,7 +345,7 @@ export const usePageOcr = () => {
           }
 
           if (problemBoxes.length === 0) {
-            const detected = await detectCropBoxes(rotated);
+            const detected = await withDeadline(detectCropBoxes(rotated), 110_000, "문항 크롭 검출이 지연되었습니다. 크롭 단계에서 다시 시도해 주세요.");
             if (isCancelled(page.id)) return;
             problemBoxes = detected.filter(b => (!b.class || b.class === "problem") && Array.isArray(b.cropBox)
               && b.cropBox.length === 4 && b.cropBox.every(Number.isFinite)).map((b, i) => ({
@@ -365,10 +368,11 @@ export const usePageOcr = () => {
           );
           setPageOCR(page.id, {
             ocrResult: reconciled,
-            ocrComplete: true,
+            ocrComplete: false,
+            ocrTextComplete: true,
             ocrModel: result.modelUsed as WizardPage["ocrModel"],
             ocrInflightModel: undefined,
-            ocrStartedAt: undefined,
+            ocrStartedAt: startedAt,
             ocrTextLayerWarning: textLayerWarning ?? undefined,
           });
           if (import.meta.env.DEV && textLayerWarning) {
@@ -387,6 +391,7 @@ export const usePageOcr = () => {
                 `${result.modelUsed} — ${((Date.now() - startedAt) / 1000).toFixed(1)}s (${result.items.length} 문항)`,
             );
           }
+          return result.figureWork;
         } catch (err) {
           if (isCancelled(page.id)) return;
           // eslint-disable-next-line no-console
@@ -400,9 +405,22 @@ export const usePageOcr = () => {
             ocrInflightModel: undefined,
             ocrStartedAt: undefined,
           });
-        } finally {
-          // in-flight 슬롯 해제 — 미래 store 변경(재인식 ocrComplete:false / 새 업로드)이
-          // 수동 resetDispatch 없이 재dispatch 가능하게.
+        }
+      }).then(async (work) => {
+        // Neither text OCR slots nor page slots wait for the serial figure queue.
+        if (!work || isCancelled(page.id)) return;
+        await Promise.all(work.map(job => completeQuestionFigures(page.id, job, () => isCancelled(page.id))));
+        if (isCancelled(page.id)) return;
+        setPageOCR(page.id, { ocrComplete: true, ocrInflightModel: undefined, ocrStartedAt: undefined });
+      }).catch(error => {
+        if (isCancelled(page.id)) return;
+        reportError(error, { kind: "ocr", extra: { hook: "usePageOcr", pageId: page.id } });
+        setPageOCR(page.id, { ocrComplete: true, ocrError: friendlyError(error),
+          ocrInflightModel: undefined, ocrStartedAt: undefined });
+      }).finally(() => {
+        // An old retry must never release a newer run's dispatch marker.
+        if (runIds.current.get(page.id) === run) {
+          runIds.current.delete(page.id);
           dispatched.current.delete(page.id);
         }
       });
@@ -420,8 +438,17 @@ export const usePageOcr = () => {
    * Callers: Step2OCRReview 의 requestRetry / forcePageOcr.
    */
   const resetDispatch = (pageId: string): void => {
+    runIds.current.delete(pageId);
     dispatched.current.delete(pageId);
   };
 
-  return { resetDispatch };
+  const finishWithCurrentFigures = (pageId: string): void => {
+    const page = useWizardStore.getState().pages.find(p => p.id === pageId);
+    if (!page?.ocrTextComplete || page.ocrComplete) return;
+    resetDispatch(pageId);
+    setPageOCR(pageId, { ocrComplete: true, ocrResult: page.ocrResult.map(finishPendingFigures),
+      ocrInflightModel: undefined, ocrStartedAt: undefined });
+  };
+
+  return { resetDispatch, finishWithCurrentFigures };
 };

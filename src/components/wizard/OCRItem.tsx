@@ -363,6 +363,10 @@ export const OCRItem = ({
         isWarn && "border-warn ring-1 ring-warn/10",
       )}
     >
+      {item.figureProgress && <p role="status" className="text-caption text-orange-700 mb-2 flex items-center gap-1.5">
+        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-orange-200 border-t-orange-600" />
+        {item.figureProgress}
+      </p>}
       {item.figureWarnings?.map((warning, i) => <p key={i} className="text-caption text-warn mb-2">{warning}</p>)}
       <div className="flex items-center gap-2 mb-2.5">
         {editing ? (

@@ -1,9 +1,11 @@
-/** Run against local dev. Network is stubbed: no AI billing or database writes. */
+/** Standalone browser regression. Network is stubbed; dev remains off. */
 import puppeteer from 'puppeteer-core';
+import { startBrowserFixture } from './browserFixture.mjs';
+const fixture = await startBrowserFixture({ '/src/services/ai/figurePipeline.ts': 'src/services/ai/figurePipeline.ts' });
 const browser = await puppeteer.launch({ executablePath: process.env.EDGE_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
 try {
   const page = await browser.newPage();
-  await page.goto(process.env.DEV_URL || 'http://localhost:3005/', { waitUntil: 'networkidle0' });
+  await page.goto(fixture.url, { waitUntil: 'networkidle0' });
   const results = await page.evaluate(async () => {
     const { redrawQuestionFigures } = await import('/src/services/ai/figurePipeline.ts');
     const canvas = document.createElement('canvas'); canvas.width=400; canvas.height=400;
@@ -66,4 +68,4 @@ try {
   });
   for(const result of results) console.log('PASS',result);
   console.log(`${results.length} figure pipeline checks passed`);
-} finally { await browser.close(); }
+} finally { await browser.close(); await fixture.close(); }

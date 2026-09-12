@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "../services/api/supabase.js";
 import { SVG_NS, cleanFigureForSave } from "./figureSvgEditing.js";
+import { withDeadline } from "./deadline.js";
 
 const cache = new Map<string, string | null>();
 const color = (value: string | null, fallback: string) => {
@@ -26,9 +27,12 @@ export async function typesetFigureSvg(source: string, preserveObjectIds = false
   });
   const missing = [...new Map(entries.filter(e => !cache.has(e.key)).map(e => [e.key, e])).values()];
   if (missing.length) {
-    const response = await fetchWithAuth("/api/ai-figure-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ labels: missing.map(e => e.entry) }) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "도형 수식 조판에 실패했습니다.");
+    const result = await withDeadline((async () => {
+      const response = await fetchWithAuth("/api/ai-figure-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ labels: missing.map(e => e.entry) }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "도형 수식 조판에 실패했습니다.");
+      return result;
+    })(), 45_000, "도형 수식 조판 응답이 지연되었습니다.");
     if (!Array.isArray(result.labels) || result.labels.length !== missing.length || result.labels.some((s: unknown) => s !== null && typeof s !== "string")) throw new Error("도형 수식 조판 결과가 올바르지 않습니다.");
     if (cache.size + missing.length > 1000) cache.clear();
     missing.forEach((e, i) => cache.set(e.key, result.labels[i]));

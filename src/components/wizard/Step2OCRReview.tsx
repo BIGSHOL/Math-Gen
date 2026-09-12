@@ -122,7 +122,7 @@ export const Step2OCRReview = () => {
   // Phase #6 — OcrFeedbackPanel 의 test_id 컬럼 채움. null 이면 패널 숨김.
   const testId = useWizardStore((s) => s.testId);
 
-  const { resetDispatch } = usePageOcr();
+  const { resetDispatch, finishWithCurrentFigures } = usePageOcr();
   const { reocrItem, isReocring } = useItemReocr();
 
   const activePage = pages[activeIdx];
@@ -141,6 +141,7 @@ export const Step2OCRReview = () => {
     resetDispatch(activePage.id);
     setPageOCR(activePage.id, {
       ocrComplete: false,
+      ocrTextComplete: false,
       ocrError: undefined,
       ocrResult: [],
       // 재인식 시 stale in-flight 표시 정리 — 새 워커가 다시 set.
@@ -155,6 +156,7 @@ export const Step2OCRReview = () => {
     setPageOCR(activePage.id, {
       forceOcr: true,
       ocrComplete: false,
+      ocrTextComplete: false,
       ocrError: undefined,
       ocrResult: [],
       ocrInflightModel: undefined,
@@ -255,6 +257,19 @@ export const Step2OCRReview = () => {
         </header>
 
         <div className="flex-1 overflow-auto flex flex-col gap-2.5 pr-1">
+          {activePage.ocrTextComplete && !activePage.ocrComplete && (
+            <Card pad={14} className="border-orange-200 bg-orange-50">
+              <p className="text-small text-orange-900" role="status">
+                문제 인식 완료 · 그림 처리 중 ({activePage.ocrResult.filter(item => !item.figureProgress).length}/{activePage.ocrResult.length}문항)
+              </p>
+              <p className="mt-1 mb-2 text-caption text-orange-800">
+                원본 그림을 보며 문제를 먼저 검토할 수 있습니다. 현재 그림으로 완료한 뒤 그림 편집에서 재생성할 수도 있습니다.
+              </p>
+              <Btn kind="ghost" size="sm" onClick={() => finishWithCurrentFigures(activePage.id)}>
+                현재 그림으로 완료
+              </Btn>
+            </Card>
+          )}
           {/* Skipped page banner — reviewer note #4 escape hatch */}
           {!activePage.isProblemPage && !activePage.forceOcr && (
             <SkipBanner onForceOcr={forcePageOcr} />
@@ -310,7 +325,7 @@ export const Step2OCRReview = () => {
               pageImageDataUrl={pageImage}
               testId={testId}
               persistCrops
-              onReocr={() => void reocrItem(activePage, item)}
+              onReocr={activePage.ocrComplete ? () => void reocrItem(activePage, item) : undefined}
               reocring={isReocring(activePage.id, item.number)}
             />
           ))}

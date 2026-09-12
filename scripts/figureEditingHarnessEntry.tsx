@@ -5,8 +5,19 @@ import { OCRItem } from "../src/components/wizard/OCRItem";
 import { useWizardStore } from "../src/stores/wizardStore";
 import { putPageImage, putThumbnail } from "../src/lib/imageStore";
 import { svgDataUrl } from "../src/services/ai/figurePipeline";
+import { FigureEditor } from "../src/components/math/FigureEditor";
+export { useWizardStore } from "../src/stores/wizardStore";
 
 let root: Root | undefined;
+let savedSvg: string | undefined;
+export const getSavedFigure = () => savedSvg;
+export function mountDirectFigure(source: string) {
+  root?.unmount(); document.getElementById("editing-harness")?.remove();
+  const host = document.createElement("div"); host.id = "editing-harness"; document.body.append(host);
+  root = createRoot(host); savedSvg = undefined;
+  root.render(<React.StrictMode><FigureEditor index={0} image={{ box: [0, 0, 1000, 1000], label: "도형", engineSvg: source, dataUrl: svgDataUrl(source) }}
+    onSave={image => { savedSvg = image.engineSvg; }} onClose={() => root?.render(<div>편집 완료</div>)} /></React.StrictMode>);
+}
 export async function mountEditingHarness(mode: "crop" | "ocr") {
   root?.unmount();
   document.getElementById("editing-harness")?.remove();

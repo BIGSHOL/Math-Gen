@@ -6,6 +6,7 @@ import type { GradeKey } from "@app/services/ai/mathDefense";
 import { matchLegacyTemplate } from "@app/lib/printTemplateMigration";
 import type { FontPackId } from "@app/lib/printFontPacks";
 import { fitFigureCrops } from "@app/lib/figureCrops";
+import { recoverOcrPage, finishPendingFigures } from "@app/lib/ocrRecovery";
 
 /**
  * 5-step Wizard state.
@@ -216,6 +217,8 @@ export interface WizardPage {
   ocrResult: OCRProblem[];
   /** Set true when this page's OCR call has resolved (or was skipped). */
   ocrComplete: boolean;
+  /** All text crops finished; figures may still be queued or rendering. */
+  ocrTextComplete?: boolean;
   /** Per-page failure message — surfaces a retry banner in the OCR pane. */
   ocrError?: string;
   /** User opted-in to extract a page that the skip heuristic excluded. */
@@ -363,6 +366,8 @@ export interface OCRProblem {
    */
   figures?: FigureBox[];
   figureWarnings?: string[];
+  /** Transient figure stage, visible while the original crop is already reviewable. */
+  figureProgress?: string;
   /** Confidence band — drives the OCRItem warning border. */
   status: "ok" | "warn" | "pending";
   /** True after the user has reviewed / edited this item. */
@@ -609,6 +614,7 @@ export interface WizardState {
         WizardPage,
         | "ocrResult"
         | "ocrComplete"
+        | "ocrTextComplete"
         | "ocrError"
         | "forceOcr"
         | "ocrModel"
@@ -739,6 +745,7 @@ export const useWizardStore = create<WizardState>()(
                   rotation,
                   // 회전 변경 시 OCR 결과 무효화 — 새 방향으로 재추출 필요.
                   ocrComplete: false,
+                  ocrTextComplete: false,
                   ocrResult: [],
                   ocrError: undefined,
                   ocrModel: undefined,
@@ -908,14 +915,14 @@ export const useWizardStore = create<WizardState>()(
         // 있어 봤자 의미 없으므로 stripping. rotation / solution / answer 등
         // 사용자가 명시적으로 정해 둔 값이나 결과물은 그대로 persist.
         pages: s.pages.map((p) => ({
-          ...p,
+          ...recoverOcrPage(p),
           ocrInflightModel: undefined,
           ocrStartedAt: undefined,
           upgrading: false,
           cropDetectInflight: false,
           ocrTextLayerWarning: undefined,
           ocrResult: p.ocrResult.map((item) => ({
-            ...item,
+            ...finishPendingFigures(item),
             solutionGenerating: false,
             solutionStartedAt: undefined,
           })),
@@ -947,6 +954,7 @@ export const useWizardStore = create<WizardState>()(
       // 처리 — Resume dialog 의 기존 sessionStorage 도 살림.
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        state.pages = state.pages.map(recoverOcrPage);
         if (!state.printOptions) {
           state.printOptions = DEFAULT_PRINT_OPTIONS;
         } else {
