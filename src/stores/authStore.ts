@@ -111,10 +111,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       const nextId = user?.id ?? null;
       const isChange = prevUserId !== undefined && prevUserId !== nextId;
       if (isChange) {
+        const destination = useAppStore.getState();
+        const returningToLink = prevUserId === null && nextId &&
+          (destination.route === "admin" || (destination.screen === "detail" && destination.selectedTestId));
         useLibraryStore.getState().reset();
         useWizardStore.getState().reset();
-        useAppStore.getState().backToLibrary();
+        // 로그인 전 열어 둔 상세/관리자 주소는 유지한다. 접근 권한은 각 API와 게이트가 확인한다.
+        // 로그아웃과 계정 교체에서는 이전 사용자의 화면을 보관함으로 돌린다.
+        if (!returningToLink) useAppStore.getState().backToLibrary();
       }
+      if (user) useAppStore.getState().setAuthMode("login");
       // 초기 1회 + 실제 신원 변경 시에만 로그 — getSession / INITIAL_SESSION /
       // StrictMode 재실행이 같은 id 로 여러 번 들어와도 noise 없게.
       if (import.meta.env.DEV && (prevUserId === undefined || isChange)) {

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Eyebrow, NavList, type NavListItem, Heading, Icon } from "@app/components/ui";
 import { useAuthStore } from "@app/stores/authStore";
 import { useAdminStore, type AdminSection } from "@app/stores/adminStore";
+import { useAppStore } from "@app/stores/appStore";
 
 /**
  * Admin 화면 좌측 sidebar. 7 섹션 메뉴 — role 별 가시성 분기.
@@ -71,6 +72,7 @@ export const AdminSidebar = () => {
       <div className="mt-auto pt-3 border-t border-line">
         <a
           href="/"
+          onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); useAppStore.getState().backToLibrary(); } }}
           className="flex items-center gap-2 px-2 py-1.5 text-small text-muted hover:text-text transition"
         >
           <Icon name="arrow-left" size={14} />

@@ -78,14 +78,15 @@ export const LibraryScreen = () => {
   const openTest = useAppStore((s) => s.openTest);
   const startWizard = useAppStore((s) => s.startWizard);
 
-  const [collection, setCollection] = useState<Collection>("전체");
-  const [grade, setGrade] = useState<GradeKey | undefined>(undefined);
-  const [selectedTags, setSelectedTags] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const [sort, setSort] = useState<SortKey>("recent");
-  const [view, setView] = useState<ViewKey>("grid");
-  const [searchQuery, setSearchQuery] = useState("");
+  const { collection, grade, selectedTags, sort, view, searchQuery } = useLibraryStore(s => s.viewState);
+  const setViewState = useLibraryStore(s => s.setViewState);
+  const setCollection = (collection: Collection) => setViewState({ collection });
+  const setGrade = (grade: GradeKey | undefined) => setViewState({ grade });
+  const setSort = (sort: SortKey) => setViewState({ sort });
+  const setView = (view: ViewKey) => setViewState({ view });
+  const setSearchQuery = (searchQuery: string) => setViewState({ searchQuery });
+  const setSelectedTags = (value: ReadonlySet<string> | ((previous: ReadonlySet<string>) => ReadonlySet<string>)) =>
+    setViewState({ selectedTags: typeof value === "function" ? value(useLibraryStore.getState().viewState.selectedTags) : value });
   const [searchFocus, setSearchFocus] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { AuthGate } from "@app/components/auth";
 import { ToastContainer } from "@app/components/ui";
 import { installGlobalErrorHandlers } from "@app/lib/errorReporter";
@@ -37,7 +37,7 @@ const RouteFallback = () => (
 /**
  * Top-level shell.
  *
- * URL gates (temporary — until Phase 5 introduces a real router):
+ * URL routes (browserNavigation keeps URL and store state synchronized):
  *   - `?ui`     → design system playground
  *   - `?legacy` → original single-page SelectionPanel / ProblemDisplay UI
  *   - `?bench`  → model comparison bench: drop an image, run every
@@ -60,19 +60,10 @@ const App = () => {
     installGlobalErrorHandlers();
   }, []);
 
-  const route = useMemo<Route>(() => {
-    if (typeof window === "undefined") return "app";
-    const search = window.location.search;
-    if (search.includes("admin")) return "admin";
-    if (search.includes("katex")) return "katex";
-    if (search.includes("croptest")) return "croptest";
-    if (search.includes("ui")) return "ui";
-    if (search.includes("legacy")) return "legacy";
-    if (search.includes("bench")) return "bench";
-    return "app";
-  }, []);
+  const route = useAppStore((s) => s.route);
 
   const screen = useAppStore((s) => s.screen);
+  const selectedTestId = useAppStore((s) => s.selectedTestId);
   const devToolsEnabled =
     import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_TOOLS === "true";
   const effectiveRoute =
@@ -94,7 +85,7 @@ const App = () => {
     ) : (
       <div className="w-full h-screen overflow-hidden bg-bg text-text font-sans">
         {screen === "library" && <LibraryScreen />}
-        {screen === "detail" && <DetailScreen />}
+        {screen === "detail" && <DetailScreen key={selectedTestId} />}
         {screen === "wizard" && <WizardScreen />}
         <ModalLayer />
         <ToastContainer />

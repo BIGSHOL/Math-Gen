@@ -3,6 +3,7 @@ import { Avatar, Btn, Chip, Divider } from "@app/components/ui";
 import { ModalShell } from "@app/components/modal";
 import { authClient as supabase } from "@app/services/api/supabase";
 import { useAuthStore } from "@app/stores/authStore";
+import { useAppStore } from "@app/stores/appStore";
 import { PasswordChangeModal } from "./PasswordChangeModal";
 
 /**
@@ -91,7 +92,7 @@ export const UserMenu = () => {
                 className="justify-start"
                 onClick={() => {
                   setOpen(false);
-                  window.location.href = "/?admin";
+                  useAppStore.getState().setRoute("admin");
                 }}
               >
                 관리자 화면

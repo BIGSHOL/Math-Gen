@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { TestPaper } from "@app/types";
+import type { Collection, GradeKey, SortKey } from "@app/lib/libraryFilter";
 import {
   deleteTest as dbDeleteTest,
   loadTests,
@@ -28,6 +29,8 @@ export interface LibraryState {
   tests: TestPaper[];
   hydrated: boolean;
   error: string | null;
+  viewState: { collection: Collection; grade?: GradeKey; selectedTags: ReadonlySet<string>; sort: SortKey; view: "grid" | "list"; searchQuery: string };
+  setViewState: (patch: Partial<LibraryState["viewState"]>) => void;
 
   hydrate: () => Promise<void>;
   upsertTest: (test: TestPaper) => void;
@@ -45,6 +48,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   tests: [],
   hydrated: false,
   error: null,
+  viewState: { collection: "전체", selectedTags: new Set(), sort: "recent", view: "grid", searchQuery: "" },
+  setViewState: patch => set(state => ({ viewState: { ...state.viewState, ...patch } })),
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -123,6 +128,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   reset: () => {
     hydrateVersion++;
     hydrating = null;
-    set({ tests: [], hydrated: false, error: null });
+    set({ tests: [], hydrated: false, error: null, viewState: { collection: "전체", selectedTags: new Set(), sort: "recent", view: "grid", searchQuery: "" } });
   },
 }));

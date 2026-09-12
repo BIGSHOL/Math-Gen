@@ -85,7 +85,7 @@ export function FigureLabelInput({ value, onChange, idPrefix }: {
     field.current?.focus();
   };
 
-  return <div className="space-y-2">
+  return <div className="space-y-2" onKeyDown={event => event.stopPropagation()}>
     <div className="grid grid-cols-2 rounded-lg bg-slate-100 p-1" role="group" aria-label={`${idPrefix} 종류`}>
       {(["text", "math"] as const).map(option => <button key={option} type="button" aria-pressed={mode === option}
         onClick={() => selectMode(option)} className={`rounded-md px-2 py-1.5 text-caption font-medium transition ${mode === option ? "bg-white text-orange-800 shadow-sm ring-1 ring-orange-200" : "text-muted hover:text-ink"}`}>

@@ -1,6 +1,7 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Btn, Card, Icon, Input, Logo } from "@app/components/ui";
 import { useAuthStore } from "@app/stores/authStore";
+import { useAppStore } from "@app/stores/appStore";
 
 type Mode = "login" | "signup" | "reset";
 
@@ -38,10 +39,12 @@ export const AuthScreen = () => {
   const actionPending = useAuthStore((s) => s.actionPending);
   const actionError = useAuthStore((s) => s.actionError);
 
-  const [mode, setMode] = useState<Mode>("login");
+  const mode = useAppStore(s => s.authMode);
+  const setMode = useAppStore(s => s.setAuthMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState<Sent | null>(null);
+  useEffect(() => { setSent(null); clearError(); }, [mode, clearError]);
 
   const goMode = (next: Mode) => {
     setMode(next);

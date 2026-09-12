@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useAuthStore } from "@app/stores/authStore";
+import { useAppStore } from "@app/stores/appStore";
 import { Heading, Icon } from "@app/components/ui";
 
 /**
@@ -96,6 +97,7 @@ const ForbiddenShell = ({ heading, message, icon }: ForbiddenShellProps) => (
       <p className="text-small text-muted text-center leading-relaxed">{message}</p>
       <a
         href="/"
+        onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); useAppStore.getState().backToLibrary(); } }}
         className="mt-6 inline-flex items-center gap-1.5 px-4 py-2 rounded-r2 bg-surface2 text-text hover:bg-hover transition text-small"
       >
         <Icon name="arrow-left" size={14} />

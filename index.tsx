@@ -8,11 +8,13 @@ import App from './App';
 import 'katex/dist/katex.min.css';
 import './src/styles/globals.css';
 import { installWizardSync } from './src/services/api';
+import { installBrowserNavigation } from './src/lib/browserNavigation';
 
 // Phase B: wizardStore → Supabase background sync 설치. idempotent (installed
 // flag) — HMR / StrictMode 재호출 안전. SUPABASE_ENABLED=false 면 subscribe
 // 콜백이 testId 가드로 no-op.
 installWizardSync();
+installBrowserNavigation();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

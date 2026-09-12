@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { figureDetectionReady } from "@app/lib/figureCrops";
+import { isTextInputEvent } from "@app/lib/keyboard";
 import {
   Btn,
   Card,
@@ -139,10 +140,11 @@ export const WizardScreen = () => {
     setResumeDialog(null);
   };
 
-  const handleExit = async () => {
-    await Promise.all([cleanupIndexedDB(), cleanupSupabaseDraft()]);
-    reset();
-    backToLibrary();
+  // 화면에서 나가는 것은 작업 삭제가 아니다. 뒤로/앞으로 돌아와도 계속 편집한다.
+  const handleExit = () => backToLibrary();
+  const handlePrev = () => {
+    if (step === 4 && skipSolutions) setStep(2);
+    else prev();
   };
 
   useWizardGuard(step > 0 && step < 6 && !resumeDialog);
@@ -155,12 +157,11 @@ export const WizardScreen = () => {
   // Ignore arrow keys when an input is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isTextInputEvent(e) || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (!e.metaKey && !e.ctrlKey) return;
-      const tag = document.activeElement?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "MATH-FIELD" || (document.activeElement as HTMLElement)?.isContentEditable) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        prev();
+        handlePrev();
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
@@ -169,7 +170,7 @@ export const WizardScreen = () => {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prev]);
+  }, [prev, step, skipSolutions, setStep]);
 
   // 단계 게이팅 (사용자 결정 2026-06-02): 이전 단계가 완료돼야 다음으로 진행.
   // 단 해설(step 3)은 스킵 가능. 비-문항·비-force 페이지는 검수/OCR 면제.
@@ -412,7 +413,7 @@ export const WizardScreen = () => {
           <WizardFooter
             step={step}
             totalSteps={STEPS.length}
-            onPrev={prev}
+            onPrev={handlePrev}
             onNext={handleNext}
             canAdvance={canAdvance}
             blockedReason={blockedReason}

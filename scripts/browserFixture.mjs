@@ -33,9 +33,10 @@ export async function startBrowserFixture(entries, env = {}) {
   assets.set('/fixture.css', css.css);
   const server = createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.statusCode = 204; res.end(); return; }
-    if (req.url === '/') {
+    if (new URL(req.url, 'http://fixture.local').pathname === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end('<!doctype html><html lang="ko"><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css"><title>OCR regression fixture</title><body><div id="root"></div></body></html>');
+      const styles = [...assets.keys()].filter(key => key.endsWith('.css')).map(key => `<link rel="stylesheet" href="${key}">`).join('');
+      res.end(`<!doctype html><html lang="ko"><meta charset="utf-8">${styles}<title>Browser regression fixture</title><body><div id="root"></div></body></html>`);
     } else if (assets.has(req.url)) {
       res.setHeader('Content-Type', req.url.endsWith('.css') ? 'text/css' : 'text/javascript');
       res.end(assets.get(req.url));

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Btn,
   Card,
@@ -53,14 +53,21 @@ export const DetailScreen = () => {
   const selectedTestId = useAppStore((s) => s.selectedTestId);
   const backToLibrary = useAppStore((s) => s.backToLibrary);
   const startWizard = useAppStore((s) => s.startWizard);
-  const getTest = useLibraryStore((s) => s.getTest);
+  const tests = useLibraryStore((s) => s.tests);
+  const hydrated = useLibraryStore((s) => s.hydrated);
+  const hydrate = useLibraryStore((s) => s.hydrate);
 
-  const test = selectedTestId ? getTest(selectedTestId) : undefined;
+  const test = tests.find(item => item.id === selectedTestId);
   const detail = useDetailData(selectedTestId);
 
-  const [activeTab, setActiveTab] = useState<DetailTab>("problems");
-  const [activePage, setActivePage] = useState(1);
+  const activeTab = useAppStore((s) => s.detailTab);
+  const setActiveTab = useAppStore((s) => s.setDetailTab);
+  const activePage = useAppStore((s) => s.detailPage);
+  const setActivePage = useAppStore((s) => s.setDetailPage);
   const [resuming, setResuming] = useState(false);
+  useEffect(() => { if (!hydrated) void hydrate(); }, [hydrated, hydrate]);
+  const activePageObj: PageWithUrls | undefined = detail.pages.find(p => p.page_num === activePage);
+  const activePageDataUrl = useImageAsDataUrl(activePageObj?.imageUrl);
 
   /**
    * 위자드 진입 — 저장된 시험지를 hydrate 후 step 결정:
@@ -81,7 +88,7 @@ export const DetailScreen = () => {
         return;
       }
       // 로딩 중 사용자가 보관함으로 돌아갔으면 화면 전환 취소.
-      if (useAppStore.getState().screen !== "detail") return;
+      if (useAppStore.getState().screen !== "detail" || useAppStore.getState().selectedTestId !== selectedTestId) return;
       // forceStep 명시 — snapshot.step override. *변형 만들기* 가 Step 3 으로
       // 강제 진입할 때 사용. 단순 *이어서 작업* 은 undefined → snapshot 의
       // decideResumeStep 결과 그대로.
@@ -114,7 +121,7 @@ export const DetailScreen = () => {
           }
         />
         <div className="flex-1 grid place-items-center text-body text-muted">
-          선택한 시험지를 찾을 수 없습니다.
+          {hydrated ? "선택한 시험지를 찾을 수 없습니다." : "시험지를 불러오는 중…"}
         </div>
       </div>
     );
@@ -122,9 +129,6 @@ export const DetailScreen = () => {
 
   const pageCount = detail.pages.length || 1;
   const thumbs = detail.pages.map((p) => ({ pageNum: p.page_num, url: p.thumbUrl }));
-  const activePageObj: PageWithUrls | undefined = detail.pages.find(
-    (p) => p.page_num === activePage,
-  );
   const activeProblems: OCRProblem[] = activePageObj
     ? detail.problemsByPage.get(activePageObj.id) ?? []
     : [];
@@ -168,7 +172,6 @@ export const DetailScreen = () => {
   })();
 
   // Phase D — 활성 페이지의 hi-res URL → base64 dataURL (OCRItem 의 도형 crop 용)
-  const activePageDataUrl = useImageAsDataUrl(activePageObj?.imageUrl);
 
   // Phase D — variants 를 detail.history 로 enrich. HeroCard / DetailMetaSidebar 가
   // 그대로 받아 표시.

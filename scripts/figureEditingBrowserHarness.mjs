@@ -64,8 +64,14 @@ try {
  await page.evaluate(async()=>{await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
  await page.screenshot({path:'.checks.local/figure-editor-open.png'});
  assert(await page.$eval('#figure-editor-canvas',e=>Math.abs(e.getBoundingClientRect().width-e.querySelector('svg').getBoundingClientRect().width)<1),'Editor SVG fills its canvas without the document figure size cap');
- const listPlacement=await page.$eval('[aria-label="도형 요소 목록"]',e=>{const panel=e.parentElement.getBoundingClientRect(),list=e.getBoundingClientRect();return{bottom:Math.abs(panel.bottom-list.bottom),topRatio:(list.top-panel.top)/panel.height};});
- assert(listPlacement.bottom<2&&listPlacement.topRatio>.55,'Object list stays at the bottom below the detailed editor');
+ const listPlacement=await page.$eval('[aria-label="도형 요소 목록"]',e=>{const main=e.closest('main'),list=e.getBoundingClientRect(),canvas=document.querySelector('#figure-editor-canvas').getBoundingClientRect();return !!main&&list.top>=canvas.bottom&&list.left<=canvas.left&&list.right>=canvas.right;});
+ assert(listPlacement,'Object list spans the area below the drawing, outside the right properties panel');
+ assert(await page.$$eval('[data-figure-number]',els=>els.length===3&&els.every((e,i)=>e.dataset.figureNumber===String(i+1)&&document.querySelector(`[data-figure-list-number="${i+1}"]`))),'All drawing objects have a one-to-one numbered entry');
+ await page.click('[data-figure-number="2"]');
+ assert(await page.$eval('[data-figure-list-number="2"]',e=>e.getAttribute('aria-pressed')==='true'),'Clicking a drawing number selects its matching list entry');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='번호 숨기기').click());
+ assert(await page.$$eval('[data-figure-number]',els=>els.length===0)&&await page.$$eval('[data-figure-list-number]',els=>els.length===3),'Hide numbers removes only the drawing guides and keeps the list available');
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='번호 보이기').click());
  await page.evaluate(()=>[...document.querySelectorAll('label')].find(e=>e.textContent.includes('원본을 흐리게 겹쳐 보기')).querySelector('input').click());
  await page.waitForSelector('[aria-label="겹쳐 보는 원본 크기"]');
  await page.$eval('[aria-label="겹쳐 보는 원본 크기"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'0.65');e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));});
@@ -104,9 +110,25 @@ try {
  await page.waitForFunction(()=>{const e=document.querySelector('#figure-editor-canvas text');return e?.textContent==='v(t)'&&e.getAttribute('data-mj')==='$v(t)$';});
  assert(await page.$eval('math-field[aria-label="선택한 도형 글자 수식"]',e=>e.value)==='v(t)','Figure math labels are edited visually without dollar-sign delimiters');
  assert(await page.$eval('#figure-editor-canvas text',e=>e.textContent)==='v(t)','Canvas never flashes raw math delimiters while a label is being typeset');
+ await page.click('math-field[aria-label="선택한 도형 글자 수식"]');
+ await page.keyboard.press('Backspace');
+ assert(await page.$$eval('#figure-editor-canvas [data-object-id]',els=>els.length)===3,'Backspace immediately after clicking the math field never deletes the object');
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='선택한 도형 글자 수식');
+ await page.keyboard.down('Control');await page.keyboard.press('a');await page.keyboard.up('Control');
+ await page.keyboard.press('Backspace');
+ await new Promise(resolve=>setTimeout(resolve,450));
+ assert(await page.$('math-field[aria-label="선택한 도형 글자 수식"]')!==null,'Backspace inside a math label keeps the detailed editor open');
+ assert(await page.$$eval('#figure-editor-canvas [data-object-id]',els=>els.length)===3,'Clearing math text does not delete the selected SVG object');
+ await page.keyboard.type('v(t)');
  await page.screenshot({path:'.checks.local/figure-label-math.png'});
  await page.evaluate(()=>[...document.querySelectorAll('[aria-label="선택한 도형 글자 종류"] button')].find(b=>b.textContent.trim()==='일반 글자').click());
  await page.waitForSelector('[aria-label="선택한 도형 글자"]');
+ await page.click('[aria-label="선택한 도형 글자"]');
+ await page.keyboard.down('Control');await page.keyboard.press('a');await page.keyboard.up('Control');
+ await page.keyboard.press('Backspace');
+ await page.keyboard.press('Backspace');
+ await new Promise(resolve=>setTimeout(resolve,450));
+ assert(await page.$('[aria-label="선택한 도형 글자"]')!==null,'Backspace inside a plain label keeps the detailed editor open');
  await page.$eval('[aria-label="선택한 도형 글자"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Z');e.dispatchEvent(new Event('input',{bubbles:true}));});
  await page.waitForFunction(()=>document.querySelector('#figure-editor-canvas text')?.textContent==='Z');
  await page.evaluate(()=>[...document.querySelectorAll('[aria-label="도형 편집 도구"] button')].find(b=>b.textContent.trim()==='○원').click());
@@ -155,7 +177,7 @@ try {
  const curve=await page.$eval('#drag-curve',e=>e.getAttribute('d').match(/-?(?:\d*\.)?\d+/g).map(Number));
  assert(curve[0]===220&&curve[1]===140&&curve[3]<40&&curve[4]===350&&curve[5]===140,'Dragging a curve control changes curvature while keeping both endpoints');
  await page.screenshot({path:'.checks.local/figure-mouse-curve.png'});
- await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='다각형 3').click());
+ await page.click('[data-figure-list-number="3"]');
  await page.waitForSelector('[data-figure-handle="point-0"]');
  await new Promise(resolve=>setTimeout(resolve,450));
  await dragHandle('point-0',-25,-15);
@@ -170,7 +192,7 @@ try {
  await dragHandle('radius-0',25,0);
  assert(await page.$eval('#drag-ellipse',e=>+e.getAttribute('rx')>40&&+e.getAttribute('ry')===24),'Ellipse width changes without disturbing its height');
  // Arc commands keep their geometry and get a bounding-box resize fallback.
- await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='곡선/경로 6').click());
+ await page.click('[data-figure-list-number="6"]');
  await page.waitForSelector('[data-figure-handle="resize-2"]');
  await dragHandle('resize-2',25,15);
  assert(await page.$eval('#drag-arc',e=>e.getAttribute('d').includes('A 28 28')&&e.getAttribute('transform').includes('scale(')),'Complex paths resize by mouse without rewriting their geometry');
@@ -188,7 +210,34 @@ try {
  await page.screenshot({path:'.checks.local/figure-mouse-editor.png'});
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='도형 적용').click());
  await page.waitForFunction(()=>!document.querySelector('[aria-label="도형 1 편집기"]'));
- assert(await page.evaluate(async()=>{const svg=(await import('/scripts/figureEditingHarnessEntry.tsx')).getSavedFigure();return svg.includes('drag-curve')&&!svg.includes('data-figure-handle')&&!svg.includes('data-object-id');}),'Mouse edits save clean geometry without selection handles or editor artifacts');
+ assert(await page.evaluate(async()=>{const svg=(await import('/scripts/figureEditingHarnessEntry.tsx')).getSavedFigure();return svg.includes('drag-curve')&&!svg.includes('data-figure-handle')&&!svg.includes('data-object-id')&&!svg.includes('data-figure-number');}),'Mouse edits save clean geometry without number badges or editor artifacts');
+ await page.evaluate(async()=>{
+   const {mountDirectFigure}=await import('/scripts/figureEditingHarnessEntry.tsx');
+   const lines=Array.from({length:10},(_,i)=>`<line x1="${40+i*12}" y1="${35+i*18}" x2="${220+i*18}" y2="${45+i*18}" stroke="black"/>`).join('');
+   const labels=Array.from({length:10},(_,i)=>`<text x="${50+i*38}" y="270" font-size="18">${String.fromCharCode(65+i)}</text>`).join('');
+   mountDirectFigure(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320">${lines}${labels}</svg>`);
+ });
+ await page.waitForFunction(()=>document.querySelectorAll('[data-figure-number]').length===20);
+ const layouts=[];
+ for(const size of [{width:1500,height:1000},{width:1024,height:768}]){
+   await page.setViewport(size);
+   await new Promise(resolve=>setTimeout(resolve,350));
+   const layout=await page.evaluate(()=>{
+     const rect=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,width:b.width,height:b.height};};
+     const canvas=document.querySelector('#figure-editor-canvas');
+     const list=document.querySelector('[aria-label="도형 요소 목록"]');
+     const rows=new Set([...list.querySelectorAll('button')].map(e=>Math.round(e.getBoundingClientRect().y)));
+     return{canvas:rect(canvas),objects:[...canvas.querySelectorAll('[data-object-id]')].map(rect),badges:[...document.querySelectorAll('[data-figure-number]')].map(e=>({...rect(e),number:Number(e.dataset.figureNumber)})),rows:rows.size,list:rect(list),scrollHeight:list.scrollHeight,clientHeight:list.clientHeight};
+   });
+   const overlaps=(a,b)=>a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;
+   assert(layout.rows>=2&&layout.scrollHeight===layout.clientHeight,`${size.width}px list wraps horizontally into visible rows without an inner scrollbar`);
+   assert(layout.badges.length===20&&layout.badges.every((a,i)=>!overlaps(a,layout.canvas)&&layout.badges.slice(i+1).every(b=>!overlaps(a,b))),`${size.width}px number badges overlap neither the drawing nor each other`);
+   assert(layout.list.y>=layout.canvas.y+layout.canvas.height,`${size.width}px list remains below the complete drawing`);
+   layouts.push({viewport:size,...layout});
+   await page.screenshot({path:`.checks.local/figure-numbered-${size.width}.png`});
+ }
+ await fs.writeFile('.checks.local/figure-number-layout.json',JSON.stringify(layouts,null,2));
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='도형 적용').click());
  await page.evaluate(async()=>{const{mountRendererRegression}=await import('/scripts/figureEditingHarnessEntry.tsx');mountRendererRegression('구간 $[a,b]$에서 $x(b)=-8-x(b) \\implies x(b)=-4$. <span data-katex-id="10"></span> 따라서 거리는 $8$이다.');});
  await page.waitForSelector('#editing-harness .katex');
  assert(await page.$eval('#editing-harness',e=>!e.textContent.includes('data-katex')&&!e.textContent.includes('<span')),'Solution rendering never exposes internal KaTeX placeholder tags');
