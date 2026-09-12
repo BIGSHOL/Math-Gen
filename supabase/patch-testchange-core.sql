@@ -188,11 +188,20 @@ INSERT INTO public.profiles(id,email) SELECT id,email FROM auth.users ON CONFLIC
 UPDATE public.profiles SET role='system_admin',status='active'
 WHERE lower(email)='chrismathone@gmail.com';
 
-INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types) VALUES
-('pdfs','pdfs',false,52428800,ARRAY['application/pdf']::text[]),
-('page-images','page-images',false,10485760,ARRAY['image/png','image/jpeg']::text[]),
-('page-thumbnails','page-thumbnails',false,512000,ARRAY['image/jpeg']::text[])
-ON CONFLICT(id) DO UPDATE SET public=EXCLUDED.public,file_size_limit=EXCLUDED.file_size_limit,allowed_mime_types=EXCLUDED.allowed_mime_types;
+INSERT INTO storage.buckets(id,name,"public",file_size_limit,allowed_mime_types)
+VALUES('pdfs','pdfs',false,52428800,ARRAY['application/pdf']::text[])
+ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,"public"=EXCLUDED."public",
+file_size_limit=EXCLUDED.file_size_limit,allowed_mime_types=EXCLUDED.allowed_mime_types;
+
+INSERT INTO storage.buckets(id,name,"public",file_size_limit,allowed_mime_types)
+VALUES('page-images','page-images',false,10485760,ARRAY['image/png','image/jpeg']::text[])
+ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,"public"=EXCLUDED."public",
+file_size_limit=EXCLUDED.file_size_limit,allowed_mime_types=EXCLUDED.allowed_mime_types;
+
+INSERT INTO storage.buckets(id,name,"public",file_size_limit,allowed_mime_types)
+VALUES('page-thumbnails','page-thumbnails',false,512000,ARRAY['image/jpeg']::text[])
+ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,"public"=EXCLUDED."public",
+file_size_limit=EXCLUDED.file_size_limit,allowed_mime_types=EXCLUDED.allowed_mime_types;
 
 DROP POLICY IF EXISTS mathgen_storage_own ON storage.objects;
 CREATE POLICY mathgen_storage_own ON storage.objects FOR ALL TO authenticated
