@@ -539,6 +539,11 @@ const stripModelSelfNotes = (text: string): string => {
 
 export const sanitizeText = (text: string | undefined): string => {
   if (!text) return text ?? "";
+  // 렌더러 내부 placeholder가 모델 응답/저장본에 섞인 경우 빈 태그를 제거한다.
+  // 이 문자열은 사용자 콘텐츠가 아니며 화면에 보이면 즉시 렌더 파손이다.
+  text = text
+    .replace(/<\/?span\b[^>]*\bdata-katex-id\s*=\s*["'][^"']*["'][^>]*>/gi, "")
+    .replace(/&lt;\/?span\b[^&]*\bdata-katex-id\s*=\s*(?:&quot;|["'])?[^&"']*(?:&quot;|["'])?[^&]*&gt;/gi, "");
   // 순서: (0) 모델 self-note 흔적 제거 (영어 메타 코멘트) → (1) HTML 노이즈
   //       제거 → (2) `\textcircled{N}` 유니코드 변환 → (3) JSON.parse 백슬래시
   //       복원 → (4) `$...$` 밖 라텍스 wrap + raw `<` / `>` escape.

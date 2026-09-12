@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { MathTextEditor } from "@app/components/math/MathTextEditor";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { FigureEditor } from "@app/components/math/FigureEditor";
 import { DiagramCropOverlay } from "./DiagramCropOverlay";
 import { Btn, Card, Chip, Icon } from "@app/components/ui";
@@ -23,6 +22,12 @@ import {
 import { cn } from "@app/lib/tailwind";
 import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
 
+const MathTextEditor = lazy(() =>
+  import("@app/components/math/MathTextEditor").then((module) => ({
+    default: module.MathTextEditor,
+  })),
+);
+
 /**
  * Step 2 — a single extracted problem card.
  *
@@ -30,10 +35,10 @@ import { OcrFeedbackPanel } from "./OcrFeedbackPanel";
  *   1. **read**  — number badge, status chip, topic chip, MarkdownRenderer body
  *      (KaTeX + diagram-aware). Warn-status cards get a left border accent
  *      and a hint banner.
- *   2. **edit**  — number/topic as `<input>` fields, body as a side-by-side
- *      `<textarea>` + live `<MarkdownRenderer>` preview. Save promotes the
- *      item to `status="ok"` and `reviewed=true` regardless of the previous
- *      confidence band (the user just looked at it).
+ *   2. **edit**  — number/topic as inputs, body as one visual document with
+ *      rendered math and directly clickable figures. Source mode remains an
+ *      escape hatch. Save promotes the item to `status="ok"` and
+ *      `reviewed=true` after the user has reviewed it.
  *
  * Persistence is via `useWizardStore.updateOCRItem` — already in the store.
  */
@@ -354,6 +359,15 @@ export const OCRItem = ({
     else updateOCRItem(pageId, item.id, { images, diagramParams: undefined, figureWarnings: undefined,
       figures: images.map(im => ({ box: im.box, label: im.label, kind: "crop" })) });
   };
+  const editableDiagrams = editableImages?.map((image, index) => ({
+    svg: image.engineSvg ?? vectorDiagrams?.[index]?.svg ?? "",
+    label: image.label,
+  }));
+  const editableCrops = editableImages?.map((image, index) => ({
+    src: image.dataUrl ?? crops[index]?.src ?? "",
+    label: image.label,
+    box: image.box,
+  }));
 
   return (
     <Card
@@ -457,15 +471,23 @@ export const OCRItem = ({
       </div>
 
       {editing ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <MathTextEditor value={draftText} onChange={setDraftText} />
-          <div className="min-h-[140px] px-3 py-2 rounded-r2 border border-line bg-surface2 overflow-auto">
-            <p className="text-caption text-muted mb-2">미리보기</p>
-            <MarkdownRenderer content={draftText} choicesLayout={item.choicesLayout}
-              diagramSvgs={draftImages === item.images ? vectorDiagrams : undefined}
-              imageCrops={draftImages?.map((im, i) => ({ src: im.dataUrl ?? crops[i]?.src ?? "", label: im.label, box: im.box }))} />
-          </div>
-        </div>
+        <Suspense
+          fallback={
+            <div className="min-h-[300px] rounded-r2 border border-line bg-surface-subtle flex items-center justify-center text-small text-muted">
+              시각 편집기를 불러오는 중…
+            </div>
+          }
+        >
+          <MathTextEditor
+            value={draftText}
+            onChange={setDraftText}
+            choicesLayout={item.choicesLayout}
+            diagramSvgs={editableDiagrams}
+            imageCrops={editableCrops}
+            figures={item.figures}
+            onFigureClick={setFigureEditor}
+          />
+        </Suspense>
       ) : (
         <div className="text-body text-text">
           {item.bodyMissing && (
@@ -503,6 +525,7 @@ export const OCRItem = ({
             // 위치 획득(reading-order 매칭). 없으면 위 imageCrops box 만으로 동작.
             figures={item.figures}
             choicesLayout={item.choicesLayout}
+            onFigureClick={readonly ? undefined : setFigureEditor}
           />
         </div>
       )}
@@ -552,8 +575,21 @@ export const OCRItem = ({
             {displayCrops.map((c, i) => (
               <figure
                 key={i}
+                role={readonly ? undefined : "button"}
+                tabIndex={readonly ? undefined : 0}
+                aria-label={readonly ? undefined : `그림 ${crops.indexOf(c) + 1} 편집`}
+                title={readonly ? undefined : "클릭해서 그림 수정"}
+                onClick={readonly ? undefined : () => setFigureEditor(crops.indexOf(c))}
+                onKeyDown={(event) => {
+                  if (readonly) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setFigureEditor(crops.indexOf(c));
+                  }
+                }}
                 className={cn(
                   "border rounded-r2 bg-white p-2 max-w-[280px]",
+                  !readonly && "cursor-pointer hover:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-300",
                   c.source === "ai-gen"
                     ? "border-accent/40 ring-1 ring-accent/20"
                     : c.source === "user-crop"

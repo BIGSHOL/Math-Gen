@@ -157,7 +157,7 @@ export const WizardScreen = () => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
       const tag = document.activeElement?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "MATH-FIELD" || (document.activeElement as HTMLElement)?.isContentEditable) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         prev();
@@ -285,6 +285,7 @@ export const WizardScreen = () => {
   // Step 2(OCR)에서 누르면 OCR 확인도 겸한다(2→4 직행이라 OCR 게이트를 명시 통과).
   // useSolutionGen 이 skipSolutions 를 보고 자동발사를 차단 → 비용 0.
   const handleSkipSolutions = () => {
+    if (step === 2 && !allProblemOcrDone) return;
     if (step === 2) setOcrConfirmed(true);
     setSkipSolutions(true);
     setStep(4);
@@ -330,13 +331,13 @@ export const WizardScreen = () => {
   const skipSolutionsSlot =
     !skipSolutions && ((step === 2 && allProblemOcrDone) || step === 3) ? (
       <Btn kind="ghost" size="sm" icon="fast-forward" onClick={handleSkipSolutions}>
-        해설 건너뛰고 옵션으로
+        해설 건너뛰기
       </Btn>
     ) : undefined;
 
   // 해설 스킵 시 Stepper 의 해설(3) 단계 라벨을 "건너뜀" 으로 — 진행 상태 명시.
   const stepperSteps = skipSolutions
-    ? STEPS.map((s) => (s.index === 3 ? { ...s, subLabel: "건너뜀" } : s))
+    ? STEPS.map((s) => (s.index === 3 ? { ...s, subLabel: "건너뜀", skipped: true } : s))
     : STEPS;
 
   return (
@@ -416,7 +417,7 @@ export const WizardScreen = () => {
             canAdvance={canAdvance}
             blockedReason={blockedReason}
             nextLabel={nextLabel}
-            leftSlot={skipSolutionsSlot}
+            nextSlot={skipSolutionsSlot}
           />
         </div>
       )}

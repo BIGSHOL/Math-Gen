@@ -10,11 +10,12 @@
  *     > ㄴ. $9$
  *     > ㄷ. $12$
  *
- * `cols`: `1 | 2 | 3 | 'auto'` — default (no marker) is currently `'auto'`.
+ * `cols`: `1 | 2 | 3 | 'auto'` — default marker renders one column so the
+ * original vertical order is never guessed from item count.
  */
 
 export type BoxCols = "auto" | 1 | 2 | 3;
-export const DEFAULT_BOX_COLS: BoxCols = "auto";
+export const DEFAULT_BOX_COLS: BoxCols = 1;
 
 /** blockquote 첫 줄 텍스트에서 cols 지정자 추출. 마커가 없으면 null. */
 export const parseBoxCols = (headerLine: string): BoxCols | null => {
@@ -25,12 +26,8 @@ export const parseBoxCols = (headerLine: string): BoxCols | null => {
   return Number(m[1]) as 1 | 2 | 3;
 };
 
-/** 항목 개수로 자동 열 수 계산 (≥6 → 3, ≥3 → 2, 그 외 → 1). */
-export const autoCols = (itemCount: number): 1 | 2 | 3 => {
-  if (itemCount >= 6) return 3;
-  if (itemCount >= 3) return 2;
-  return 1;
-};
+/** 항목 개수는 원본 열 배치의 근거가 아니다. 명시한 cols만 다단으로 표시한다. */
+export const autoCols = (_itemCount: number): 1 | 2 | 3 => 1;
 
 /** 실제 렌더 시 사용할 열 수 결정. */
 export const resolveCols = (cols: BoxCols, itemCount: number): 1 | 2 | 3 => {
@@ -56,10 +53,8 @@ export const readBoxColsFromContent = (content: string): BoxCols | null => {
  */
 export const writeBoxColsToContent = (content: string, cols: BoxCols | null): string => {
   const lines = content.split("\n");
-  // DEFAULT_BOX_COLS is currently 'auto'. If you change the default to a
-  // numeric value, the branching below still produces the right marker.
-  // After the null/default check, `cols` is narrowed to 1 | 2 | 3 in the
-  // else branch — TS knows we've eliminated 'auto' (the default value).
+  // The plain marker represents the one-column default. Explicit auto/2/3
+  // survives as metadata when a source really used multiple columns.
   const isDefault = cols === null || cols === DEFAULT_BOX_COLS;
   const newMarker = isDefault ? "<보기>" : `<보기:cols=${cols}>`;
 

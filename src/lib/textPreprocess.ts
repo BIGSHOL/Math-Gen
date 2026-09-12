@@ -833,8 +833,8 @@ export const LATEX_WRAP_TRIGGER_SOURCE =
  */
 export const preprocessMathText = (content: string): string => {
   let out = content
-    .replace(/\\\([\s\S]*?\\\)/g, (_m, p1) => `$${p1}$`)
-    .replace(/\\\[[\s\S]*?\\\]/g, (_m, p1) => `$$$${p1}$$$$`);
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_m, p1) => `$${p1}$`)
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_m, p1) => `$$${p1}$$`);
 
   for (let i = 0; i < 5; i++) {
     const next = out.replace(/\$([^$\n]+)\$\$([^$\n]+)\$/g, (_m, a, b) => `$${a}$ $${b}$`);

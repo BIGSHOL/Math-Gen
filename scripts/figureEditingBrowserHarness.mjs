@@ -7,7 +7,7 @@ const checks=[];
 const assert=(value,label)=>{if(!value)throw new Error(label);checks.push(label);console.log('PASS',label);};
 try {
  const page=await browser.newPage();await page.setViewport({width:1500,height:1000});
- const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('PAGEERROR',e.stack);});
   await page.goto(fixture.url,{waitUntil:'networkidle0'});
  await page.evaluate(async()=>{
    window.__detectCalls=0;
@@ -36,15 +36,32 @@ try {
  assert(after[0]>before[0]&&after[1]>before[1],'Dragging an inner figure persists edited coordinates');
  await fs.mkdir('.checks.local',{recursive:true});await page.screenshot({path:'.checks.local/inner-figure-crop.png'});
  await page.evaluate(async()=>{const{mountEditingHarness}=await import('/scripts/figureEditingHarnessEntry.tsx');await mountEditingHarness('ocr');});
+ assert(await page.$$eval('.choice-row .choice',els=>els.length===5&&new Set(els.map(e=>Math.round(e.getBoundingClientRect().x))).size===1),'Five answer choices follow the stored vertical layout');
+ assert(await page.$$eval('[data-condition-box="1"] .grid > div',els=>els.length===3&&new Set(els.map(e=>Math.round(e.getBoundingClientRect().x))).size===1),'ㄱ, ㄴ, ㄷ items stay in one vertical column');
+ await page.waitForSelector('[aria-label="그림 1 편집"]');await page.click('[aria-label="그림 1 편집"]');
+ await page.waitForSelector('[aria-label="도형 1 편집기"]');
+ assert(true,'Clicking the figure inside a problem opens its editor directly');
+ await page.evaluate(()=>[...document.querySelectorAll('[aria-label="도형 1 편집기"] button')].find(b=>b.textContent.trim()==='취소').click());
+ await page.waitForFunction(()=>!document.querySelector('[aria-label="도형 1 편집기"]'));
  await page.waitForSelector('[aria-label="문제 편집"]');await page.click('[aria-label="문제 편집"]');
  await page.waitForSelector('[aria-label="수식 삽입"]');
+ assert(!await page.evaluate(()=>document.body.textContent.includes('미리보기')),'Problem editing uses one visual document instead of split source and preview panes');
+ assert(await page.$$eval('.visual-document .choice-row .choice',els=>els.length===5&&new Set(els.map(e=>Math.round(e.getBoundingClientRect().x))).size===1),'Editor preserves the same vertical answer layout as the reader');
  assert(await page.$$eval('#editing-harness img',els=>els.some(e=>e.src.startsWith('data:image/svg'))),'Edit preview includes the diagram instead of a raw marker');
- const textarea=await page.$('textarea[aria-label="문제 본문 (Markdown + LaTeX)"]');
- await textarea.focus();await page.keyboard.down('Control');await page.keyboard.press('Home');await page.keyboard.up('Control');
+ await page.waitForSelector('[aria-label="문제 본문"]');
  await page.evaluate(()=>[...document.querySelectorAll('[aria-label="수식 삽입"] button')].find(b=>b.textContent==='분수').click());
- assert((await textarea.evaluate(e=>e.value)).startsWith('$\\frac{□}{□}$'),'Fraction input inserts LaTeX at the caret');
- await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='그림 편집').click());
+ await page.waitForSelector('math-field[aria-label="수식 입력"]');
+ await page.click('math-field[aria-label="수식 입력"]');
+ await page.keyboard.down('Control');await page.keyboard.press('a');await page.keyboard.up('Control');
+ await page.keyboard.type('2/3');
+ await page.waitForFunction(()=>{const e=document.querySelector('math-field[aria-label="수식 입력"]');return e?.value?.includes('2')&&e.value.includes('3');});
+ await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>{const e=document.querySelector('[aria-label="수식 편집"]');return e&&decodeURIComponent(e.dataset.mathTex||'').includes('2')&&decodeURIComponent(e.dataset.mathTex||'').includes('3');});
+ assert(await page.$eval('[aria-label="수식 편집"]',e=>decodeURIComponent(e.dataset.mathTex).includes('2')&&decodeURIComponent(e.dataset.mathTex).includes('3')),'Fraction is edited in visual math form without typing LaTeX');
+ await page.screenshot({path:'.checks.local/visual-question-editor.png'});
+ await page.evaluate(()=>document.querySelector('[aria-label="그림 1 편집"]').click());
  await page.waitForSelector('[aria-label="도형 1 편집기"]');
+ await page.evaluate(async()=>{await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
  await page.screenshot({path:'.checks.local/figure-editor-open.png'});
  assert(await page.$eval('#figure-editor-canvas',e=>Math.abs(e.getBoundingClientRect().width-e.querySelector('svg').getBoundingClientRect().width)<1),'Editor SVG fills its canvas without the document figure size cap');
  const n=await page.$$eval('#figure-editor-canvas [data-object-id]',els=>els.length);
@@ -55,7 +72,8 @@ try {
    await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
    await page.mouse.move(box.x+box.width/2+dx,box.y+box.height/2+dy,{steps:12});await page.mouse.up();
  };
- await page.click('#figure-editor-canvas path');
+ const firstPath=await page.$('#figure-editor-canvas path');const firstPathBox=await firstPath.boundingBox();
+ await page.mouse.click(firstPathBox.x+2,firstPathBox.y+2);
  await page.waitForSelector('[data-figure-handle="path-0-0"]');
  assert(await page.$$eval('[data-figure-handle]',els=>els.length)===3,'Triangle exposes three draggable vertices');
  const originalPath=await page.$eval('#figure-editor-canvas path',e=>e.getAttribute('d'));
@@ -89,7 +107,7 @@ try {
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='도형 적용').click());
  await page.waitForFunction(()=>!document.querySelector('[aria-label="도형 1 편집기"]'));
  await page.evaluate(()=>[...document.querySelectorAll('#editing-harness button')].find(b=>b.textContent.trim()==='저장').click());
- assert(await page.evaluate(async()=>{const{s}= {s:(await import('/scripts/figureEditingHarnessEntry.tsx')).useWizardStore};const svg=s.getState().pages[0].ocrResult[0].images[0].engineSvg;return svg.includes('>Z</text>')&&svg.includes('<circle');}),'Applying and saving preserves edited SVG in the question');
+ assert(await page.evaluate(async()=>{const{s}= {s:(await import('/scripts/figureEditingHarnessEntry.tsx')).useWizardStore};const item=s.getState().pages[0].ocrResult[0];return item.images[0].engineSvg.includes('>Z</text>')&&item.images[0].engineSvg.includes('<circle')&&item.text.includes('\\frac23')&&item.text.includes('> <보기>')&&!item.text.includes('**<보기>**');}),'Applying and saving preserves visual math, condition markup, and edited SVG in the question');
  await page.evaluate(async()=>{
    const {mountDirectFigure}=await import('/scripts/figureEditingHarnessEntry.tsx');
    mountDirectFigure('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360"><g transform="translate(15 10) scale(1.1)"><line id="drag-line" x1="30" y1="65" x2="170" y2="65" stroke="black" stroke-width="1"/><path id="drag-curve" d="M 220 140 Q 285 40 350 140" fill="none" stroke="black" stroke-width="2"/><polygon id="drag-polygon" points="230,210 280,285 350,240" fill="none" stroke="black" stroke-width="2"/><rect id="drag-rect" x="30" y="205" width="120" height="70" fill="none" stroke="black" stroke-width="2"/><ellipse id="drag-ellipse" cx="90" cy="135" rx="40" ry="24" fill="none" stroke="black" stroke-width="2"/><path id="drag-arc" d="M 320 65 A 28 28 0 0 1 375 65" fill="none" stroke="black" stroke-width="2"/></g></svg>');
@@ -115,8 +133,9 @@ try {
  const curve=await page.$eval('#drag-curve',e=>e.getAttribute('d').match(/-?(?:\d*\.)?\d+/g).map(Number));
  assert(curve[0]===220&&curve[1]===140&&curve[3]<40&&curve[4]===350&&curve[5]===140,'Dragging a curve control changes curvature while keeping both endpoints');
  await page.screenshot({path:'.checks.local/figure-mouse-curve.png'});
- pos=await location('#drag-polygon',255,247.5);await page.mouse.click(pos.x,pos.y);
+ await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='다각형 3').click());
  await page.waitForSelector('[data-figure-handle="point-0"]');
+ await new Promise(resolve=>setTimeout(resolve,450));
  await dragHandle('point-0',-25,-15);
  const polygon=await page.$eval('#drag-polygon',e=>e.getAttribute('points').split(/[ ,]+/).map(Number));
  assert(polygon[0]<230&&polygon[1]<210&&polygon[2]===280&&polygon[3]===285,'Polygon vertex moves independently without changing other vertices');
@@ -148,6 +167,10 @@ try {
  await page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='도형 적용').click());
  await page.waitForFunction(()=>!document.querySelector('[aria-label="도형 1 편집기"]'));
  assert(await page.evaluate(async()=>{const svg=(await import('/scripts/figureEditingHarnessEntry.tsx')).getSavedFigure();return svg.includes('drag-curve')&&!svg.includes('data-figure-handle')&&!svg.includes('data-object-id');}),'Mouse edits save clean geometry without selection handles or editor artifacts');
+ await page.evaluate(async()=>{const{mountRendererRegression}=await import('/scripts/figureEditingHarnessEntry.tsx');mountRendererRegression('구간 $[a,b]$에서 $x(b)=-8-x(b) \\implies x(b)=-4$. <span data-katex-id="10"></span> 따라서 거리는 $8$이다.');});
+ await page.waitForSelector('#editing-harness .katex');
+ assert(await page.$eval('#editing-harness',e=>!e.textContent.includes('data-katex')&&!e.textContent.includes('<span')),'Solution rendering never exposes internal KaTeX placeholder tags');
+ assert(await page.$$eval('#editing-harness .katex-error',els=>els.length===0),'Solution post-processing leaves no KaTeX error fallback');
  assert(errors.length===0,'No browser runtime errors');
  console.log(`${checks.length} editing checks passed`);
 }finally{await browser.close(); await fixture.close();}

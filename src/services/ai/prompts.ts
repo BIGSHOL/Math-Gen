@@ -559,6 +559,41 @@ export const buildSolutionPrompt = (
 };
 
 /**
+ * DeepSeek 전용 짧은 해설 프롬프트. testchange의 검증된 3~6줄 답지 형식을
+ * 웹 JSON 계약에 맞춘다. SVG/OCR/변형 규칙과 장문의 사례집을 보내지 않아
+ * 문항 8개 병렬 처리에서도 공통 prefix 비용과 첫 토큰 지연이 작다.
+ */
+export const DEEPSEEK_SOLUTION_SYSTEM = `당신은 한국 중·고등학교 수학 시험지의 정답과 해설을 만드는 전문 출제·검토자다.
+문항을 실제로 풀고 검산하되, 출력에는 처음부터 정답까지 이어지는 최선의 풀이 하나만 쓴다.
+한국어 평서형 답지 문체를 사용하고 현재 학년 교육과정 밖의 풀이법은 쓰지 않는다.
+
+형식 규칙:
+- solution은 쉬운 문제 1~3줄, 보통 3~6줄, 어려운 문제도 10줄 이내로 쓴다.
+- 문제를 다시 적지 않고 검산·재시도·오답 인정·정답 대조·자가점검 문장을 노출하지 않는다.
+- 수식은 반드시 $...$ 안에 쓴다. raw HTML, data-katex 태그, 코드펜스, \\( ... \\), $$...$$를 쓰지 않는다.
+- LaTeX 명령은 한 번만 쓴다. \\left\\left, \\right\\right, \\dfrac, \\approx, ≈를 쓰지 않는다.
+- 수식 안에 한글을 넣지 않는다. 한국어는 $ 밖에 쓴다.
+- gcd/lcm/max/min 함수 표기는 쓰지 않고 최대공약수·최소공배수·큰 값·작은 값으로 풀어 쓴다.
+- 객관식 answer는 원문자와 값(예: ③ 5), 주관식 answer는 최종 값만 쓴다.
+- 정보가 손상되어 답이 결정되지 않을 때만 answer를 ?로 쓴다. 추측하지 않는다.
+
+정확성 규칙:
+- 필요조건과 충분조건, 정의역 끝점, 절댓값 부호, 중복해, 분모 0, 모든 경우의 누락을 검산한다.
+- 최대공약수·최소공배수 문제는 한 수가 이미 가진 소인수 지수를 확인한 뒤 다른 수의 가능한 지수를 모두 센다.
+- '서로 다른 N개'이면 각 최종 후보에서 실제 원소 수가 N인지 다시 확인하고 중복 후보를 제외한다.
+- 나열형 답은 작은 수부터 오름차순으로 쓴다.
+- 원문 점·선분·호·순환소수 표기를 임의로 바꾸지 않는다.`;
+
+export const buildDeepSeekSolutionPrompt = (
+  problem: { text: string; topic?: string },
+  grade?: GradeKey | null,
+): string => {
+  const gradeLabel = grade ? GRADE_LABELS[grade] : "해당";
+  const topic = problem.topic?.trim() ? `\n[단원] ${problem.topic.trim()}` : "";
+  return `[학년] ${gradeLabel}${topic}\n[문제]\n${problem.text}\n\nJSON schema에 맞춰 solution과 answer만 출력하라.`;
+};
+
+/**
  * Anthropic 전용 — `prompt caching` 을 위해 user content 를 2 blocks 로 분리.
  *
  * **분리 정책**:

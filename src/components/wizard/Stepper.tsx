@@ -6,6 +6,7 @@ export interface StepperStep {
   index: WizardStepIndex;
   label: string;
   subLabel?: string;
+  skipped?: boolean;
 }
 
 export interface StepperProps {
@@ -59,6 +60,7 @@ export const Stepper = ({ steps, current, furthest, completed, onJump }: Stepper
         <li key={s.index} className="flex items-center flex-1 last:flex-none">
           <button
             type="button"
+            aria-label={`${s.index + 1}단계 ${s.label}${s.skipped ? " 건너뜀" : ""}`}
             disabled={!canJump}
             onClick={() => canJump && onJump(s.index)}
             className={cn(
@@ -77,7 +79,9 @@ export const Stepper = ({ steps, current, furthest, completed, onJump }: Stepper
                 state === "future" && "bg-surface text-muted border border-dashed border-line-strong",
               )}
             >
-              {state === "done" ? (
+              {s.skipped ? (
+                <Icon name="x" size={14} weight="bold" />
+              ) : state === "done" ? (
                 <Icon name="check" size={14} weight="bold" color="white" />
               ) : (
                 s.index + 1

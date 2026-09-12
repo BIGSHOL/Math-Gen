@@ -1,13 +1,12 @@
 import React from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import { parseBoxCols, resolveCols } from "@app/lib/boxGrid";
 import { parseImageTitle, preprocessMathText, wrapBareConditionBoxes } from "@app/lib/textPreprocess";
 import { renderKatexSafe } from "@app/lib/katexRender";
+import { splitMathSegments } from "@app/lib/mathSegments";
 import { groupFigureRows, assignBoxesByReadingOrder, type FigBox } from "@app/lib/figureLayout";
 
 /**
@@ -95,6 +94,9 @@ export interface MarkdownRendererProps {
    * 기본 "auto" — 옵션 길이 기반 자동 결정. tall LaTeX 검출 시 5x1 강제 override.
    */
   choicesLayout?: ChoicesLayoutHint;
+  onFigureClick?: (index: number) => void;
+  /** Lossless math/figure metadata for the visual document editor. */
+  editorTokens?: boolean;
 }
 
 const SIZE_STYLE: Record<NonNullable<DiagramSvgItem["size"]>, string> = {
@@ -333,12 +335,14 @@ const TALL_LATEX_RE =
 
 const prerenderAllKatex = (
   text: string,
-): { content: string; katexMap: Map<string, string> } => {
+): { content: string; katexMap: Map<string, string>; texMap: Map<string, string> } => {
   const map = new Map<string, string>();
+  const texMap = new Map<string, string>();
   let nextId = 0;
-  const reserve = (html: string, kind: "inline" | "block", tall: boolean): string => {
+  const reserve = (tex: string, kind: "inline" | "block", tall: boolean): string => {
     const id = String(nextId++);
-    map.set(id, html);
+    texMap.set(id, tex);
+    map.set(id, renderKatex(tex, kind === "block"));
     const tallAttr = tall ? ' data-katex-tall="1"' : "";
     return kind === "block"
       ? `\n\n<div data-katex-id="${id}"${tallAttr}></div>\n\n`
@@ -346,15 +350,9 @@ const prerenderAllKatex = (
   };
   // Block math first ($$...$$). Use a tight non-greedy match so we don't
   // accidentally swallow multiple paragraphs.
-  let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) =>
-    reserve(renderKatex(tex.trim(), true), "block", TALL_LATEX_RE.test(tex)),
-  );
-  // Inline math: $...$ on a single line. We bail out on newlines so a
-  // stray $ doesn't pair across paragraphs.
-  out = out.replace(/\$([^$\n]+?)\$/g, (_, tex: string) =>
-    reserve(renderKatex(tex, false), "inline", TALL_LATEX_RE.test(tex)),
-  );
-  return { content: out, katexMap: map };
+  const out = splitMathSegments(text).map(segment => segment.kind === "text" ? segment.value
+    : reserve(segment.value.trim(), segment.kind, TALL_LATEX_RE.test(segment.value))).join("");
+  return { content: out, katexMap: map, texMap };
 };
 
 /**
@@ -565,6 +563,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   imageCrops,
   figures,
   choicesLayout = "auto",
+  onFigureClick,
+  editorTokens,
 }) => {
   // Stage 0: inline <svg>…</svg> extraction.
   //
@@ -585,6 +585,16 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   // and renders them via dangerouslySetInnerHTML so the browser parses the
   // SVG natively and gets the namespace right.
   const svgPlaceholders = new Map<string, string>();
+  const svgFigureIndices = new Map<string, number>();
+  const figureAction = (index: number | undefined) => index === undefined ? {} : ({
+    "data-figure-index": index,
+    ...(onFigureClick ? { role: "button", tabIndex: 0, title: `그림 ${index + 1} 편집`,
+      "aria-label": `그림 ${index + 1} 편집`,
+      onClick: () => onFigureClick(index),
+      onKeyDown: (event: React.KeyboardEvent) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onFigureClick(index); }
+      } } : {}),
+  });
   // Stage 1c(위치 기반 행 배치)용 — placeholder key → full-page box.
   // key = svg 의 data-svg-id (Stage 1) 또는 "img-<idx>" (Stage 1b). box 없으면
   // 미기록 → 행에 편입 안 됨(세로 스택 유지).
@@ -613,7 +623,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     ) => {
       const dIdx = idx ?? nextIdx++;
       const item = diagramSvgs[dIdx];
-      if (!item) return _fullMatch;
+      if (!item?.svg) return _fullMatch;
       const align = item.align;
       const alignClass =
         align === "center"
@@ -630,6 +640,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // right; otherwise the raw SVG would hit the same "<text> is
       // unrecognized in this browser" trap.
       const phId = String(nextPlaceholderId++);
+      svgFigureIndices.set(phId, dIdx);
       svgPlaceholders.set(phId, normalizeInlineSvgs(svg));
       figureBoxes.set(phId, item.box); // Stage 1c 위치 배치용 (없으면 undefined)
 
@@ -788,8 +799,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   return (
     <Tag className={wrapperClass}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-        rehypePlugins={[rehypeRaw, [rehypeKatex, { strict: false }]]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        rehypePlugins={[rehypeRaw]}
         // react-markdown 의 기본 urlTransform 은 보안상 `data:` URI 를 *제거* →
         // src="" 가 됨. 우리 크롭 이미지(작품·도형)는 cropPageImageData 가 만든
         // `data:image/...` dataURL 이라 [그림N] inline 치환(Stage 1b) 시 통째로
@@ -866,6 +877,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 : baseStyle;
               return (
                 <div
+                  {...figureAction(svgFigureIndices.get(svgId))}
+                  data-editor-svg={editorTokens ? encodeURIComponent(svgHtml) : undefined}
                   className={classes}
                   style={Object.keys(style).length ? (style as React.CSSProperties) : undefined}
                   dangerouslySetInnerHTML={{ __html: svgHtml }}
@@ -879,6 +892,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               return (
                 <div
                   className="katex-block-wrap"
+                  data-math-tex={editorTokens ? encodeURIComponent(katexResult.texMap.get(katexId)!) : undefined}
+                  data-math-display={editorTokens ? "true" : undefined}
                   dangerouslySetInnerHTML={{ __html: katexPlaceholders.get(katexId)! }}
                 />
               );
@@ -897,6 +912,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 : "diagram-svg-inline";
               return (
                 <span
+                  {...figureAction(svgFigureIndices.get(svgId))}
+                  data-editor-svg={editorTokens ? encodeURIComponent(svgPlaceholders.get(svgId)!) : undefined}
                   className={cls}
                   dangerouslySetInnerHTML={{ __html: svgPlaceholders.get(svgId)! }}
                 />
@@ -914,6 +931,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               return (
                 <span
                   className="katex-inline-wrap"
+                  data-math-tex={editorTokens ? encodeURIComponent(katexResult.texMap.get(katexId)!) : undefined}
                   data-katex-tall={tallFlag === "1" ? "1" : undefined}
                   dangerouslySetInnerHTML={{ __html: katexPlaceholders.get(katexId)! }}
                 />
@@ -1021,7 +1039,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 } else {
                   header.push(line.nodes);
                 }
-              } else {
+              } else if (line.text.trim() !== "") {
                 items.push(line.nodes);
               }
             }
@@ -1043,7 +1061,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               // 나옴). grid 아이템 기본 min-width:auto 가 긴 줄·넓은 수식을 못 줄여
               // 박스를 밀어내는 함정 → min-w-0 + break-words 로 줄바꿈 강제. 넓은
               // display 수식은 가로 스크롤로 박스 안에 가둠 ([&_.katex-display]).
-              <div className="border border-line-strong px-5 py-3 my-3 rounded-r2 bg-surface2 text-text not-italic w-fit max-w-full overflow-hidden [&_.katex-display]:overflow-x-auto">
+              <div data-condition-box={effectiveCols} className="border border-line-strong px-5 py-3 my-3 rounded-r2 bg-surface2 text-text not-italic w-fit max-w-full overflow-hidden [&_.katex-display]:overflow-x-auto">
                 {header.map((h, i) => (
                   <div key={`h-${i}`} className="min-w-0 break-words">
                     {h}
@@ -1062,6 +1080,9 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             );
           },
           img: ({ node, src: rawSrc, alt, title, className }) => {
+            const figKey = (node?.properties as Record<string, unknown> | undefined)?.dataFigKey;
+            const figureIndex = typeof figKey === "string" && /^img-\d+$/.test(figKey) ? Number(figKey.slice(4)) : undefined;
+            const action = figureAction(figureIndex);
             const src = typeof rawSrc === "string" ? rawSrc : "";
             if (!src) {
               return <span className="text-muted text-sm">[{alt || "이미지"}]</span>;
@@ -1073,6 +1094,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             if (flexGrow) {
               return (
                 <img
+                  {...action}
                   src={src}
                   alt={alt || ""}
                   className="rounded-sm"
@@ -1105,6 +1127,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   src={src}
                   alt={alt || ""}
                   style={style}
+                  {...action}
                   className="float-left mr-4 mb-2 rounded-sm"
                 />
               );
@@ -1115,13 +1138,14 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   src={src}
                   alt={alt || ""}
                   style={style}
+                  {...action}
                   className="float-right ml-4 mb-2 rounded-sm"
                 />
               );
             }
             return (
               <span className="flex justify-center my-2">
-                <img src={src} alt={alt || ""} style={style} className="rounded-sm" />
+                <img {...action} src={src} alt={alt || ""} style={style} className="rounded-sm" />
               </span>
             );
           },

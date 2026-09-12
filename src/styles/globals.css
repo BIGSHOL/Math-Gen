@@ -485,6 +485,107 @@ svg text {
   color: #374151;
 }
 
+/* 문제 직접 편집 — 읽기 화면과 같은 조판 위에서 글·수식·그림을 고친다. */
+.visual-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-line, #e5e7eb);
+  background: #f8fafc;
+}
+.visual-editor-toolbar button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  background: white;
+  color: #374151;
+  font-size: 12px;
+}
+.visual-editor-toolbar button:hover,
+.visual-editor-toolbar button:focus-visible {
+  border-color: #f59e0b;
+  color: #b45309;
+  outline: none;
+}
+.visual-document {
+  min-height: 300px;
+  padding: 14px 16px;
+  line-height: 1.8;
+  color: #111827;
+  cursor: text;
+}
+.visual-document:focus { outline: none; }
+.visual-document p { margin: 6px 0; }
+.visual-math {
+  display: inline-flex;
+  align-items: center;
+  min-width: 12px;
+  margin: 0 2px;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.visual-math[data-math-display="true"] {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+.visual-math:hover,
+.visual-math:focus-visible,
+.visual-math:has(math-field:focus) {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  outline: none;
+}
+.visual-math math-field {
+  min-width: 48px;
+  border: 0;
+  background: transparent;
+  font-size: 1.05em;
+  --caret-color: #ea580c;
+  --selection-background-color: #ffedd5;
+}
+.visual-figure {
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px auto;
+  padding: 5px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.visual-figure:hover,
+.visual-figure:focus-visible,
+.prose [data-figure-index][role="button"]:hover,
+.prose [data-figure-index][role="button"]:focus-visible {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(251 146 60 / 18%);
+}
+.visual-figure svg,
+.visual-figure img {
+  display: block;
+  width: min(360px, 100%);
+  max-height: 360px;
+  object-fit: contain;
+}
+.visual-condition {
+  width: fit-content;
+  max-width: 100%;
+  margin: 12px 0;
+  padding: 10px 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.visual-condition p { margin: 3px 0; }
+
 /* 인라인 답 / 본문에서 ①②③④⑤ 글리프가 등장하면 그 자체로 크게 보이도록
    font-feature-settings 와 line-height 조정. 사용자 보고: 정답 strip 의
    "① 211" 의 ① 가 본문 폰트로 그려져 작게 보임. 모든 답·풀이 본문에 적용. */

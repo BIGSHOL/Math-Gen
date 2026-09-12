@@ -57,6 +57,8 @@ import {
 } from "./generate.js";
 import {
   COMMON_INSTRUCTIONS,
+  DEEPSEEK_SOLUTION_SYSTEM,
+  buildDeepSeekSolutionPrompt,
   buildSolutionPrompt,
   buildSolutionPromptBlocksAnthropic,
 } from "./prompts.js";
@@ -449,7 +451,11 @@ const generateSolutionDirect = async (
 
   let parsed: RawSolutionResponse;
   if (provider === "deepseek") {
-    const result = await deepseekText(COMMON_INSTRUCTIONS, buildSolutionPrompt(input.problem, input.grade), { schema: SOLUTION_SCHEMA, signal: input.signal });
+    const result = await deepseekText(
+      DEEPSEEK_SOLUTION_SYSTEM,
+      buildDeepSeekSolutionPrompt(input.problem, input.grade),
+      { schema: SOLUTION_SCHEMA, signal: input.signal, maxTokens: 4096 },
+    );
     parsed = parseJsonOrThrow<RawSolutionResponse>(result.text);
     parsed._usage = result.usage;
   } else if (provider === "anthropic") {

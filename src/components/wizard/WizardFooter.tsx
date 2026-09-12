@@ -15,6 +15,7 @@ export interface WizardFooterProps {
   nextLabel?: string;
   /** Render extra action(s) on the left side of the footer. */
   leftSlot?: React.ReactNode;
+  nextSlot?: React.ReactNode;
 }
 
 /**
@@ -32,6 +33,7 @@ export const WizardFooter = ({
   blockedReason,
   nextLabel,
   leftSlot,
+  nextSlot,
 }: WizardFooterProps) => {
   const isFirst = step === 0;
   const isLast = step === totalSteps - 1;
@@ -74,6 +76,7 @@ export const WizardFooter = ({
         <Btn kind="ghost" onClick={onPrev} disabled={isFirst} icon="arrow-left">
           이전
         </Btn>
+        {nextSlot}
         <Btn
           kind="accent"
           onClick={onNext}

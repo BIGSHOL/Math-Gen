@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { pLimitWithGap, withRetry } from "@app/lib/concurrency";
+import { pLimit, withRetry } from "@app/lib/concurrency";
 import { friendlyError } from "@app/lib/friendlyError";
 import { reportError } from "@app/lib/errorReporter";
 import { generateSolution } from "@app/services/ai/solutions";
@@ -10,8 +10,8 @@ import { useWizardStore } from "@app/stores/wizardStore";
  * problem in the current wizard session.
  *
  * Mirrors `usePageOcr` but at *problem* granularity instead of page-level.
- * Solutions are text-only (no image), so we can run more in parallel
- * (`pLimit(3)`) without choking the model.
+ * Solutions are text-only (no image), so the DeepSeek path follows
+ * testchange's eight-worker pool (`pLimit(8)`).
  *
  * **Skip conditions** (in order — first match short-circuits dispatch):
  *   - Item already has a `solution` (success cache).
@@ -37,21 +37,29 @@ export const useSolutionGen = () => {
   // 해설 스킵 — true 면 자동발사 차단. 사용자가 "해설 생성하기" 로 해제하면
   // skipSolutions 가 false 가 되고 effect 가 재실행돼 자연스럽게 dispatch 시작.
   const skipSolutions = useWizardStore((s) => s.skipSolutions);
-  // pLimitWithGap(1, 1500) — Sonnet 4.6 의 분당 RPM/TPM 한계 (Tier 1 기준
-  // RPM 50, OTPM 8k) 가 한 시험지 (30 문항) 에 대해 빠르게 차서 429 폭발.
-  // 사용자 보고: 10+ 429
-  // 연속 발생 후 ERR_ABORTED. pLimit(1) 만으로는 부족 — 한 호출이 빠르게
-  // 끝나면 직후 다음 호출이 0초 간격으로 발사돼 RPM 폭주. minGap 1500 ms
-  // 으로 RPM ~ 40 자연 제한. Tier 2 로 업그레이드 (RPM 1000) 하면 이 값을
-  // 500 또는 0 으로 줄일 수 있음. 사용자가 Tier 1 일 때 안전한 디폴트.
-  const limit = useMemo(() => pLimitWithGap(1, 1500), []);
+  // testchange와 같은 DeepSeek V4 Pro 경로는 문항 8개를 병렬 처리한다.
+  // Sonnet용 직렬/RPM 간격을 그대로 둔 것이 전체 시험지 생성 병목의 원인이었다.
+  const limit = useMemo(() => pLimit(8), []);
 
   // Track which (pageId, itemId) pairs were dispatched on THIS mount so we
   // don't re-fire on every re-render.
   const dispatched = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (skipSolutions) return; // 해설 건너뛰기 — 자동 해설 생성 차단 (재진입·Stepper 클릭 포함).
+    if (skipSolutions) {
+      // 큐 대기 작업은 Set 멤버십 검사에서 즉시 빠지고, 이미 완료 직전인 응답도
+      // store에 쓰지 않는다. lifecycle AbortController는 사용하지 않는다(AGENTS §1-6-b).
+      dispatched.current.clear();
+      for (const page of pages) {
+        for (const item of page.ocrResult) {
+          if (item.solutionGenerating) updateOCRItem(page.id, item.id, {
+            solutionGenerating: false,
+            solutionStartedAt: undefined,
+          });
+        }
+      }
+      return;
+    }
     for (const page of pages) {
       // Pages skipped by the OCR pipeline (e.g. cover / answer key) won't
       // have meaningful items either.
@@ -139,6 +147,11 @@ export const useSolutionGen = () => {
               solutionGenerating: false,
               solutionStartedAt: undefined,
             });
+          } finally {
+            // `dispatched` means currently in flight, never "ever dispatched".
+            // The persisted solution/error state prevents automatic re-runs;
+            // clearing here keeps explicit retry and reused page ids functional.
+            dispatched.current.delete(key);
           }
         });
       }

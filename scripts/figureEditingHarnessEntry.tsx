@@ -6,11 +6,19 @@ import { useWizardStore } from "../src/stores/wizardStore";
 import { putPageImage, putThumbnail } from "../src/lib/imageStore";
 import { svgDataUrl } from "../src/services/ai/figurePipeline";
 import { FigureEditor } from "../src/components/math/FigureEditor";
+import MarkdownRenderer from "../src/components/math/MarkdownRenderer";
+import { sanitizeText } from "../src/services/ai/sanitize";
 export { useWizardStore } from "../src/stores/wizardStore";
 
 let root: Root | undefined;
 let savedSvg: string | undefined;
 export const getSavedFigure = () => savedSvg;
+export function mountRendererRegression(source: string) {
+  root?.unmount(); document.getElementById("editing-harness")?.remove();
+  const host = document.createElement("div"); host.id = "editing-harness"; document.body.append(host);
+  root = createRoot(host);
+  root.render(<MarkdownRenderer content={sanitizeText(source)} />);
+}
 export function mountDirectFigure(source: string) {
   root?.unmount(); document.getElementById("editing-harness")?.remove();
   const host = document.createElement("div"); host.id = "editing-harness"; document.body.append(host);
@@ -33,7 +41,8 @@ export async function mountEditingHarness(mode: "crop" | "ocr") {
   const imageRef = await putPageImage({ pageNum: 1, dataUrl: image });
   const thumbRef = await putThumbnail({ pageNum: 1, dataUrl: image });
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 250" width="300" height="250"><path d="M40 40L40 210L250 210Z" stroke="#111111" stroke-width="2" fill="none"/><text x="30" y="30" font-size="18">A</text><text x="28" y="234" font-size="18">B</text></svg>';
-  const item = { id: "qa-question", number: 1, text: "삼각형의 넓이를 구하시오.\n\n[그림1]", status: "ok" as const, reviewed: false,
+  const item = { id: "qa-question", number: 1, text: "삼각형의 넓이를 구하시오.\n\n> <보기>\n> ㄱ. $1$\n> ㄴ. $2$\n> ㄷ. $3$\n\n[그림1]\n\n① $4$ ② $5$ ③ $6$ ④ $7$ ⑤ $8$", status: "ok" as const, reviewed: false,
+    choicesLayout: "5x1" as const,
     images: [{ box: [180, 100, 510, 400] as [number, number, number, number], label: "삼각형", source: "ai-crop" as const, engineSvg: svg, dataUrl: svgDataUrl(svg), originalDataUrl: image }] };
   useWizardStore.setState({ step: mode === "crop" ? 1 : 2, activePageIndex: 0, pages: [{
     id: "qa-page", imageRef, thumbRef, textLayer: "", isProblemPage: true, rotation: 0, ocrComplete: true, ocrResult: [item],
