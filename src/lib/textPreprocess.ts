@@ -17,6 +17,8 @@
  * 뽑는다 — `![alt](url "50% center")` 패턴.
  */
 
+import { uprightMeasurementUnits } from "./measurementUnits";
+
 /** HTML entity 디코딩. */
 export const decodeHtmlEntities = (text: string): string =>
   text
@@ -340,6 +342,7 @@ export const applyMathInnerNormalization = (inner: string): string => {
   // `\$` (의도된 리터럴 달러 기호) 는 보존.
   s = s.replace(/(?<!\\)\$/g, "");
   for (const [re, repl] of UNICODE_MATH_MAP) s = s.replace(re, repl);
+  s = uprightMeasurementUnits(s);
   // improperToMixed 가 `\frac` 와 `\dfrac` 둘 다 매치, 반환은 `\frac` 표준화.
   // 그 뒤 단계 6 에서 모두 `\dfrac` 로 업그레이드.
   s = improperToMixed(s);
@@ -892,11 +895,11 @@ export const preprocessMathText = (content: string): string => {
   // autoSizeBrackets, injectDisplayStyle) 일괄 적용.
   out = out.replace(
     INLINE_MATH_RE,
-    (_m, inner) => `$${applyMathInnerNormalization(inner)}$`,
+    (_m, inner) => `$${applyMathInnerNormalization(uprightMeasurementUnits(inner, content))}$`,
   );
   out = out.replace(
     /\$\$([\s\S]*?)\$\$/g,
-    (_m, inner) => `$$${applyMathInnerNormalization(inner)}$$`,
+    (_m, inner) => `$$${applyMathInnerNormalization(uprightMeasurementUnits(inner, content))}$$`,
   );
 
   // (8) `$...$` / `$$...$$` 밖에 떠도는 math-mode-only directive 청소.
@@ -988,7 +991,7 @@ export const preprocessMathText = (content: string): string => {
       // 같은 모델 typo 가 KaTeX 까지 그대로 도달해 빨간 글씨 fallback.
       const hasDisplay = /\\displaystyle\b/.test(mathSpan);
       const innerRaw = hasDisplay ? mathSpan : `\\displaystyle ${mathSpan}`;
-      const innerNormalized = applyMathInnerNormalization(innerRaw);
+      const innerNormalized = applyMathInnerNormalization(uprightMeasurementUnits(innerRaw, content));
       return `${prefix}${leading}$${innerNormalized}$${trailingText}`;
     })
     .join("\n");

@@ -106,6 +106,7 @@ export const PrintAnswerKeyPage = ({
       {/* 정답 + 해설 페이지 — CSS columns 자동 흐름. columnRule 로 분리선 옵션. */}
       {!options.quickAnswerOnly && (
         <div
+          data-hwpx-body
           className="flex-1 min-h-0 mt-2 overflow-hidden"
           style={{
             columns: 2,

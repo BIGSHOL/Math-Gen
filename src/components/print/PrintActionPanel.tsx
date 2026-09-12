@@ -184,7 +184,7 @@ export const PrintActionPanel = ({
         // 404 = /api 서버리스 함수 부재(dev/비-Vercel). 혼란스러운 raw 404 대신 명확 안내.
         if (res.status === 404) {
           throw new Error(
-            "서버 PDF 기능은 배포 환경에서만 동작합니다. 개발 중에는 '인쇄 · PDF로 저장'을 사용하세요.",
+            "PDF 다운로드는 배포 환경에서 사용할 수 있습니다. 개발 중에는 인쇄를 이용하세요.",
           );
         }
         const errBody = await res.json().catch(() => ({ error: res.statusText }));
@@ -324,15 +324,6 @@ export const PrintActionPanel = ({
           HWPX 내보내기
         </Btn>
 
-        <p className="text-caption text-text2 leading-relaxed rounded-r2 bg-surface2 px-2.5 py-2">
-          미리보기의 페이지·서식·배치로 저장합니다. 글자와 수식은 한글에서 편집할 수 있습니다. 도우미나 연결 코드는 필요하지 않습니다.
-        </p>
-
-        {/* 저장 완료 — 보관함 복귀. */}
-        <Btn kind="secondary" icon="check-circle" full onClick={handleSaveDone}>
-          저장 완료 (보관함으로)
-        </Btn>
-
         {/* PDF/인쇄 — §45 PDF 활성화 (2026-06-02 MVP 락다운 해제, PDF 한정).
             Phase 1: 브라우저 인쇄(window.print) 활성 — 미리보기와 동일 벡터 렌더(깨짐 0).
             Phase 2(준비 중): 서버 1-클릭 'PDF 다운로드'(Puppeteer). DOCX 는 후속. */}
@@ -349,7 +340,7 @@ export const PrintActionPanel = ({
             disabled={isExporting || problemCount === 0 || import.meta.env.DEV}
             title={
               import.meta.env.DEV
-                ? "서버 PDF는 배포 환경에서만 동작합니다 — 개발 중엔 아래 '인쇄 · PDF로 저장'을 사용하세요"
+                ? "PDF 다운로드는 배포 환경에서 사용할 수 있습니다. 개발 중에는 인쇄를 이용하세요."
                 : undefined
             }
           >
@@ -363,12 +354,8 @@ export const PrintActionPanel = ({
             onClick={() => void handlePrint()}
             disabled={isExporting || problemCount === 0}
           >
-            인쇄 · PDF로 저장
+            인쇄
           </Btn>
-          <p className="text-caption text-text2 leading-relaxed">
-            <Icon name="info" size={12} weight="duotone" color="#9CA3AF" /> 'PDF 다운로드'는 로그인 후
-            바로 .pdf 저장. '인쇄'는 브라우저 대화상자에서 <strong>"PDF로 저장"</strong> 선택.
-          </p>
           <Btn kind="ghost" icon="file-doc" full disabled>
             DOCX (준비 중)
           </Btn>
@@ -389,16 +376,18 @@ export const PrintActionPanel = ({
       </div>
 
       {/* 하단 — 이전 단계 */}
-      <div className="border-t border-line p-3">
+      <div className="border-t border-line p-3 flex items-center gap-2">
         <Btn
           kind="ghost"
           icon="arrow-left"
-          full
           size="sm"
           onClick={prev}
           disabled={isExporting}
         >
           이전 (검토)
+        </Btn>
+        <Btn kind="secondary" size="sm" className="flex-1 px-2" onClick={handleSaveDone} disabled={isExporting}>
+          저장 완료 (보관함으로)
         </Btn>
       </div>
       </aside>

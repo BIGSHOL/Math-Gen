@@ -4,8 +4,9 @@ export interface HwpxObject {
   x: number; y: number; w: number; h: number;
   text?: string; latex?: string; imageId?: string;
   color?: string; font?: string; fontSize?: number; letterSpacing?: number; bold?: boolean; italic?: boolean; underline?: boolean;
+  baseline?: number; lineHeight?: number; blockId?: number;
 }
-export interface HwpxPage { objects: HwpxObject[] }
+export interface HwpxPage { objects: HwpxObject[]; body?: { x: number; y: number; w: number; h: number; columns: number; gap: number } }
 const color = (value: string) => {
   const rgba = value.match(/[\d.]+/g)?.map(Number);
   return rgba && rgba.length >= 3 && (rgba[3] ?? 1) > 0 ? "#" + rgba.slice(0, 3).map(n => Math.round(n * (rgba[3] ?? 1) + 255 * (1 - (rgba[3] ?? 1))).toString(16).padStart(2, "0")).join("") : undefined;
@@ -38,8 +39,12 @@ export async function collectHwpxLayout(source: HTMLElement) {
     if (!pageNodes.length) throw new Error("미리보기 페이지를 찾을 수 없습니다.");
     for (const page of pageNodes) {
       const pageRect = page.getBoundingClientRect(), decorations: HwpxObject[] = [], contents: HwpxObject[] = [];
+      const blocks = new Map<Element, number>();
       const box = (rect: DOMRect) => ({ x: rect.x - pageRect.x, y: rect.y - pageRect.y, w: rect.width, h: rect.height });
-      const styleFor = (el: Element) => { const s = getComputedStyle(el); return { font: fontName(s.fontFamily), fontSize: parseFloat(s.fontSize), letterSpacing: parseFloat(s.letterSpacing) || 0, color: color(s.color) ?? "#111111", bold: parseInt(s.fontWeight) >= 600, italic: s.fontStyle === "italic", underline: s.textDecorationLine.includes("underline") || !!el.closest("u") }; };
+      const styleFor = (el: Element) => { const s = getComputedStyle(el); let block = el.closest('p, li, h1, h2, h3, h4, h5, h6, td, th');
+        if (!block) { block = el; while (block.parentElement && (getComputedStyle(block).display === 'inline' || block.classList.contains('katex'))) block = block.parentElement; }
+        if (!blocks.has(block)) blocks.set(block, blocks.size + 1);
+        return { blockId: blocks.get(block), lineHeight: parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.5, font: fontName(s.fontFamily), fontSize: parseFloat(s.fontSize), letterSpacing: parseFloat(s.letterSpacing) || 0, color: color(s.color) ?? "#111111", bold: parseInt(s.fontWeight) >= 600, italic: s.fontStyle === "italic", underline: s.textDecorationLine.includes("underline") || !!el.closest("u") }; };
       const visible = (el: Element) => { const s = getComputedStyle(el); return s.display !== "none" && s.visibility !== "hidden" && s.opacity !== "0" && el.getBoundingClientRect().width > 0; };
       for (const el of [page, ...page.querySelectorAll<HTMLElement>("*")]) {
         if (!visible(el) || el.closest(".katex, svg")) continue;
@@ -74,7 +79,9 @@ export async function collectHwpxLayout(source: HTMLElement) {
           const encoded = el.getAttribute("data-export-tex");
           const latex = encoded ? decodeURIComponent(encoded) : el.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
           if (!latex) throw new Error("원본 식을 찾지 못한 수식이 있습니다.");
-          contents.push({ type: "equation", ...box(rect), ...styleFor(el), latex });
+          const strut = el.querySelector<HTMLElement>('.katex-html > .base > .strut');
+          const baseline = strut ? strut.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(strut).verticalAlign) || 0) - pageRect.y : rect.bottom - pageRect.y;
+          contents.push({ type: "equation", ...box(rect), ...styleFor(el), baseline, latex });
         } else {
           const imageId = `image${Object.keys(assets).length + 1}`;
           assets[`BinData/${imageId}.png`] = await png(el as HTMLImageElement | SVGSVGElement, rect.width, rect.height);
@@ -92,7 +99,7 @@ export async function collectHwpxLayout(source: HTMLElement) {
           if (start < 0) return;
           range.setStart(node!, start); range.setEnd(node!, end);
           const rect = range.getBoundingClientRect(), value = text.slice(start, end).replace(/\s+/g, " ");
-          if (value.trim() && rect.width > 0) contents.push({ type: "text", ...box(rect), ...style, text: value });
+          if (value.trim() && rect.width > 0) contents.push({ type: "text", ...box(rect), ...style, baseline: rect.bottom - pageRect.y - style.fontSize * .2, text: value });
           start = -1;
         };
         let offset = 0;
@@ -108,7 +115,16 @@ export async function collectHwpxLayout(source: HTMLElement) {
         }
         flush();
       }
-      pages.push({ objects: [...decorations, ...contents] });
+      const bodyNode = page.querySelector<HTMLElement>('.measure-body, [data-hwpx-body]');
+      let body: HwpxPage['body'];
+      if (bodyNode) {
+        const s = getComputedStyle(bodyNode), bounds = box(bodyNode.getBoundingClientRect());
+        const tracks = s.gridTemplateColumns.split(' ').map(parseFloat).filter(Number.isFinite);
+        const columns = tracks.length >= 2 || Number(s.columnCount) === 2 ? 2 : 1;
+        const gap = columns === 1 ? 0 : tracks.length >= 2 ? bounds.w - tracks[0] * 2 : parseFloat(s.columnGap);
+        body = { ...bounds, columns, gap };
+      }
+      pages.push({ objects: [...decorations, ...contents], body });
     }
     return { pages, assets };
   } finally { clone.remove(); }
