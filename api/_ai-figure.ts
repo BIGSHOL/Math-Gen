@@ -24,7 +24,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, mediaType } = parseDataUrl(figureCrop);
     const repair = "\nExamples in the contract show API syntax only. NEVER copy their coordinates or geometry. Estimate all unlabelled positions from THIS crop; preserve relative chord heights, slopes and proportions. For an inscribed polygon, include ALL visible polygon edges as finite segments, including legs that run near a curve."
       + (previousSpec && renderError
-      ? `\nPrevious engine spec: ${JSON.stringify(previousSpec).slice(0, 65536)}\nEngine error: ${String(renderError).slice(0, 1500)}\nCorrect the spec using the same original figure; preserve printed labels and geometry.` : "")
+      ? `\nPrevious engine spec: ${JSON.stringify(previousSpec).slice(0, 65536)}\nEngine error: ${String(renderError).slice(0, 1500)}\nCorrect the spec using the same original figure; preserve printed labels and geometry.${
+          // `dx`/`dy` 는 라벨을 단 한 자리에 못박아 후보 탐색을 없앤다. 그 자리가
+          // 선/원과 겹치면 엔진이 곧바로 거부한다(실측: 같은 도형도 dx/dy 만 빼면
+          // 통과). 배치 실패 때만 고정을 풀게 해 첫 시도의 정밀 배치는 보존한다.
+          /has no line\/circle\/label-free position/.test(String(renderError))
+            ? " That label was pinned to one spot. Remove its dx/dy and any position value so the engine can search all eight directions at several distances; keep the label text and the point coordinates unchanged. If several labels crowd one area, give the points more separation instead of pinning labels."
+            : ""
+        }` : "")
       + `\nQuality requirements: Restore ONLY original PRINTED diagram content. Ignore student handwriting, worked solutions, crossed-out annotations and colored pen strokes, including irregular handwritten coordinate text. Preserve every straight geometric construction segment, even if faint or grey: a horizontal chord joining two curve branches, an inscribed polygon edge, or a dashed projection is diagram content, NOT handwriting. Do not erase geometric lines based only on ink lightness. Preserve printed math labels exactly. Use consistent textbook line weights, readable labels with clear separation, correct solid/dashed distinctions, and generous outer padding so every label fits inside the viewBox. Never replace a plotted curve with a polygon; use the engine curve renderer.\nUser correction request: ${String(instructions ?? "").slice(0, 1500)}`;
     const response = await anthropic.messages.stream({
       model: FIGURE_MODEL, max_tokens: 16000,
