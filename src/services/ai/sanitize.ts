@@ -17,6 +17,9 @@ import {
 const IMG_TAG_RE = /<img[^>]*>/gi;
 const MD_IMG_RE = /!\[.*?\]\(.*?\)/g;
 const EMPTY_CENTER_RE = /<center>\s*<\/center>/gi;
+// 한 번의 좌→우 스캔으로 inline 경계를 먼저 소비한다. 별도 block/inline
+// 마스킹은 $a$$b$$c$의 가운데를 display로 오인해 placeholder를 중첩시킨다.
+const MATH_SEGMENT_RE = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
 
 /**
  * Reverse the damage JSON.parse does to LaTeX backslash escapes.
@@ -404,8 +407,7 @@ export const protectLooseLatex = (text: string): string => {
   //       chars 는 raw 로 둬서, KaTeX 가 받지 못해 화면에 raw text 노출.
   const preWrapped = preWrapLatexHeavyLines(withPlaceholders);
   // Split by `$...$` 블록 (block 우선, inline 차순) — odd index = 수식.
-  const segmentRe = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g;
-  const parts = preWrapped.split(segmentRe);
+  const parts = preWrapped.split(MATH_SEGMENT_RE);
   const processed = parts
     .map((seg, idx) => {
       // 수식 안 (odd index) 은 KaTeX 가 알아서 처리. 손대지 않음.
@@ -414,6 +416,12 @@ export const protectLooseLatex = (text: string): string => {
       let out = "";
       let i = 0;
       while (i < seg.length) {
+        // 완결된 수식은 이미 분리됐다. 산문에 남은 $$는 닫히지 않은 시작점:
+        // 뒤의 명령어를 다시 감싸면 $$$가 생기므로 경계가 불명확한 꼬리는 보존.
+        if (seg[i] === "$" && seg[i + 1] === "$") {
+          out += seg.slice(i);
+          break;
+        }
         if (seg[i] === "\\") {
           const consumed = consumeLatexToken(seg, i);
           if (consumed) {
@@ -593,31 +601,16 @@ export const sanitizeText = (text: string | undefined): string => {
  * 에만 적용되므로, plain text 쉼표는 직접 공백을 박아야 함.
  *
  * `$...$` 안의 쉼표는 KaTeX 가 알아서 처리하므로 건드리지 않음 — math
- * block 을 placeholder 로 분리한 뒤 외부만 가공.
+ * block 과 inline 을 한 번에 분리한 뒤 외부만 가공.
  */
 export const sanitizeAnswer = (text: string | undefined): string => {
   const base = sanitizeText(text);
   if (!base) return base;
-  // `$...$` (블록 + 인라인) 보호. PUA sentinel 사용 — Edit 도구 함정 회피
-  // 위해 String.fromCharCode 명시 (CLAUDE.md 4-1).
-  const SENTINEL = String.fromCharCode(57346); // U+E002
-  const protectedBlocks: string[] = [];
-  let i = 0;
-  let protectedText = base.replace(/\$\$[\s\S]+?\$\$/g, (m) => {
-    protectedBlocks.push(m);
-    return `${SENTINEL}B${i++}${SENTINEL}`;
-  });
-  protectedText = protectedText.replace(/\$[^$\n]+?\$/g, (m) => {
-    protectedBlocks.push(m);
-    return `${SENTINEL}I${i++}${SENTINEL}`;
-  });
-  // 쉼표 다음에 공백이 없으면 한 칸 주입. ", " (이미 공백) 은 그대로.
-  const spaced = protectedText.replace(/,(?!\s)/g, ", ");
-  // 복원.
-  return spaced.replace(
-    new RegExp(`${SENTINEL}[BI](\\d+)${SENTINEL}`, "g"),
-    (_, idx: string) => protectedBlocks[parseInt(idx, 10)] ?? "",
-  );
+  // protectLooseLatex와 같은 경계로 분리. odd index는 수식이므로 그대로 둔다.
+  return base
+    .split(MATH_SEGMENT_RE)
+    .map((segment, index) => index % 2 === 1 ? segment : segment.replace(/,(?!\s)/g, ", "))
+    .join("");
 };
 
 /**

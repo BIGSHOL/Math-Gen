@@ -1,0 +1,1175 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-14",
+  "sourceRepository": "D:/mathg-gen",
+  "worktree": "C:\\Users\\user\\orca\\workspaces\\mathg-gen\\math-glue-source",
+  "branch": "chrismathone/math-glue-source",
+  "baseCommit": "9b52813710ab62748d6129787408c69738a166fe",
+  "handoff": "D:/todays-math/docs/qa/math-glue-handoff.md",
+  "runtime": {
+    "node": "v22.17.1",
+    "runner": "D:/todays-math/node_modules/tsx/dist/cli.mjs"
+  },
+  "findings": [
+    {
+      "id": "imported-pairing-rule-absent",
+      "result": "Original sanitize.ts/textPreprocess.ts have no mapSpans function or imported inline-closing-dollar skip rule.",
+      "evidence": "Both handoff adjacent fraction/angle inputs remain byte-identical through protectLooseLatex, sanitizeText, and sanitizeAnswer on the original source. Rendering preprocessing inserts intended spacing/style and remains stable."
+    },
+    {
+      "id": "answer-masking-corruption",
+      "result": "Original sanitizeAnswer corrupts the exact plain-adjacent control on pass one.",
+      "mechanism": "Separate display-first then inline placeholder replacement masks $$b=2$$ inside $a=1$$b=2$$c=3$, then nests that placeholder inside an inline placeholder. Single-pass restoration leaves U+E002 B0 U+E002 and loses the middle expression.",
+      "fix": "Reuse protectLooseLatex combined left-to-right math split and space commas only in prose segments. No answer placeholders are needed."
+    },
+    {
+      "id": "unmatched-display-corruption",
+      "result": "Original protectLooseLatex, sanitizeText, and sanitizeAnswer add a dollar pair around the angle command after the exact unmatched display opener.",
+      "mechanism": "No complete math segment matches, so the opener remains in prose and the loose-token loop wraps the angle command into a new inline expression.",
+      "fix": "Stop token wrapping when an unmatched $$ remains in a prose segment; retain the existing subsequent HTML escaping and stray-directive cleanup."
+    },
+    {
+      "id": "repeated-passes",
+      "result": "No repeated-growth defect reproduced in the source for the eight observed synthetic inputs and eight paths: all first-through-fifth outputs are stable, even when the first output is corrupt. Correctness and idempotence are tested separately."
+    }
+  ],
+  "scope": {
+    "productFilesChanged": [
+      "src/services/ai/sanitize.ts"
+    ],
+    "preprocessChanged": false,
+    "sharedApiChanged": false,
+    "databaseAccess": false,
+    "aiCalls": false,
+    "sourceMainEdits": false,
+    "targetRepositoryEdits": false,
+    "dependencyInstalls": false,
+    "buildsOrPrisma": false,
+    "processesLeftRunning": false,
+    "junctionForLocalTests": "node_modules -> D:/todays-math/node_modules",
+    "cleanupOwner": "coordinator"
+  },
+  "sourceIntegrity": {
+    "baselineSanitizeSha256": "4425c99c969e900108ab94d85a2be22533b1b0f2e82020b7da52b2ed96b26860",
+    "baselinePreprocessSha256": "01b3798782223be3d3ad761623760af4bc0143a428505c0e419933aa09bf54a6",
+    "fixedSanitizeSha256": "2f24b5c91ce573c79f1f75fd9dcab1534a53bdeaf27021c9237432ba5f1138bd",
+    "mutationRestoredExactly": true
+  },
+  "validation": {
+    "focusedCommand": "node node_modules/tsx/dist/cli.mjs scripts/mathGlueHarness.mts",
+    "red": {
+      "exitCode": 1,
+      "total": 56,
+      "passed": 47,
+      "failed": 9,
+      "failedTests": [
+        {
+          "name": "unmatched-display: protectLooseLatex, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+        },
+        {
+          "name": "unmatched-display: sanitizeText, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+        },
+        {
+          "name": "unmatched-display: sanitizeAnswer, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+        },
+        {
+          "name": "unmatched-display: sanitizeTextThenPreprocess, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+        },
+        {
+          "name": "unmatched-display: sanitizeAnswerThenPreprocess, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+        },
+        {
+          "name": "plain-adjacent: sanitizeAnswer, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$a=1\ue002B0\ue002c=3$ 이다.'\n- '$a=1$$b=2$$c=3$ 이다.'\n       ^\n"
+        },
+        {
+          "name": "plain-adjacent: sanitizeAnswerThenPreprocess, exact output and five passes",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$\\\\displaystyle a=1\ue002B0\ue002c=3$ 이다.'\n- '$\\\\displaystyle a=1$ $\\\\displaystyle b=2$ $\\\\displaystyle c=3$ 이다.'\n"
+        },
+        {
+          "name": "answer comma contract: $a,b$$c,d$$e,f$,1,2",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$a,b\ue002B0\ue002e,f$, 1, 2'\n- '$a,b$$c,d$$e,f$, 1, 2'\n       ^\n"
+        },
+        {
+          "name": "HTML escaping beside unmatched display is retained",
+          "passed": false,
+          "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° &lt; 20 이다.'\n- '값은 $$\\\\angle CAM=15° &lt; 20 이다.'\n        ^\n"
+        }
+      ]
+    },
+    "green": {
+      "exitCode": 0,
+      "total": 56,
+      "passed": 56,
+      "failed": 0
+    },
+    "finalRestoredGreen": {
+      "exitCode": 0,
+      "total": 56,
+      "passed": 56,
+      "failed": 0
+    },
+    "preservedContracts": [
+      "All six exact handoff raw inputs, including the three controls",
+      "Known corrupt handoff output is not amplified (not claimed repaired)",
+      "The prose-prefixed display repair still precedes sanitization and preprocessing",
+      "Answer prose commas are spaced; math commas are unchanged",
+      "Valid display blocks and mixed inline/display formulas keep their delimiters",
+      "Raw LaTeX line and loose token wrapping remain enabled",
+      "Table preservation and HTML escaping beside an unmatched opener remain enabled"
+    ],
+    "mutations": [
+      {
+        "id": "restore-old-answer-masking",
+        "exitCode": 1,
+        "passed": 53,
+        "failed": 3,
+        "total": 56,
+        "failedTests": [
+          {
+            "name": "plain-adjacent: sanitizeAnswer, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$a=1\ue002B0\ue002c=3$ 이다.'\n- '$a=1$$b=2$$c=3$ 이다.'\n       ^\n"
+          },
+          {
+            "name": "plain-adjacent: sanitizeAnswerThenPreprocess, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$\\\\displaystyle a=1\ue002B0\ue002c=3$ 이다.'\n- '$\\\\displaystyle a=1$ $\\\\displaystyle b=2$ $\\\\displaystyle c=3$ 이다.'\n"
+          },
+          {
+            "name": "answer comma contract: $a,b$$c,d$$e,f$,1,2",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '$a,b\ue002B0\ue002e,f$, 1, 2'\n- '$a,b$$c,d$$e,f$, 1, 2'\n       ^\n"
+          }
+        ]
+      },
+      {
+        "id": "remove-unmatched-display-guard",
+        "exitCode": 1,
+        "passed": 50,
+        "failed": 6,
+        "total": 56,
+        "failedTests": [
+          {
+            "name": "unmatched-display: protectLooseLatex, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+          },
+          {
+            "name": "unmatched-display: sanitizeText, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+          },
+          {
+            "name": "unmatched-display: sanitizeAnswer, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+          },
+          {
+            "name": "unmatched-display: sanitizeTextThenPreprocess, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+          },
+          {
+            "name": "unmatched-display: sanitizeAnswerThenPreprocess, exact output and five passes",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° 이다.'\n- '값은 $$\\\\angle CAM=15° 이다.'\n        ^\n"
+          },
+          {
+            "name": "HTML escaping beside unmatched display is retained",
+            "passed": false,
+            "error": "AssertionError [ERR_ASSERTION]: pass 1\n+ actual - expected\n\n+ '값은 $$$\\\\angle$ CAM=15° &lt; 20 이다.'\n- '값은 $$\\\\angle CAM=15° &lt; 20 이다.'\n        ^\n"
+          }
+        ]
+      }
+    ],
+    "mutationProcedure": [
+      "Save the exact fixed sanitize.ts bytes.",
+      "Mutation 1 replaces only sanitizeAnswer with that function from git show 9b52813710ab62748d6129787408c69738a166fe:src/services/ai/sanitize.ts.",
+      "Mutation 2 starts from fixed source and removes only the unmatched-display guard from the protectLooseLatex token loop.",
+      "Run the focused harness separately on each mutation and require exit code 1 and assertion failures.",
+      "Restore the saved fixed bytes in finally, compare byte-for-byte, and rerun the focused harness to exit code 0."
+    ],
+    "existing": [
+      {
+        "command": "node node_modules/tsx/dist/cli.mjs scripts/katexRenderHarness.mts",
+        "exitCode": 0,
+        "mathCases": "21/21",
+        "fallbackChecks": "16/16",
+        "conditionBoxChecks": "5/5"
+      },
+      {
+        "command": "node node_modules/tsx/dist/cli.mjs scripts/measurementUnitsHarness.mts",
+        "exitCode": 0,
+        "output": "PASS upright units, italic variables, context safeguards, repeated normalization and preview math"
+      },
+      {
+        "command": "git diff --check",
+        "exitCode": 0
+      }
+    ]
+  },
+  "observations": [
+    {
+      "id": "adjacent-degree",
+      "input": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "handoff-corrupted-output",
+      "input": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$$\\angle CAM=15$°$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "adjacent-no-degree",
+      "input": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$$\\angle CAM=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "unmatched-display",
+      "input": "값은 $$\\angle CAM=15° 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "값은 $$$\\angle$ CAM=15° 이다.",
+            "second": "값은 $$$\\angle$ CAM=15° 이다.",
+            "fifth": "값은 $$$\\angle$ CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "값은 $$$\\angle$ CAM=15° 이다.",
+            "second": "값은 $$$\\angle$ CAM=15° 이다.",
+            "fifth": "값은 $$$\\angle$ CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "값은 $$$\\angle$ CAM=15° 이다.",
+            "second": "값은 $$$\\angle$ CAM=15° 이다.",
+            "fifth": "값은 $$$\\angle$ CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "값은 $$$\\angle$ CAM=15° 이다.",
+            "second": "값은 $$$\\angle$ CAM=15° 이다.",
+            "fifth": "값은 $$$\\angle$ CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "값은 $$$\\angle$ CAM=15° 이다.",
+            "second": "값은 $$$\\angle$ CAM=15° 이다.",
+            "fifth": "값은 $$$\\angle$ CAM=15° 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "값은 $$\\angle CAM=15° 이다.",
+            "second": "값은 $$\\angle CAM=15° 이다.",
+            "fifth": "값은 $$\\angle CAM=15° 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "plain-adjacent",
+      "input": "$a=1$$b=2$$c=3$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "$a=1\ue002B0\ue002c=3$ 이다.",
+            "second": "$a=1\ue002B0\ue002c=3$ 이다.",
+            "fifth": "$a=1\ue002B0\ue002c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$a=1$$b=2$$c=3$ 이다.",
+            "second": "$a=1$$b=2$$c=3$ 이다.",
+            "fifth": "$a=1$$b=2$$c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "second": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "second": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "second": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "second": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "$\\displaystyle a=1\ue002B0\ue002c=3$ 이다.",
+            "second": "$\\displaystyle a=1\ue002B0\ue002c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1\ue002B0\ue002c=3$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "second": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "fifth": "$\\displaystyle a=1$ $\\displaystyle b=2$ $\\displaystyle c=3$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "spaced-control",
+      "input": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "second": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "fifth": "따라서 $\\frac{N}{M}$ $\\angle CAM=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "second": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "fifth": "따라서 $\\displaystyle \\dfrac{N}{M}$ $\\displaystyle \\angle \\mathrm{CAM}=15°$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "display-control",
+      "input": "$$\\frac{N}{M}$$ 이다.",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\frac{N}{M}$$ 이다.",
+            "second": "$$\\frac{N}{M}$$ 이다.",
+            "fifth": "$$\\frac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "second": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "fifth": "$$\\displaystyle \\dfrac{N}{M}$$ 이다.",
+            "allFiveEqual": true
+          }
+        }
+      }
+    },
+    {
+      "id": "prose-repair-contract",
+      "input": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+      "paths": {
+        "protectLooseLatex": {
+          "before": {
+            "first": " $$이동 거리= $x(b)-x(a)=8.$",
+            "second": " $$이동 거리= $x(b)-x(a)=8.$",
+            "fifth": " $$이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": " $$이동 거리= $x(b)-x(a)=8.$",
+            "second": " $$이동 거리= $x(b)-x(a)=8.$",
+            "fifth": " $$이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeText": {
+          "before": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswer": {
+          "before": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "extractHangulFromMath": {
+          "before": {
+            "first": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "second": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "second": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "\\displaystyle $$이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "repairProsePrefixedInlineMath": {
+          "before": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $x(b)-x(a)=8.$",
+            "second": "이동 거리= $x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "preprocessMathText": {
+          "before": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeTextThenPreprocess": {
+          "before": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        },
+        "sanitizeAnswerThenPreprocess": {
+          "before": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          },
+          "after": {
+            "first": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "second": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "fifth": "이동 거리= $\\displaystyle x(b)-x(a)=8.$",
+            "allFiveEqual": true
+          }
+        }
+      }
+    }
+  ],
+  "remaining": [
+    "Coordinator merges this source-worktree commit, consolidates the target/source findings in its requested Markdown report, and cleans the worktree/junction.",
+    "The 76 stored rows were not read, repaired, reingested, or renormalized. Historical corrupt strings remain outside this source-code fix."
+  ]
+}
