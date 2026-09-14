@@ -18,8 +18,48 @@ import { renderSolid, solidViewBox } from "./shapes/solid";
  * mathg-gen 의 MarkdownRenderer Stage 0 (CLAUDE.md 2-1) 이 dangerouslySetInnerHTML
  * 로 자동 주입 — namespace 함정 회피.
  */
+/**
+ * 좌표 자리에 한 겹 더 감싸진 배열(`[[x, y]]`)이 오면 평탄화한다.
+ *
+ * AI 가 `vertices: [[[105,165]], ...]` 처럼 emit 하면 `prim.line(vertices[i], ...)`
+ * 이 Point 대신 Point[] 를 받아 `x1="105,165" y1="undefined"` 같은 깨진 속성이
+ * 그대로 SVG 에 박힌다 (브라우저 콘솔: `<line> attribute x1: Expected length`).
+ * renderDiagram 이 유일한 진입점이므로 여기서 한 번만 보정하면 모든 호출부
+ * (OCRItem / VariantItem / ProblemBody / DetailScreen / hwpFigures) 가 보호된다.
+ */
+const asPoint = (value: unknown): Point | null => {
+  if (!Array.isArray(value)) return null;
+  const [x, y] = value;
+  if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) {
+    return [x, y];
+  }
+  // `[[x, y]]` — 한 겹 더 감싸진 경우만 재귀. `[x, y]` 가 아니면 null.
+  return value.length === 1 ? asPoint(x) : null;
+};
+
+/** 좌표 하나를 담는 필드. `from`/`to` 는 number 인덱스일 수도 있어 배열일 때만 보정. */
+const POINT_KEYS = new Set(["center", "position", "coord", "labelOffset", "offset", "from", "to"]);
+/** 좌표 배열을 담는 필드. */
+const POINT_LIST_KEYS = new Set(["vertices", "points"]);
+
+const sanitizeCoords = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(sanitizeCoords);
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = { ...(node as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(out)) {
+    if (POINT_KEYS.has(key) && Array.isArray(value)) {
+      out[key] = asPoint(value) ?? sanitizeCoords(value);
+    } else if (POINT_LIST_KEYS.has(key) && Array.isArray(value)) {
+      out[key] = value.map((entry) => asPoint(entry) ?? sanitizeCoords(entry));
+    } else {
+      out[key] = sanitizeCoords(value);
+    }
+  }
+  return out;
+};
+
 export function renderDiagram(rawSpec: DiagramParams): string {
-  const spec = normalizeDiagram(rawSpec);
+  const spec = normalizeDiagram(sanitizeCoords(rawSpec) as DiagramParams);
   const viewBox = getViewBox(spec);
   const content = renderShape(spec);
 

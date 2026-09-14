@@ -26,16 +26,29 @@ export const STYLE = {
   FILL_OPACITY: 0.35,
 } as const;
 
+/**
+ * 좌표 한 쌍이 실제 숫자인지 확인 — 아니면 null.
+ *
+ * 마지막 안전망. 잘못된 좌표(배열이 통째로 들어온 경우 등)를 그대로 보간하면
+ * `x1="105,165"` 같은 값이 SVG 에 박혀 브라우저가 요소를 통째로 무시하고
+ * 콘솔 에러를 쏟는다. 그런 요소는 아예 그리지 않는다.
+ */
+const xy = (p: Point | undefined): [number, number] | null =>
+  Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]) ? [p[0], p[1]] : null;
+
 /** SVG 선분 */
 export function line(
   from: Point,
   to: Point,
   options?: { strokeWidth?: number; dashed?: boolean; color?: string },
 ): string {
+  const a = xy(from);
+  const b = xy(to);
+  if (!a || !b) return "";
   const sw = options?.strokeWidth ?? STYLE.MAIN_STROKE_WIDTH;
   const color = options?.color ?? STYLE.MAIN_STROKE;
   const dash = options?.dashed ? ` stroke-dasharray="${STYLE.DASHED}"` : "";
-  return `<line x1="${from[0]}" y1="${from[1]}" x2="${to[0]}" y2="${to[1]}" stroke="${color}" stroke-width="${sw}"${dash} stroke-linecap="round"/>`;
+  return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${color}" stroke-width="${sw}"${dash} stroke-linecap="round"/>`;
 }
 
 /** SVG 원 */
@@ -127,7 +140,9 @@ export function polygon(
 ): string {
   const sw = options?.strokeWidth ?? STYLE.MAIN_STROKE_WIDTH;
   const fill = options?.fill ?? "none";
-  const pts = points.map(([x, y]) => `${x},${y}`).join(" ");
+  const valid = points.map(xy).filter((p): p is [number, number] => p !== null);
+  if (valid.length < 2) return "";
+  const pts = valid.map(([x, y]) => `${x},${y}`).join(" ");
   return `<polygon points="${pts}" fill="${fill}" stroke="${STYLE.MAIN_STROKE}" stroke-width="${sw}" stroke-linejoin="round"/>`;
 }
 
