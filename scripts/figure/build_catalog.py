@@ -18,7 +18,11 @@ catalog = {
         'points': {'A': [50, 30], 'B': [50, 210], 'C': [290, 210], 'value3': [30, 120]},
         'segments': {'AB': ['A', 'B'], 'BC': ['B', 'C'], 'CA': ['C', 'A']},
         'angles': {'rightB': {'vertex': 'B', 'points': ['A', 'C'], 'right': True}},
-        'labels': {'A': 'A', 'B': 'B', 'C': 'C', 'value3': {'text': '3', 'dx': 0, 'dy': 0}},
+        # 라벨 자리는 엔진이 잡는다. 여기서 dx/dy 를 시범 보이면 모델이 그대로
+        # 베껴 라벨을 한 자리에 못박고, 그 자리가 선·원과 겹치는 순간 그림 전체가
+        # 거부된다(실측: 같은 장면도 dx/dy 만 빼면 통과). 숫자 라벨은 점 위치로
+        # 옮기고 텍스트만 준다.
+        'labels': {'A': 'A', 'B': 'B', 'C': 'C', 'value3': '3'},
     },
     'elementary': {
         k: {'required': sorted(elementary.KIND_FIELDS[k]),

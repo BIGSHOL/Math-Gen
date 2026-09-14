@@ -2604,6 +2604,38 @@ class FigureScene:
                                 label.point, box, occupied, rank, distance_rank,
                                 dimension_curves)))
             pos, box, cost = min(candidates, key=lambda item: item[2])
+            pinned = (label.dx is not None or label.dy is not None
+                      or label.position.strip().lower() not in ("", "auto"))
+            if cost[0] and pinned:
+                # 🔴 **못박힌 라벨 하나가 그림 전체를 죽이지 않게 한다.**
+                #
+                # `dx`/`dy` 나 고정 `position` 은 후보를 **한 자리로 줄인다**. 그
+                # 자리가 선·원과 겹치면 곧바로 거부돼, 반원·삼각형·사각형이 겹친
+                # 빽빽한 그림은 모델이 세 번 고쳐 써도 같은 이유로 실패했다
+                # (실측: 같은 장면도 dx/dy 만 빼면 통과).
+                #
+                # 겹침을 **허용하는 게 아니다** — 자동 탐색(여덟 방향 × 다섯 거리)
+                # 으로 되돌아가 «겹치지 않는» 자리를 찾을 뿐이다. 그래도 못 찾으면
+                # 아래에서 그대로 거부한다. 라벨이 tick 을 덮어 문항이 달라지는 일은
+                # 여전히 막힌다.
+                free = replace(label, position="auto", dx=None, dy=None)
+                relaxed = []
+                for rank, (ux, uy) in enumerate(self._label_vectors(free)):
+                    for distance_rank in range(5):
+                        distance = (self.style.label_offset + 0.18 * fs
+                                    + distance_rank * max(3.5, 0.55 * fs))
+                        x = point.x + ux * distance
+                        y = point.y + uy * distance + 0.32 * fs
+                        relaxed_box = _text_box(x, y, label.text, fs, self.label_metrics)
+                        relaxed.append((
+                            (x, y), relaxed_box,
+                            self._candidate_cost(
+                                label.point, relaxed_box, occupied, rank, distance_rank,
+                                dimension_curves)))
+                if relaxed:
+                    alt_pos, alt_box, alt_cost = min(relaxed, key=lambda item: item[2])
+                    if not alt_cost[0]:
+                        pos, box, cost = alt_pos, alt_box, alt_cost
             if cost[0]:
                 raise GeometryValidationError(
                     f"label {label.point!r} has no line/circle/label-free position")
@@ -3075,6 +3107,15 @@ def compile_figure_spec(spec: Mapping[str, Any] | FigureSpec) -> FigureScene:
                                        "label": "12 cm", "side": "auto"}},
           "labels": {"A": "A", "B": "B"}
         }
+
+    Label placement is the engine's job.  For plain text (``"A": "A"``) it
+    searches eight directions at five distances and takes the first spot that
+    touches no segment, circle, tick or other label.  ``{"text": "3",
+    "position": "NE"}`` narrows that search to one direction, and ``dx``/``dy``
+    pin the label to exactly one spot — in a crowded figure every candidate can
+    then collide.  Send plain text, and move the anchor point itself when a
+    label belongs somewhere else; treat ``position``/``dx``/``dy`` as a last
+    resort.
 
     Shaded-region figures add ``arcs`` (stroked arc pieces), ``regions``
     (light fills bounded by a closed seg/arc chain), and construction circles
