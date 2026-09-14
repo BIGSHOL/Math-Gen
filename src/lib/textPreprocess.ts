@@ -17,7 +17,7 @@
  * 뽑는다 — `![alt](url "50% center")` 패턴.
  */
 
-import { uprightMeasurementUnits } from "./measurementUnits";
+import { uprightMeasurementUnits } from "./measurementUnits.js";
 
 /** HTML entity 디코딩. */
 export const decodeHtmlEntities = (text: string): string =>
