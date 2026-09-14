@@ -61,6 +61,7 @@ const pageRuns = new Map<string, symbol>();
 export const usePageOcr = () => {
   const pages = useWizardStore((s) => s.pages);
   const setPageOCR = useWizardStore((s) => s.setPageOCR);
+  const setPageRotation = useWizardStore((s) => s.setPageRotation);
 
   // Text preparation releases its page slot before waiting for any figure work.
   const pageLimit = useMemo(() => pLimit(2), []);
@@ -133,7 +134,7 @@ export const usePageOcr = () => {
       imageBase64: string,
       chain: OCRModel[],
       opts: { crop: boolean; textLayer: string; label: string },
-    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel } | null> => {
+    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel; upsideDown?: boolean } | null> => {
       let lastErr: Error | null = null;
       for (let i = 0; i < chain.length; i++) {
         const model = chain[i];
@@ -154,7 +155,7 @@ export const usePageOcr = () => {
               `[usePageOcr] ${opts.label} 페이지 ${page.id}: ${chain[0]} 실패 → ${model} 폴백 성공`,
             );
           }
-          return { items: result.items, modelUsed: model };
+          return { items: result.items, modelUsed: model, upsideDown: result.upsideDown };
         } catch (err) {
           if (isCancelled(page.id)) return null;
           lastErr = err as Error;
@@ -178,10 +179,12 @@ export const usePageOcr = () => {
       rotated: string,
       problemBoxes: ReadonlyArray<ProblemBox>,
       pageChain: OCRModel[],
-    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel; figureWork: QuestionFigureWork[] } | null> => {
+    ): Promise<{ items: OCRProblem[]; modelUsed: OCRModel; figureWork: QuestionFigureWork[];
+      upsideDown?: boolean } | null> => {
       const results = await Promise.all(
         problemBoxes.map((box) =>
-          cropLimit(async (): Promise<{ item: OCRProblem; model: OCRModel; work: QuestionFigureWork } | null> => {
+          cropLimit(async (): Promise<{ item: OCRProblem; model: OCRModel; work: QuestionFigureWork;
+            upsideDown?: boolean } | null> => {
             if (isCancelled(page.id)) return null;
             // 박스 영역만 crop. testchange 동일 — 픽셀 전처리(removeColorInk/대비/upscale)
             // 없이 원본 크롭 전송(D01, 엔진 이식). 손글씨 배제는 크롭/OCR 프롬프트가 담당.
@@ -195,7 +198,7 @@ export const usePageOcr = () => {
             }
             if (isCancelled(page.id)) return null;
             // D17 — 페이지별 라우팅(testchange clean/messy): 그 페이지 모든 크롭이 pageChain.
-            let r: { items: OCRProblem[]; modelUsed: OCRModel } | null;
+            let r: { items: OCRProblem[]; modelUsed: OCRModel; upsideDown?: boolean } | null;
             try {
               r = await ocrChainOnImage(page, crop, pageChain, {
                 crop: true,
@@ -237,7 +240,8 @@ export const usePageOcr = () => {
               // eslint-disable-next-line no-console
               console.debug(`[usePageOcr] ${page.id} crop box ${box.number} ✓ ${r.modelUsed}`);
             }
-            return { item, model: r.modelUsed, work: { crop, box, problem: local } };
+            return { item, model: r.modelUsed, work: { crop, box, problem: local },
+              upsideDown: r.upsideDown };
           }),
         ),
       );
@@ -286,7 +290,14 @@ export const usePageOcr = () => {
       });
       // 박스 reading-order 유지 — testchange merge 순서(number 정렬 X, D25). 대표 모델.
       const items = deduped;
+      // 뒤집힘은 크롭마다 따로 판정되므로 다수결로 모은다 — 손글씨가 어지러운 크롭
+      // 하나가 페이지 전체를 잘못 돌려세우는 일을 막는다.
+      const orientationVotes = results.flatMap(
+        (r) => (r && typeof r.upsideDown === "boolean" ? [r.upsideDown] : []),
+      );
       return { items, modelUsed: lastModel ?? pass1Chain[0],
+        upsideDown: orientationVotes.length > 0
+          && orientationVotes.filter(Boolean).length * 2 > orientationVotes.length,
         figureWork: results.flatMap(r => r && items.includes(r.item) ? [r.work] : []) };
     };
 
@@ -366,6 +377,30 @@ export const usePageOcr = () => {
             assembleOcrText(reconciled),
             page.textLayer,
           );
+          // 180° 뒤집힌 스캔 — textLayer 휴리스틱은 이 각도를 구분하지 못해
+          // (pdfProcessor 의 detectRotationFromTextLayer 주석) 페이지가 0° 로 남는다.
+          // 뒤집힌 채로는 보기 ①②③④⑤ 추출이 자주 비고, 그 상태로 뜬 도형 크롭은
+          // 재작도가 세 번 다 실패해 시간까지 먹는다. 이미지를 이미 본 모델의 판정을
+          // 받아 페이지를 돌려놓고 딱 한 번만 다시 인식한다.
+          if (result.upsideDown && !page.rotationAutoRetried) {
+            const corrected = ((page.rotation + 180) % 360) as WizardPage["rotation"];
+            // eslint-disable-next-line no-console
+            console.info(
+              `[usePageOcr] ${page.id} 180° 뒤집힘 감지 — ${page.rotation}° → ${corrected}° 교정 후 재인식`,
+            );
+            setPageRotation(page.id, corrected);
+            setPageOCR(page.id, {
+              ocrResult: [],
+              ocrComplete: false,
+              ocrTextComplete: false,
+              ocrInflightModel: undefined,
+              ocrStartedAt: undefined,
+              rotationAutoRetried: true,
+            });
+            // 마커를 비워야 다음 effect cycle 이 이 페이지를 다시 집는다 (§1-6-a).
+            dispatched.current.delete(page.id);
+            return;
+          }
           setPageOCR(page.id, {
             ocrResult: reconciled,
             ocrComplete: false,

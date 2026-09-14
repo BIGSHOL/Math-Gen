@@ -248,6 +248,11 @@ export interface WizardPage {
    */
   rotation: 0 | 90 | 180 | 270;
   /**
+   * 180° 자동 교정으로 재인식을 이미 한 번 돌렸는지 — 무한 재인식 방지 가드.
+   * `solutionAutoRetried` 와 같은 1회 패턴.
+   */
+  rotationAutoRetried?: boolean;
+  /**
    * 현재 OCR 진행 중인 모델 id (체인 폴백 시 갱신됨). 비어 있으면 진행
    * 중인 호출이 없다는 뜻. `partialize` 에서 *제외* (휘발성 in-flight 상태).
    */
@@ -623,6 +628,7 @@ export interface WizardState {
         | "ocrStartedAt"
         | "imageRef"
         | "ocrTextLayerWarning"
+        | "rotationAutoRetried"
       >
     >,
   ) => void;

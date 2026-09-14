@@ -973,6 +973,8 @@ export const OCR_PAGE_PROMPT = `Task: This image is ONE page of a Korean math wo
 
 The output is rendered through react-markdown + remark-math + rehype-raw + rehype-katex, so Markdown, KaTeX delimiters (\$…\$, \$\$…\$\$), and raw HTML (<table>, <svg>, <tr>, <td>) are ALL passed through. Use that freely — you almost never need to fall back to image cropping.
 
+PAGE ORIENTATION — set "upsideDown" on the top-level object. Some scans come in rotated 180°: the printed Korean text and digits read correctly only if you turn the page around, and the ①②③④⑤ options sit above the question stem instead of below it. Set "upsideDown": true for exactly that case, and false otherwise (normal pages, and sideways 90°/270° pages alike). Judge the PRINTED text only — a student's handwriting can be slanted or upside down on a perfectly normal page. When you are not sure, return false. Transcribe the page as usual either way; the app re-runs the page itself once it knows.
+
 ──────────────────────────────────────────────────────────────────
 출력 = TYPED BLOCKS (필수 — 시험지변환기 호환, 옵션 B)
 ──────────────────────────────────────────────────────────────────

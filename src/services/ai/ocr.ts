@@ -379,6 +379,13 @@ export interface OCRPageInput {
 
 export interface OCRPageResult {
   items: OCRProblem[];
+  /**
+   * 모델이 본 페이지가 180° 뒤집혀 있었는지. 뒤집힌 페이지는 보기 추출이 자주
+   * 비고, 그 상태로 뜬 도형 크롭은 재작도가 세 번 다 실패해 시간까지 먹는다.
+   * textLayer 휴리스틱은 180° 를 구분하지 못하므로(pdfProcessor 주석 참고)
+   * 이미지를 이미 보고 있는 모델에게 직접 묻는다.
+   */
+  upsideDown?: boolean;
   /** Phase B — Vercel function handler 가 ai_usage 기록 후 strip. */
   _usage?: import("../../lib/pricing.js").NormalizedUsage;
   /** Phase B — 호출 시 사용된 model (handler 가 logUsage 에 사용). */
@@ -1292,6 +1299,7 @@ const extractPageProblemsDirect = async (
 
   return {
     items: normalizeResponse(parsed),
+    upsideDown: (parsed as { upsideDown?: unknown }).upsideDown === true,
     _usage: parsed._usage,
     _modelUsed: model,
   };

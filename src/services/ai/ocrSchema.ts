@@ -111,6 +111,12 @@ export const OCR_PAGE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    upsideDown: {
+      type: "boolean",
+      description:
+        "true ONLY when the whole page image is rotated 180° — printed Korean text and digits are upside down, so the page reads correctly only after turning it around. " +
+        "A page in normal orientation is false, and so is a sideways (90°/270°) page. Judge the PRINTED text, never the student's handwriting. When unsure, return false.",
+    },
     items: {
       type: "array",
       description: "Problems extracted from this page, in original visual order.",
@@ -245,5 +251,6 @@ export const OCR_PAGE_SCHEMA = {
       },
     },
   },
-  required: ["items"],
+  // OpenAI strict schema 는 properties 의 모든 키가 required 여야 한다 (§4-5).
+  required: ["items", "upsideDown"],
 } as const;
