@@ -484,6 +484,9 @@ svg text {
   line-height: 1.5;
   color: #374151;
 }
+.choice-row .choice .choice-body {
+  min-width: 0;
+}
 
 /* 문제 직접 편집 — 읽기 화면과 같은 조판 위에서 글·수식·그림을 고친다. */
 .visual-editor-toolbar {

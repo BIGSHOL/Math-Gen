@@ -177,7 +177,7 @@ const ChoiceItem = Node.create({
   renderHTML: ({ node }) => [
     "div", { class: "choice" },
     ["span", { class: "choice-marker", contenteditable: "false" }, node.attrs.marker],
-    ["span", {}, 0],
+    ["span", { class: "choice-body" }, 0],
   ],
 });
 

@@ -250,7 +250,9 @@ const renderChoiceRowOrNull = (
       {slots.map((s, i) => (
         <span key={i} className="choice">
           <span className="choice-marker">{markers[i]}</span>
-          {s}
+          {/* 내용은 한 상자로 — 풀어 두면 글·수식 조각이 .choice 격자의 칸을
+              하나씩 차지해 수식 자리에서 줄이 끊긴다. */}
+          <span className="choice-body">{s}</span>
         </span>
       ))}
     </div>
