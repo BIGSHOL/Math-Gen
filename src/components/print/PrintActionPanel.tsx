@@ -1,5 +1,5 @@
 import { useCallback, useState, type RefObject } from "react";
-import { Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
+import { Backdrop, Btn, Card, Heading, Icon, Input, Progress } from "@app/components/ui";
 import { FeedbackBar } from "@app/components/feedback/FeedbackBar";
 import { useWizardStore, DEFAULT_EXPORT_FILENAME } from "@app/stores/wizardStore";
 import { useAppStore } from "@app/stores/appStore";
@@ -7,6 +7,7 @@ import { showToast } from "@app/stores/toastStore";
 import type { ExportProgress } from "@app/lib/pdfExporter";
 import type { ProblemReview } from "@app/stores/wizardStore";
 import type { PrintMeta } from "@app/components/print/types";
+import { HWP_AGENT_DOWNLOAD_URL } from "@app/services/api/hwpAccess";
 
 /**
  * Step 5 우측 액션 패널. filename input + 페이지 요약 + 인쇄/PDF 버튼 +
@@ -100,9 +101,14 @@ export const PrintActionPanel = ({
 
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const isExporting = progress !== null && progress.phase !== "done" && progress.phase !== "error";
-  // 어떤 내보내기가 진행 중인지 — 진행 라벨·경고 모달이 PDF vs HWP 를 구분.
-  const [exportKind, setExportKind] = useState<"hwp" | "pdf" | null>(null);
+  // 어떤 내보내기가 진행 중인지 — 진행 라벨·경고 모달이 PDF / HWPX / HWP(COM) 를 구분.
+  const [exportKind, setExportKind] = useState<"hwpx" | "hwp" | "pdf" | null>(null);
   const [hwpError, setHwpError] = useState('');
+  // HWP(COM) 변환 중에는 한글이 저장 직전 잠깐 Visible 로 떠 포커스를 가로챌 수 있어
+  // 타이핑이 변환을 깨뜨릴 위험 → 가운데 경고 모달로 상호작용 차단(사용자 보고 2026-06-22).
+  const hwpConverting = isExporting && exportKind === "hwp";
+  // HWP 도우미(로컬 커넥터) 미감지 → 다운로드 안내 카드 노출.
+  const [connectorMissing, setConnectorMissing] = useState(false);
   const testId = useWizardStore((s) => s.testId);
 
   const handlePrint = useCallback(async () => {
@@ -208,8 +214,9 @@ export const PrintActionPanel = ({
     }
   }, [filename, printableRootRef, totalPages]);
 
-  const handleHWP = useCallback(async () => {
-    setExportKind("hwp"); setHwpError("");
+  /** HWPX — 미리보기 배치를 서버에서 한글 문서로 옮긴다. 도우미·한글 설치 불필요. */
+  const handleHWPX = useCallback(async () => {
+    setExportKind("hwpx"); setHwpError(""); setConnectorMissing(false);
     setProgress({ current: 0, total: totalPages, phase: "preparing" });
     try {
       if (!printableRootRef.current) throw new Error("미리보기 페이지를 찾을 수 없습니다.");
@@ -226,8 +233,121 @@ export const PrintActionPanel = ({
     }
   }, [filename, uploadedFileName, printableRootRef, totalPages]);
 
+  /**
+   * HWP — 로컬 HWP 도우미(127.0.0.1 커넥터)가 PC 의 한글(COM)로 변환한다. 쪽 나눔·수식
+   * 크기를 한글이 직접 계산해 한글 편집 결과와 같다. 도우미 미실행이면 설치 안내,
+   * 401(페어링 토큰)이면 1회 입력받아 저장.
+   */
+  const handleHWP = useCallback(async () => {
+    setExportKind("hwp");
+    setConnectorMissing(false);
+    setHwpError("");
+    // 진행 중 입력 필드 등에서 포커스 제거 — 변환 중 stray 키 입력 방지.
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    setProgress({ current: 0, total: totalPages, phase: "preparing" });
+    try {
+      const {
+        detectConnector,
+        buildHwpPayload,
+        convertToHwp,
+        getStoredToken,
+        setStoredToken,
+        HwpConnectorError,
+        hwpExtension,
+      } = await import("@app/services/api/hwpConnector");
+
+      // 도우미 미실행·브라우저의 로컬 접근 차단 — 에러 대신 설치/허용 안내 카드.
+      const health = await detectConnector().catch((e: Error) => {
+        setConnectorMissing(true);
+        setHwpError(e.message);
+        return null;
+      });
+      if (!health) {
+        setProgress(null);
+        setExportKind(null);
+        return;
+      }
+      if (problems.length === 0) throw new Error("내보낼 문항이 없습니다.");
+      if (!health.hwp_com) throw new Error("한글이 설치된 PC에서 도우미를 실행해 주세요.");
+
+      const { hasHwpFigures, prepareHwpFigures } = await import("@app/lib/hwpFigures");
+      const draft = buildHwpPayload(problems, meta, exportSource, printOptions);
+      if (hasHwpFigures(draft) && !health.capabilities.includes("v2-figures")) {
+        setConnectorMissing(true);
+        throw new Error("편집한 도형을 한글에 넣으려면 HWP 도우미를 최신 버전으로 업데이트해 주세요.");
+      }
+      const payload = await prepareHwpFigures(draft);
+      const { sanitizeFilename } = await import("@app/lib/filename");
+      const safeName = sanitizeFilename(
+        filename || uploadedFileName?.replace(/\.pdf$/i, "").trim() || DEFAULT_EXPORT_FILENAME,
+      );
+
+      setProgress({ current: 0, total: totalPages, phase: "saving" });
+      let blob: Blob;
+      try {
+        blob = await convertToHwp(payload, getStoredToken());
+      } catch (e) {
+        if (e instanceof HwpConnectorError && e.status === 401) {
+          const entered = window.prompt(
+            "HWP 도우미 페어링 토큰을 입력하세요\n(%LOCALAPPDATA%\\mathgen-connector\\token.txt 의 값):",
+            "",
+          );
+          if (!entered || !entered.trim()) throw new Error("페어링 토큰이 필요합니다.");
+          blob = await convertToHwp(payload, entered.trim());
+          setStoredToken(entered.trim());
+        } else {
+          throw e;
+        }
+      }
+      downloadBlob(blob, `${safeName}.${await hwpExtension(blob)}`);
+      setProgress({ current: totalPages, total: totalPages, phase: "done" });
+    } catch (err) {
+      const msg = (err as Error).message || "HWP 변환에 실패했습니다.";
+      setHwpError(msg);
+      setProgress({ current: 0, total: totalPages, phase: "error", error: msg });
+      // 경고 모달은 닫히고 진행 카드는 곧 사라지므로 토스트로도 알린다 (사용자 보고 2026-06-22).
+      showToast({ kind: "error", message: `HWP 변환 실패 — ${msg}` });
+    } finally {
+      setTimeout(() => {
+        setProgress(null);
+        setExportKind(null);
+      }, 3000);
+    }
+  }, [problems, meta, exportSource, printOptions, filename, uploadedFileName, totalPages]);
+
   return (
     <>
+      {/* HWP(COM) 변환 중 경고 모달 — 한글 포커스 탈취로 타이핑이 변환을 깨는 것 방지. */}
+      {hwpConverting && (
+        <Backdrop>
+          <Card
+            pad={24}
+            className="w-[360px] max-w-[90vw] bg-surface border border-accent/40 shadow-2xl text-center"
+          >
+            <div className="flex flex-col items-center gap-3">
+              <span
+                className="inline-block w-9 h-9 rounded-full border-[3px] border-accent/25 border-t-accent animate-spin"
+                aria-hidden
+              />
+              <Heading level="h3" className="text-text">
+                HWP 변환 중입니다
+              </Heading>
+              <p className="text-small text-text2 leading-relaxed">
+                한글(HWP)이 백그라운드에서 실행 중입니다.
+                <br />
+                변환이 끝날 때까지{" "}
+                <strong className="text-warn">타이핑하거나 클릭하지 마세요.</strong>
+                <br />
+                키 입력이 한글 창에 들어가면 변환이 실패할 수 있습니다.
+              </p>
+              <div className="flex items-center gap-1.5 text-caption text-muted mt-1">
+                <Icon name="hourglass-medium" size={14} weight="duotone" color="#0EA5E9" />
+                <span>보통 5~30초 소요…</span>
+              </div>
+            </div>
+          </Card>
+        </Backdrop>
+      )}
       <aside
         className={`w-[280px] shrink-0 bg-surface border-l border-line flex flex-col ${className ?? ""}`}
       >
@@ -248,7 +368,7 @@ export const PrintActionPanel = ({
             size="sm"
             value={filename}
             onChange={(e) => setExport({ filename: e.target.value })}
-            suffix=".hwpx / .pdf"
+            suffix=".hwpx / .hwp / .pdf"
             placeholder="변형시험지"
             aria-label="파일명"
             mono
@@ -296,9 +416,17 @@ export const PrintActionPanel = ({
               {progress.phase === "rendering" &&
                 `${progress.current} / ${progress.total} 페이지 캡처 중…`}
               {progress.phase === "saving" &&
-                (exportKind === "hwp" ? "HWPX 생성 중…" : "PDF 저장 중…")}
+                (exportKind === "hwpx"
+                  ? "HWPX 생성 중…"
+                  : exportKind === "hwp"
+                  ? "HWP 변환 중… (한글 실행 중)"
+                  : "PDF 저장 중…")}
               {progress.phase === "done" &&
-                (exportKind === "hwp" ? "✓ HWPX 생성 완료" : "✓ PDF 생성 완료")}
+                (exportKind === "hwpx"
+                  ? "✓ HWPX 생성 완료"
+                  : exportKind === "hwp"
+                  ? "✓ HWP 생성 완료"
+                  : "✓ PDF 생성 완료")}
               {progress.phase === "error" && `오류: ${progress.error ?? "알 수 없음"}`}
             </div>
             {progress.total > 0 && progress.phase !== "error" && (
@@ -313,16 +441,57 @@ export const PrintActionPanel = ({
         )}
 
         {hwpError && <p role="alert" className="text-caption text-danger">{hwpError}</p>}
-        <Btn
-          kind="accent"
-          icon="file-doc"
-          iconRight="download-simple"
-          full
-          onClick={handleHWP}
-          disabled={isExporting || problemCount === 0}
-        >
-          HWPX 내보내기
-        </Btn>
+        {connectorMissing && (
+          <Card pad={12} className="bg-warn-soft border-warn/30">
+            <div className="text-caption font-bold mb-1.5">HWP 도우미가 필요합니다</div>
+            <p className="text-caption text-text2 leading-relaxed mb-2">
+              .hwp 변환은 이 PC에 설치된 한글(HWP)을 이용합니다. 도우미를 한 번 설치하면
+              이후 자동 실행됩니다. 한글이 없다면 HWPX 내보내기를 이용하세요.
+            </p>
+            <Btn
+              kind="accent"
+              icon="download-simple"
+              full
+              size="sm"
+              onClick={() => window.open(HWP_AGENT_DOWNLOAD_URL, "_blank", "noopener")}
+            >
+              HWP 도우미 다운로드
+            </Btn>
+            <Btn kind="ghost" full size="sm" className="mt-1.5" onClick={() => void handleHWP()}>
+              이미 설치함 · 다시 시도
+            </Btn>
+          </Card>
+        )}
+        <div className="space-y-1.5">
+          <Btn
+            kind="accent"
+            icon="file-doc"
+            iconRight="download-simple"
+            full
+            onClick={() => void handleHWPX()}
+            disabled={isExporting || problemCount === 0}
+          >
+            HWPX 내보내기
+          </Btn>
+          <p className="text-caption text-muted leading-relaxed">
+            미리보기 배치 그대로 저장합니다. 설치할 것이 없습니다.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Btn
+            kind="secondary"
+            icon="file-doc"
+            iconRight="download-simple"
+            full
+            onClick={() => void handleHWP()}
+            disabled={isExporting || problemCount === 0}
+          >
+            HWP 내보내기 (한글 도우미)
+          </Btn>
+          <p className="text-caption text-muted leading-relaxed">
+            이 PC의 한글이 직접 변환합니다. 수식·쪽 나눔이 한글 기준으로 정확합니다.
+          </p>
+        </div>
 
         {/* PDF/인쇄 — §45 PDF 활성화 (2026-06-02 MVP 락다운 해제, PDF 한정).
             Phase 1: 브라우저 인쇄(window.print) 활성 — 미리보기와 동일 벡터 렌더(깨짐 0).
