@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 VENDOR = Path(__file__).resolve().parents[2] / 'vendor' / 'hwpx'
 sys.path.insert(0, str(VENDOR))
 from latex_to_hwpeq import latex_to_hwpeq
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from eqsize import hwpeq_width
 
 NS = {'hp':'http://www.hancom.co.kr/hwpml/2011/paragraph', 'hc':'http://www.hancom.co.kr/hwpml/2011/core',
       'hh':'http://www.hancom.co.kr/hwpml/2011/head', 'hs':'http://www.hancom.co.kr/hwpml/2011/section',
@@ -27,27 +29,13 @@ def xml(node): return ET.tostring(node, encoding='unicode', xml_declaration=True
 
 # Hancom re-lays out lines and pages on open but never re-measures an equation box: it
 # keeps <hp:sz> and draws the HYhwpEQ rendering at its natural size inside it. A box
-# copied from KaTeX is off by the font/spacing differences, so following text overlapped
-# the equation or left gaps. Width (in em) is corrected from KaTeX's em width with the
-# script features where the two renderers space differently; least squares on 482 real
-# exam equations sized by Hancom COM (5-fold CV: mean |error| 3.7%, >10% short 4.6%).
-_EQ_WIDTH_COEF = {'katex': .9908, 'tilde': .1926, 'unary': .1458, 'binary': -.0518, 'rel': .0182,
-                  'setbrace': -.0208, 'comma': .1167, 'over': .0798, 'sqrt': .3483, 'LEFT': .1803, 'const': .0076}
-_EQ_WIDTH_SLACK = 1.03  # a slightly wide box leaves a hairline gap; a narrow one overlaps text
+# copied from KaTeX made following text overlap the equation or left gaps, so the box is
+# the width Hancom itself computes for the script (eqsize reproduces its layout rules;
+# 3,000 held-out exam equations: 97.9% exact, 99.9% within 1%).
 _EQ_OUT_MARGIN = 56     # Hancom's own inline equation margin (HWPUNIT per side)
 def equation_width(item, script):
-    """CSS px width of the box Hancom needs for ``script`` at the preview font size."""
-    size = float(item.get('fontSize') or 14)
-    text = re.sub(r'"[^"]*"', lambda m: 'Q' * len(m.group(0)), script)
-    unary = len(re.findall(r'(?:(?<=^)|(?<=[(,~={\[]))\s*[-+]', text))
-    features = {'katex': float(item['w']) / size, 'tilde': text.count('~'), 'unary': unary,
-                'binary': len(re.findall(r'[-+]', text)) - unary,
-                'rel': len(re.findall(r'=|<|>|\bLEQ\b|\bGEQ\b|\bNEQ\b|≤|≥|≠', text)),
-                'setbrace': script.count('"{"') + script.count('"}"'), 'comma': text.count(','),
-                'over': len(re.findall(r'\bover\b', text)), 'sqrt': len(re.findall(r'\bsqrt\b', text)),
-                'LEFT': len(re.findall(r'\bLEFT\b', text)), 'const': 1}
-    em = sum(_EQ_WIDTH_COEF[name] * value for name, value in features.items())
-    return max(em, .3) * size * _EQ_WIDTH_SLACK
+    """CSS px width of the box Hancom gives ``script`` at the preview font size."""
+    return hwpeq_width(script, units(item.get('fontSize') or 14)) / 75
 
 def build_parts(payload):
     pages = payload.get('pages')

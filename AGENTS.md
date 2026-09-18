@@ -5566,3 +5566,23 @@ testchange 모드(`VITE_TESTCHANGE_ENABLED`)는 편집본을 IndexedDB(`mathgen-
 
 **원칙**: 새 작업 필드를 추가하면 DB 컬럼 + mappers + wizardSync 로 간다(§25-3). 브라우저 저장소
 (IndexedDB `mathgen` imageStore, sessionStorage)는 *캐시*일 뿐 원본이 아니다.
+
+---
+
+## 48. HWP 내보내기 두 경로 + HWPX 수식 폭 = 한글 실측 규칙 (2026-09-18)
+
+사용자 결정: **HWPX(서버, 설치 불필요)와 HWP(COM, 한글 도우미) 둘 다 제공**, HWPX 는 미리보기에 최대한 맞춘다.
+
+- `PrintActionPanel`: "HWPX 내보내기"(`/api/export-hwpx`, 미리보기 배치) + "HWP 내보내기 (한글 도우미)"
+  (`hwpConnector` → 127.0.0.1:8765 → COM). `detectConnector` 는 실패 시 **throw**(null 아님) → catch 해서
+  도우미 설치 카드. 도우미의 mathgen 경로 산출물은 `.hwpx`(엔진 봉투만 `.hwp`) — 다운로드 확장자는 바이트로 판정.
+- 검증: 릴리스 도우미 v1.3.0 을 `MathGenHWP.exe --convert-worker --in … --out …` 로 직접 실행(트레이/자동시작 없이).
+  ⚠️ 엔진 소스(`D:\시험지 한글화`) 작업트리의 미커밋 변경으로 만든 hwpx 는 한글이 열지 못했다 — 소스 트리로
+  COM 경로를 검증하지 말고 릴리스 exe 로 할 것.
+- **HWPX 수식 폭**: 한글은 HWPX 를 열 때 수식을 다시 재지 않고 `<hp:sz>` 를 그대로 쓴다 → 폭이 틀리면 뒤 글자
+  겹침/틈. `scripts/hwpx/eqsize.py` 가 한글 레이아웃 규칙을 재현한다(실측으로 역산):
+  글꼴 픽셀 E=짝수반올림(pt·4/3), 글자=round(adv·E)·75, 간격=round(pt·m)·7(괄호·쉼표1/이항2/관계3, 첨자 뒤 단위10,
+  분수·근호·장식·행렬·LEFT 뒤 0), 첨자 0.682배, 분수 max(분자,분모)+0.5em(최소 1em), 근호 내용+E px+0.17em,
+  `~` 도 보통 원자(",~-b" 의 - 는 이항), `it` 뒤는 새 시작. 보류 검증 3,000식: 97.9% 정확·99.9% 1% 이내.
+- 재보정 도구 `scripts/hwpx/eq_measure.py`(로컬 COM). `vercel.json` includeFiles 에 eqsize.py 포함 필수(누락 시 배포에서만 import 실패).
+- todays-math 도 같은 `scripts/hwpx/writer.py` 를 쓴다 — writer 수정 시 양쪽 동기화.

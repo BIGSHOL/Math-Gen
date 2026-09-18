@@ -28,7 +28,7 @@
     },
     "api/export-hwpx.py": {
       "maxDuration": 30,
-      "includeFiles": "{vendor/hwpx/**,scripts/hwpx/writer.py}",
+      "includeFiles": "{vendor/hwpx/**,scripts/hwpx/writer.py,scripts/hwpx/eqsize.py}",
       "excludeFiles": "{node_modules/**,.checks.local/**}"
     }
   }
