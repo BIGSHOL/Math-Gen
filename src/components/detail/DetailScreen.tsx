@@ -17,7 +17,7 @@ import { renderDiagram, type DiagramParams } from "@app/lib/diagram";
 import { useDetailData, type PageWithUrls } from "@app/hooks/useDetailData";
 import { useImageAsDataUrl } from "@app/hooks/useImageAsDataUrl";
 import { formatRelativeKo, historyRowToVariant } from "@app/services/api/mappers";
-import { hydrateWizardFromTest } from "@app/services/api/wizardHydrate";
+import { hydrateWizardFromTest, TESTCHANGE_COPY_STATUS } from "@app/services/api/wizardHydrate";
 import { suspendWizardSync } from "@app/services/api/wizardSync";
 import { useAppStore } from "@app/stores/appStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
@@ -97,9 +97,11 @@ export const DetailScreen = () => {
       suspendWizardSync(() =>
         useWizardStore.getState().hydrateFromTest(finalSnapshot),
       );
+      // 기출 원본에서 만든 편집본은 이미 DB 에 저장됨 — 보관함 목록에만 반영.
       if (test && finalSnapshot.testId !== selectedTestId) {
-        useLibraryStore.getState().upsertTest({ ...test, id: finalSnapshot.testId,
-          title: `${test.title} · 편집본`, statusText: '이 브라우저에 저장' });
+        useLibraryStore.getState().cacheTest({ ...test, id: finalSnapshot.testId,
+          title: `${test.title} · 편집본`, statusText: TESTCHANGE_COPY_STATUS,
+          createdAt: new Date().toISOString(), time: '방금 전' });
       }
       startWizard(finalSnapshot.testId);
     } catch (err) {

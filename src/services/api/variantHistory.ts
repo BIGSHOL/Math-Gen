@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_ENABLED } from "./supabase";
+import { workDb as supabase, SUPABASE_ENABLED } from "./supabase";
 import type { VariantHistoryRow } from "./mappers";
 
 /**

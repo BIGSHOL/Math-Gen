@@ -5539,3 +5539,32 @@ ProblemBody/Step5Export) 처리 → contentParser/golden 무영향**(golden 25/2
   직접 — 마크다운 밑줄 부재 우회. §35 의 부정강조 '의도적 제외'를 더 가벼운 render-time 으로 대체.
 - §35 golden 은 contentParser.ts 만 검증 → render-time 후보정(problemAdapter/ProblemBody)은 golden
   무관. 단 contentParser 를 건드리면 baseline 재생성 필수(§35-5).
+
+---
+
+## 47. 사용자 작업은 DB 에만 저장 — 브라우저 저장 제거 (2026-09-18)
+
+testchange 모드(`VITE_TESTCHANGE_ENABLED`)는 편집본을 IndexedDB(`mathgen-testchange-work`,
+카드 배지 "이 브라우저에 저장")에만 저장했다. 사용자 결정: **브라우저 저장 자체를 없애고 전부 DB**.
+
+- `supabase.ts`: `workDb`(= authClient) 신설 — tests/pages/ocr_problems/problem_reviews/
+  variant_history + Storage 는 **모드 무관 항상 DB**. testchange DB 에도 patch-testchange-core.sql
+  로 존재. 그 외 MathGen 전용 테이블(tenants/exam_analyses/credit_lots/error_logs)은 testchange DB 에
+  없으므로 `supabase` 는 testchange 모드에서 여전히 null.
+- `localWork.ts` 삭제. 목록 = DB tests + 기출 exams, 상세/이어서작업 = DB 경로, wizardSync = DB diff.
+- 기출 "이어서 작업" = `workPersist.writeWorkSnapshot` 으로 **DB 에 새 시험지** 생성.
+  기출 id(`testchange:q:…`, `testchange:N:contents`)는 uuid 가 아니라 `withUuidIds` 로 재발급
+  (review.id 는 같은 문항 id 와 짝 유지). 중간 실패 시 만든 행·파일 삭제 후 throw.
+- 위자드 설정(goal/printOptions/printMeta/filename/format/exportSource/bundle/difficulty/extras/
+  skipSolutions) → `tests.settings` JSONB (wizardSync 디바운스, hydrate 시 복원).
+- 소수 배점(2.2점): `ocr_problems.score` 는 원래 `int` → 2.2 insert 가 22P02 로 **배치 전체 실패**.
+  `score numeric` + `printed_score text` 로 확장. 미적용 DB 는 problems.ts `runAdapting` 이 없는 컬럼만
+  빼고, 22P02 면 소수 score 를 null 로 두고 재시도(저장은 계속).
+- 기존 브라우저 편집본은 `browserWorkMigration.ts` 가 보관함 hydrate 후 1회 DB 이전(페이지 이미지·
+  썸네일·PDF 포함) → 성공분만 IDB 에서 삭제, 전부 옮기면 DB 삭제. **스키마 미적용이면 보류**
+  (`printed_score`/`settings` select 로 확인) — 옮긴 뒤 사본 삭제 시 소수 배점 손실 방지.
+- 필수 SQL: `supabase/patch-testchange-work.sql` (멱등). 스키마 원본(schema.sql·patch-testchange-core.sql·
+  bootstrap)도 동일 반영.
+
+**원칙**: 새 작업 필드를 추가하면 DB 컬럼 + mappers + wizardSync 로 간다(§25-3). 브라우저 저장소
+(IndexedDB `mathgen` imageStore, sessionStorage)는 *캐시*일 뿐 원본이 아니다.

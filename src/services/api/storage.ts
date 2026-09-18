@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
+import { workDb as supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
 import { compressForStorage, estimateDataUrlBytes } from "@app/lib/imagePreprocess";
 import { showToast } from "@app/stores/toastStore";
 

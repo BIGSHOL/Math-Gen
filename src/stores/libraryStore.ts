@@ -12,7 +12,8 @@ import { testPaperToTestInsert } from "@app/services/api/mappers";
 import { TESTCHANGE_ENABLED, loadTestchangeExams } from '../services/api/testchange';
 import { testchangeExamToTest } from '../lib/testchangeAdapter';
 import { isTestchangeId } from '../types/testchange';
-import { loadLocalWorks, saveLocalTest, removeLocalWork, renameLocalWork } from '../services/api/localWork';
+import { migrateBrowserWorks } from '../services/api/browserWorkMigration';
+import { useToastStore, showToast } from './toastStore';
 
 /**
  * Library screen data source.
@@ -33,6 +34,10 @@ export interface LibraryState {
   setViewState: (patch: Partial<LibraryState["viewState"]>) => void;
 
   hydrate: () => Promise<void>;
+  /** 이미 불러온 목록을 DB 기준으로 다시 읽는다 (위자드에서 돌아올 때 등). */
+  refresh: () => Promise<void>;
+  /** DB 에 이미 저장된 시험지를 목록 메모리에만 반영. */
+  cacheTest: (test: TestPaper) => void;
   upsertTest: (test: TestPaper) => void;
   removeTest: (id: string) => void;
   renameTest: (id: string, title: string) => void;
@@ -61,8 +66,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const operation = (async () => {
       if (TESTCHANGE_ENABLED) {
         try {
-          const [exams, local] = await Promise.all([loadTestchangeExams(), loadLocalWorks()]);
-          commit({ tests: [...local.map(w => w.test), ...exams.map(testchangeExamToTest)], hydrated: true, error: null });
+          // 기출 원본(읽기 전용) + 사용자 작업(DB tests). 브라우저 저장은 쓰지 않는다.
+          const [exams, dbTests] = await Promise.all([loadTestchangeExams(), loadTests()]);
+          commit({ tests: [...(dbTests ?? []), ...exams.map(testchangeExamToTest)], hydrated: true, error: null });
+          if (version === hydrateVersion) void moveBrowserWorksToDb();
         } catch (error) {
           commit({ hydrated: true, error: (error as Error).message });
         }
@@ -72,6 +79,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const dbTests = await loadTests();
       if (dbTests) {
         commit({ tests: dbTests, hydrated: true });
+        if (version === hydrateVersion) void moveBrowserWorksToDb();
         return;
       }
       const { MOCK_TESTS } = await import("@app/constants/mockTests");
@@ -80,6 +88,24 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     hydrating = operation;
     try { await operation; }
     finally { if (hydrating === operation) hydrating = null; }
+  },
+
+  refresh: async () => {
+    if (!get().hydrated) return get().hydrate();
+    const version = hydrateVersion;
+    const dbTests = await loadTests();
+    if (!dbTests || version !== hydrateVersion) return;
+    set((state) => ({
+      tests: TESTCHANGE_ENABLED
+        ? [...dbTests, ...state.tests.filter((t) => isTestchangeId(t.id))]
+        : dbTests,
+    }));
+  },
+
+  cacheTest: (test) => {
+    set((state) => ({
+      tests: [test, ...state.tests.filter((t) => t.id !== test.id)],
+    }));
   },
 
   upsertTest: (test) => {
@@ -93,7 +119,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       return { tests: next };
     });
     // Supabase background sync — 실패해도 메모리는 유지
-    if (TESTCHANGE_ENABLED) { void saveLocalTest(test).catch(console.error); return; }
     void dbUpsertTest(testPaperToTestInsert(test)).catch((err) => {
       console.warn("[libraryStore] upsertTest sync failed:", err);
     });
@@ -102,7 +127,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   removeTest: (id) => {
     if (isTestchangeId(id)) return;
     set((state) => ({ tests: state.tests.filter((t) => t.id !== id) }));
-    if (TESTCHANGE_ENABLED) { void removeLocalWork(id).catch(console.error); return; }
     // DB + Storage 병렬 cleanup (cascade 는 DB 가 알아서 처리)
     void Promise.all([dbDeleteTest(id), removeTestFolder(id)]).catch((err) => {
       console.warn("[libraryStore] removeTest sync failed:", err);
@@ -117,7 +141,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((state) => ({
       tests: state.tests.map((t) => (t.id === id ? { ...t, title: trimmed } : t)),
     }));
-    if (TESTCHANGE_ENABLED) { void renameLocalWork(id, trimmed).catch(console.error); return; }
     void dbUpdateTest(id, { title: trimmed }).catch((err) => {
       console.warn("[libraryStore] renameTest sync failed:", err);
     });
@@ -131,3 +154,38 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ tests: [], hydrated: false, error: null, viewState: { collection: "전체", selectedTags: new Set(), sort: "recent", view: "grid", searchQuery: "" } });
   },
 }));
+
+/**
+ * 예전 "이 브라우저에 저장" 편집본을 DB 로 1회 이전하고 목록을 새로 읽는다.
+ * 옮길 것이 없으면 조용히 끝난다.
+ */
+const moveBrowserWorksToDb = async (): Promise<void> => {
+  let progressId: string | null = null;
+  const timer = setTimeout(() => {
+    progressId = showToast({ kind: "info", message: "브라우저에 저장된 편집본을 DB로 옮기는 중…", durationMs: 0 });
+  }, 600);
+  try {
+    const { moved, failed, waiting } = await migrateBrowserWorks();
+    if (waiting > 0) {
+      showToast({
+        kind: "warn",
+        message: `브라우저에 저장된 편집본 ${waiting}개는 DB 업데이트(supabase/patch-testchange-work.sql) 후 자동으로 옮겨집니다.`,
+        durationMs: 10000,
+      });
+    }
+    if (moved > 0) await useLibraryStore.getState().refresh();
+    if (moved > 0) showToast({ kind: "success", message: `브라우저에 저장된 편집본 ${moved}개를 DB로 옮겼습니다.` });
+    if (failed > 0) {
+      showToast({
+        kind: "warn",
+        message: `편집본 ${failed}개를 DB로 옮기지 못했습니다. 브라우저에 보관 중이며 다음 접속 때 다시 시도합니다.`,
+        durationMs: 8000,
+      });
+    }
+  } catch (err) {
+    console.warn("[libraryStore] 브라우저 편집본 이전 실패:", err);
+  } finally {
+    clearTimeout(timer);
+    if (progressId) useToastStore.getState().dismiss(progressId);
+  }
+};

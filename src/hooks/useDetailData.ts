@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { isTestchangeId } from '../types/testchange';
 import { loadTestchangeExam } from '../services/api/testchange';
 import { testchangeToDetail } from '../lib/testchangeAdapter';
-import { TESTCHANGE_ENABLED } from '../services/api/testchange';
-import { loadLocalWork } from '../services/api/localWork';
-import { getPageImage, getThumbnail } from '../lib/imageStore';
 import type { OCRProblem, ProblemReview } from "@app/stores/wizardStore";
 import { loadPagesByTest } from "@app/services/api/pages";
 import { loadProblemsByTest } from "@app/services/api/problems";
@@ -70,26 +67,6 @@ export const loadDetailData = async (
   opts: { withSignedUrls?: boolean } = {},
 ): Promise<DetailData> => {
   if (isTestchangeId(testId)) return testchangeToDetail(await loadTestchangeExam(testId));
-  if (TESTCHANGE_ENABLED) {
-    const work = await loadLocalWork(testId);
-    if (!work?.snapshot) return EMPTY;
-    const snapshot = work.snapshot;
-    const pages = await Promise.all(snapshot.pages.map(async (p, i): Promise<PageWithUrls> => {
-      const [image, thumb] = await Promise.all([
-        p.imageRef ? getPageImage(p.imageRef) : null,
-        p.thumbRef ? getThumbnail(p.thumbRef) : null,
-      ]);
-      return { id: p.id, test_id: testId, page_num: i + 1, rotation: p.rotation,
-        text_layer: p.textLayer, is_problem_page: p.isProblemPage, force_ocr: false,
-        image_storage_path: null, thumb_storage_path: null, ocr_complete: p.ocrComplete,
-        ocr_model: p.ocrModel ?? null, ocr_error: p.ocrError ?? null,
-        crop_boxes: p.cropBoxes ?? [], crop_inspected: p.cropInspected ?? true,
-        created_at: work.test.createdAt ?? '', imageUrl: image?.dataUrl, thumbUrl: thumb?.dataUrl };
-    }));
-    return { pages, problems: snapshot.pages.flatMap(p => p.ocrResult),
-      problemsByPage: new Map(snapshot.pages.map(p => [p.id, p.ocrResult])),
-      reviews: snapshot.problems, history: [], loading: false, error: null };
-  }
   const withSignedUrls = opts.withSignedUrls ?? true;
   const [pageRows, problemRows, reviewRows, historyRows] = await Promise.all([
     loadPagesByTest(testId),

@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
+import { workDb as supabase, SUPABASE_ENABLED, currentUserId } from "./supabase";
 import type { TestPaper } from "@app/types";
 import { testRowToTestPaper, type TestRow, type TestInsert } from "./mappers";
 
@@ -13,21 +13,43 @@ import { testRowToTestPaper, type TestRow, type TestInsert } from "./mappers";
 // ── optional 컬럼 graceful fallback (CLAUDE.md §25-2) ───────────────────────
 // furthest_step 등 *나중에 추가된* 컬럼이 아직 마이그레이션 안 된 DB 에서도 test
 // 저장이 깨지지 않도록: PGRST204(schema cache) 면 그 컬럼만 빼고 1회 재시도.
-const OPTIONAL_COLUMNS = ["furthest_step"] as const;
+const OPTIONAL_COLUMNS = ["furthest_step", "settings"] as const;
 const SCHEMA_MISS_RE = /(PGRST204|schema cache|could not find|column .* does not exist)/i;
+const MISSING_COLUMN_RE = /could not find the '([a-z_]+)' column/i;
+type Row = Record<string, unknown>;
+type DbResult<T> = { data: T | null; error: { message: string; code?: string } | null };
 const isSchemaMiss = (err: { message?: string; code?: string } | null): boolean =>
   !!err && (err.code === "PGRST204" || SCHEMA_MISS_RE.test(err.message ?? ""));
-const stripOptional = (row: Record<string, unknown>): Record<string, unknown> => {
-  const clone = { ...row };
-  for (const c of OPTIONAL_COLUMNS) delete clone[c];
-  return clone;
+
+/**
+ * 후속 컬럼이 없는 DB 에서는 없는 컬럼만 빼고 다시 시도한다 (컬럼명을 특정할 수
+ * 없으면 후속 컬럼 전부). 남는 값이 없으면 할 일이 없으므로 성공으로 본다.
+ */
+const withSchemaRetry = async <T>(
+  row: Row,
+  run: (row: Row) => PromiseLike<DbResult<T>>,
+): Promise<DbResult<T>> => {
+  let current = row;
+  for (let attempt = 0; ; attempt++) {
+    const result = await run(current);
+    if (!result.error || attempt >= OPTIONAL_COLUMNS.length || !isSchemaMiss(result.error)) return result;
+    const missing = MISSING_COLUMN_RE.exec(result.error.message)?.[1];
+    const targets = missing && missing in current
+      ? [missing]
+      : OPTIONAL_COLUMNS.filter((c) => c in current);
+    if (targets.length === 0) return result;
+    warnMigration();
+    current = { ...current };
+    for (const c of targets) delete current[c];
+    if (Object.keys(current).length === 0) return { data: null, error: null };
+  }
 };
 let warnedSchema = false;
 const warnMigration = (): void => {
   if (warnedSchema) return;
   warnedSchema = true;
   console.warn(
-    "[api/tests] tests.furthest_step 컬럼 없음 — schema.sql ALTER TABLE 실행 전까지 진행단계 미저장 (저장 자체는 정상).",
+    "[api/tests] tests.furthest_step / tests.settings 컬럼 없음 — supabase/patch-testchange-work.sql 실행 전까지 진행단계·위자드 설정 미저장 (저장 자체는 정상).",
   );
 };
 
@@ -56,22 +78,13 @@ export const insertTest = async (input: TestInsert): Promise<string | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   const userId = await currentUserId();
   const payload: Record<string, unknown> = { user_id: userId, ...input };
-  let { data, error } = await supabase
-    .from("tests")
-    .insert(payload)
-    .select("id")
-    .single();
-  if (error && isSchemaMiss(error)) {
-    warnMigration();
-    ({ data, error } = await supabase
-      .from("tests")
-      .insert(stripOptional(payload))
-      .select("id")
-      .single());
-  }
-  if (error) {
+  const db = supabase;
+  const { data, error } = await withSchemaRetry<{ id: string }>(payload, (row) =>
+    db.from("tests").insert(row).select("id").single(),
+  );
+  if (error || !data) {
     console.warn(
-      `[api/tests] insertTest failed: ${error.message} (code: ${error.code ?? "-"})`,
+      `[api/tests] insertTest failed: ${error?.message} (code: ${error?.code ?? "-"})`,
     );
     return null;
   }
@@ -88,22 +101,13 @@ export const upsertTest = async (input: TestInsert): Promise<string | null> => {
   if (!input.id) return insertTest(input);
   const userId = await currentUserId();
   const payload: Record<string, unknown> = { user_id: userId, ...input };
-  let { data, error } = await supabase
-    .from("tests")
-    .upsert(payload, { onConflict: "id" })
-    .select("id")
-    .single();
-  if (error && isSchemaMiss(error)) {
-    warnMigration();
-    ({ data, error } = await supabase
-      .from("tests")
-      .upsert(stripOptional(payload), { onConflict: "id" })
-      .select("id")
-      .single());
-  }
-  if (error) {
+  const db = supabase;
+  const { data, error } = await withSchemaRetry<{ id: string }>(payload, (row) =>
+    db.from("tests").upsert(row, { onConflict: "id" }).select("id").single(),
+  );
+  if (error || !data) {
     console.warn(
-      `[api/tests] upsertTest failed: ${error.message} (code: ${error.code ?? "-"})`,
+      `[api/tests] upsertTest failed: ${error?.message} (code: ${error?.code ?? "-"})`,
     );
     return null;
   }
@@ -142,14 +146,10 @@ export const updateTest = async (
       updateTimers.set(id, timer);
     });
   }
-  let { error } = await supabase.from("tests").update(patch).eq("id", id);
-  if (error && isSchemaMiss(error)) {
-    warnMigration();
-    ({ error } = await supabase
-      .from("tests")
-      .update(stripOptional(patch as Record<string, unknown>))
-      .eq("id", id));
-  }
+  const db = supabase;
+  const { error } = await withSchemaRetry<null>(patch as Row, (row) =>
+    db.from("tests").update(row).eq("id", id),
+  );
   if (error) {
     console.warn("[api/tests] updateTest failed:", error.message);
     return false;

@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_ENABLED } from "./supabase";
+import { workDb as supabase, SUPABASE_ENABLED } from "./supabase";
 import type { ProblemReview } from "@app/stores/wizardStore";
 import {
   reviewToInsert,
@@ -32,12 +32,13 @@ export const upsertReview = async (
   return data.id;
 };
 
+/** 변형 결과 일괄 저장. 성공하면 true (DB 비활성은 false). */
 export const upsertReviews = async (
   testId: string,
   reviews: Array<{ ocrProblemId: string | null; review: ProblemReview }>,
-): Promise<void> => {
-  if (!SUPABASE_ENABLED || !supabase) return;
-  if (reviews.length === 0) return;
+): Promise<boolean> => {
+  if (!SUPABASE_ENABLED || !supabase) return false;
+  if (reviews.length === 0) return true;
   const payloads = reviews.map(({ ocrProblemId, review }) =>
     reviewToInsert(testId, ocrProblemId, review),
   );
@@ -46,7 +47,9 @@ export const upsertReviews = async (
     .upsert(payloads, { onConflict: "id" });
   if (error) {
     console.warn("[api/reviews] upsertReviews failed:", error.message);
+    return false;
   }
+  return true;
 };
 
 // ── updateReview: id 별 debounce ─────────────────────────────────────────────

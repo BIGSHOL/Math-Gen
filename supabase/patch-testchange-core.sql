@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.tests (
   title text NOT NULL, subject text, grade text, exam_category text,
   problem_count int NOT NULL DEFAULT 0, status text NOT NULL DEFAULT 'draft',
   status_text text, tags text[] NOT NULL DEFAULT '{}', topic_distribution jsonb,
-  uploaded_file_name text, furthest_step smallint DEFAULT 0, tenant_id uuid,
+  uploaded_file_name text, furthest_step smallint DEFAULT 0, settings jsonb, tenant_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS public.ocr_problems (
   status text NOT NULL DEFAULT 'pending', reviewed boolean NOT NULL DEFAULT false,
   images jsonb, diagram_params jsonb, solution_auto_retried boolean DEFAULT false,
   figures jsonb, blocks jsonb, choice_groups jsonb, sub_questions jsonb,
-  score int, label_type text, created_at timestamptz NOT NULL DEFAULT now()
+  score numeric, printed_score text, label_type text, created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS public.problem_reviews (

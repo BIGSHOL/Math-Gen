@@ -5,11 +5,9 @@ import { upsertOcrProblems, updateOcrProblem } from "./problems";
 import { upsertReviews, updateReview } from "./reviews";
 import { insertVariantBatch } from "./variantHistory";
 import { updateTest } from "./tests";
+import { printedScoreOf, wizardSettingsOf, WIZARD_SETTING_KEYS } from "./mappers";
 import type { PageInsert, OcrProblemInsert, ReviewInsert } from "./mappers";
 import { buildVariantLabel } from "@app/lib/conversionLabels";
-import { TESTCHANGE_ENABLED } from './testchange';
-import { saveLocalWizard } from './localWork';
-import { showToast } from '../../stores/toastStore';
 
 /**
  * wizardStore → Supabase background sync.
@@ -55,18 +53,6 @@ export const installWizardSync = (): void => {
     if (suspended) return; // hydrateFromTest 등 — 의도적으로 sync 건너뜀
     const testId = state.testId;
     if (!testId) return;
-    if (TESTCHANGE_ENABLED) {
-      if (state.pages !== prev.pages || state.problems !== prev.problems || state.step !== prev.step ||
-        state.printOptions !== prev.printOptions || state.goal !== prev.goal ||
-        state.printMeta !== prev.printMeta || state.filename !== prev.filename ||
-        state.format !== prev.format || state.exportSource !== prev.exportSource ||
-        state.bundle !== prev.bundle || state.difficulty !== prev.difficulty || state.extras !== prev.extras ||
-        state.skipSolutions !== prev.skipSolutions || state.selectedGrade !== prev.selectedGrade ||
-        state.examCategory !== prev.examCategory || state.uploadedFileName !== prev.uploadedFileName) {
-        void saveLocalWizard(state).catch(() => showToast({ kind: 'error', message: '편집본을 이 브라우저에 저장하지 못했습니다.' }));
-      }
-      return;
-    }
     // ── pages 변경 감지 ────────────────────────────────────────────────────
     if (state.pages !== prev.pages) {
       for (const newPage of state.pages) {
@@ -111,6 +97,11 @@ export const installWizardSync = (): void => {
     // 컬럼 미마이그레이션 DB 는 tests.ts 의 graceful fallback 이 strip.
     if (state.furthestStep !== prev.furthestStep) {
       void updateTest(testId, { furthest_step: state.furthestStep }, { debounceMs: 800 });
+    }
+    // ── 위자드 설정 → tests.settings ─────────────────────────────────────────
+    // 변환 목표·인쇄 옵션·내보내기 설정을 시험지별로 DB 에 보관 ("이어서 작업" 시 복원).
+    if (WIZARD_SETTING_KEYS.some((key) => state[key] !== prev[key])) {
+      void updateTest(testId, { settings: wizardSettingsOf(state) }, { debounceMs: 800 });
     }
   });
 };
@@ -231,6 +222,8 @@ const syncItemDiff = (next: OCRProblem, prev: OCRProblem): void => {
   if (prev.subQuestions !== next.subQuestions)
     patch.sub_questions = next.subQuestions ?? null;
   if (prev.score !== next.score) patch.score = next.score ?? null;
+  if (prev.score !== next.score || prev.printedScore !== next.printedScore)
+    patch.printed_score = printedScoreOf(next);
   if (prev.labelType !== next.labelType) patch.label_type = next.labelType ?? null;
   if (Object.keys(patch).length > 0) {
     void updateOcrProblem(next.id, patch, { debounceMs: 500 });

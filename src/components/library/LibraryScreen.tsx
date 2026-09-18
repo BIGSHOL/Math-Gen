@@ -30,7 +30,6 @@ import { fetchAnalysesByTestIds } from "@app/services/api/examAnalyses";
 import { useAppStore } from "@app/stores/appStore";
 import { useExamAnalysisStore } from "@app/stores/examAnalysisStore";
 import { useLibraryStore } from "@app/stores/libraryStore";
-import { TESTCHANGE_ENABLED } from '../../services/api/testchange';
 import { LibrarySidebar } from "./LibrarySidebar";
 import { StatsStrip } from "./StatsStrip";
 import { TestGrid } from "./TestGrid";
@@ -93,6 +92,11 @@ export const LibraryScreen = () => {
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrated, hydrate]);
+
+  // 위자드·상세에서 돌아오면 DB 기준으로 목록 갱신 (새 업로드·진행 상태 반영).
+  useEffect(() => {
+    if (useLibraryStore.getState().hydrated) void useLibraryStore.getState().refresh();
+  }, []);
 
   // Library hydrate 직후 *분석 결과 batch fetch* — 카드 chip 표시용. Phase N-6.
   // exam_analyses 테이블 missing 시 빈 배열 (graceful fallback).
@@ -190,9 +194,7 @@ export const LibraryScreen = () => {
     const name = t?.title ?? "이 시험지";
     if (
       window.confirm(
-        TESTCHANGE_ENABLED
-          ? `이 브라우저에 저장된 "${name}" 편집본을 삭제합니다.\n계속하시겠습니까?`
-          : `"${name}" 을(를) 삭제합니다.\n변형 이력 · 분석 결과 · 페이지 이미지가 모두 영구 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`,
+        `"${name}" 을(를) 삭제합니다.\n변형 이력 · 분석 결과 · 페이지 이미지가 모두 영구 삭제되며 되돌릴 수 없습니다.\n계속하시겠습니까?`,
       )
     ) {
       removeTest(id);

@@ -8,12 +8,15 @@ import type {
 import type { GradeKey } from "@app/services/ai/mathDefense";
 import { loadDetailData } from "@app/hooks/useDetailData";
 import { getTestRow } from "@app/services/api/tests";
-import { pageRowToWizard } from "@app/services/api/mappers";
+import { pageRowToWizard, testPaperToTestInsert, wizardSettingsOf } from "@app/services/api/mappers";
 import { restoreThumbnail } from "@app/lib/imageRestore";
 import { isTestchangeId } from '../../types/testchange';
-import { loadTestchangeExam, TESTCHANGE_ENABLED } from './testchange';
+import { loadTestchangeExam } from './testchange';
 import { testchangeExamToTest, testchangeToDetail } from '../../lib/testchangeAdapter';
-import { loadLocalWork, saveLocalTest, saveLocalSnapshot } from './localWork';
+import { withUuidIds, writeWorkSnapshot } from './workPersist';
+
+/** 기출 편집본의 tests.status_text. DetailScreen 이 보관함 카드에도 같은 값을 쓴다. */
+export const TESTCHANGE_COPY_STATUS = '기출 편집본';
 
 /**
  * "이어서 작업" — 저장된 시험지(Supabase)를 위자드 스냅샷으로 변환.
@@ -76,20 +79,27 @@ export const hydrateWizardFromTest = async (
   testId: string,
 ): Promise<WizardHydrateSnapshot | null> => {
   if (isTestchangeId(testId)) {
+    // 기출 원본은 읽기 전용 — 사용자 편집본을 DB 에 새 시험지로 만든다.
     const data = await loadTestchangeExam(testId);
     const detail = testchangeToDetail(data);
     if (!detail.problems.length) return null;
     const source = testchangeExamToTest(data.exam);
     const copyId = crypto.randomUUID();
-    await saveLocalTest({ ...source, id: copyId, title: `${source.title} · 편집본`, statusText: '이 브라우저에 저장' });
-    const snapshot: WizardHydrateSnapshot = { testId: copyId, step: 6, goal: 'digitize',
+    const { snapshot } = withUuidIds({ testId: copyId, step: 6, goal: 'digitize', furthestStep: 6,
       pages: detail.pages.map(row => pageRowToWizard(row, detail.problemsByPage.get(row.id) ?? [])),
       problems: detail.reviews, selectedGrade: source.grade as GradeKey,
-      examCategory: data.exam.round === '기말' ? 'FINAL' : 'MIDTERM', uploadedFileName: `${source.title}.pdf` };
-    await saveLocalSnapshot(snapshot);
+      examCategory: data.exam.round === '기말' ? 'FINAL' : 'MIDTERM', uploadedFileName: `${source.title}.pdf` });
+    const saved = await writeWorkSnapshot({
+      ...testPaperToTestInsert(
+        { ...source, title: `${source.title} · 편집본`, statusText: TESTCHANGE_COPY_STATUS },
+        { exam_category: snapshot.examCategory, uploaded_file_name: snapshot.uploadedFileName },
+      ),
+      id: copyId,
+      settings: wizardSettingsOf(snapshot),
+    }, snapshot);
+    if (!saved) throw new Error('편집본을 DB에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     return snapshot;
   }
-  if (TESTCHANGE_ENABLED) return (await loadLocalWork(testId))?.snapshot ?? null;
   const [detail, testRow] = await Promise.all([
     loadDetailData(testId, { withSignedUrls: false }),
     getTestRow(testId),
@@ -115,9 +125,15 @@ export const hydrateWizardFromTest = async (
 
   const problems: ProblemReview[] = detail.reviews;
 
+  const furthest = testRow?.furthest_step;
   return {
+    // 변환 목표·인쇄 옵션 등 시험지별 위자드 설정 (tests.settings).
+    ...(testRow?.settings ? wizardSettingsOf(testRow.settings) : {}),
+    ...(typeof furthest === "number" && furthest >= 0 && furthest <= 6
+      ? { furthestStep: furthest as WizardStepIndex }
+      : {}),
     testId,
-    step: decideResumeStep(pages, problems, testRow?.furthest_step ?? 0),
+    step: decideResumeStep(pages, problems, furthest ?? 0),
     pages,
     problems,
     selectedGrade: (testRow?.grade ?? null) as GradeKey | null,

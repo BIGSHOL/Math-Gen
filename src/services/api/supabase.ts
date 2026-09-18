@@ -41,7 +41,17 @@ export const authClient: SupabaseClient | null = SUPABASE_ENABLED
     })
   : null;
 
-/** testchange에는 MathGen 전용 테이블이 없다. 인증은 공유하고 작업 저장은 로컬로 분리한다. */
+/**
+ * 작업 저장 테이블(tests/pages/ocr_problems/problem_reviews/variant_history)과
+ * 페이지 Storage 버킷. testchange DB 에도 patch-testchange-core.sql 로 존재하므로
+ * 모드와 무관하게 사용자 작업은 항상 DB 에 저장한다.
+ */
+export const workDb: SupabaseClient | null = authClient;
+
+/**
+ * 그 외 MathGen 전용 테이블(tenants/exam_analyses/credit_lots/error_logs 등).
+ * testchange DB 에는 없으므로 testchange 모드에서는 비활성.
+ */
 export const supabase = import.meta.env.VITE_TESTCHANGE_ENABLED === 'true' ? null : authClient;
 
 /**

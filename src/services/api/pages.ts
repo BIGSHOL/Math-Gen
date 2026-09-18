@@ -1,4 +1,4 @@
-import { supabase, SUPABASE_ENABLED } from "./supabase";
+import { workDb as supabase, SUPABASE_ENABLED } from "./supabase";
 import type { WizardPage } from "@app/stores/wizardStore";
 import { uploadPageImage, uploadPageThumbnail } from "./storage";
 import {
@@ -47,19 +47,32 @@ const warnPageSchemaMigration = () => {
 /**
  * 한 페이지의 Storage upload + pages row insert. Step1Upload loop 안에서 페이지별
  * 호출. WizardPage.id 를 그대로 pages.id 로 사용 (FK 일관성).
+ * 이미지가 없는 페이지(기출 편집본 등)는 dataUrl 을 null 로 넘기면 row 만 저장한다.
  */
 export const insertPage = async (
   testId: string,
   pageNum: number,
   page: WizardPage,
-  imageDataUrl: string,
-  thumbDataUrl: string,
+  imageDataUrl: string | null,
+  thumbDataUrl: string | null,
 ): Promise<string | null> => {
   if (!SUPABASE_ENABLED || !supabase) return null;
   const [imagePath, thumbPath] = await Promise.all([
-    uploadPageImage(testId, pageNum, imageDataUrl),
-    uploadPageThumbnail(testId, pageNum, thumbDataUrl),
+    imageDataUrl ? uploadPageImage(testId, pageNum, imageDataUrl) : null,
+    thumbDataUrl ? uploadPageThumbnail(testId, pageNum, thumbDataUrl) : null,
   ]);
+  return insertPageRow(testId, pageNum, page, imagePath, thumbPath);
+};
+
+/** 이미 올린 Storage 경로로 pages row 만 upsert. 성공 시 page id. */
+export const insertPageRow = async (
+  testId: string,
+  pageNum: number,
+  page: WizardPage,
+  imagePath: string | null,
+  thumbPath: string | null,
+): Promise<string | null> => {
+  if (!SUPABASE_ENABLED || !supabase) return null;
   const payload = wizardPageToPageInsert(testId, pageNum, page, imagePath, thumbPath);
   const { data, error } = await supabase
     .from("pages")

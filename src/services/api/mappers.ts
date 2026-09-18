@@ -5,6 +5,7 @@ import type {
   ProblemReview,
   OCRImage,
   FigureBox,
+  WizardHydrateSnapshot,
 } from "@app/stores/wizardStore";
 
 /**
@@ -36,12 +37,17 @@ export interface TestRow {
   uploaded_file_name: string | null;
   /** 진행한 가장 먼 위자드 단계 (0=업로드 … 6=내보내기). 목록 카드 진행단계 표시 + resume. */
   furthest_step: number | null;
+  /** 위자드 설정(변환 목표·인쇄 옵션·내보내기 등) — "이어서 작업" 시 복원. */
+  settings: WizardSettings | null;
   created_at: string;
   updated_at: string;
 }
 
-/** INSERT/UPDATE payload — id 는 client 가 발급해 보낼 수도 있음. */
-export type TestInsert = Partial<Omit<TestRow, "user_id" | "created_at" | "updated_at">> & {
+/**
+ * INSERT/UPDATE payload — id 는 client 가 발급해 보낼 수도 있음. created_at 은
+ * 기존 작업을 옮길 때 원래 생성 시각을 보존하는 용도로만 보낸다.
+ */
+export type TestInsert = Partial<Omit<TestRow, "user_id" | "updated_at">> & {
   title: string;
 };
 
@@ -103,6 +109,8 @@ export interface OcrProblemRow {
   sub_questions: import("@app/types/ocrBlocks").SubQuestion[] | null;
   /** 옵션 B: 배점. */
   score: number | null;
+  /** 원본 배점 표기(예: "2.2"). 출력은 score 보다 이 표기를 우선한다. */
+  printed_score: string | null;
   /** 옵션 B: 문항 유형 라벨. */
   label_type: string | null;
   created_at: string;
@@ -150,6 +158,27 @@ export type VariantHistoryInsert = Partial<Omit<VariantHistoryRow, "created_at">
 // ============================================================================
 // 헬퍼
 // ============================================================================
+
+/** tests.settings 에 저장하는 위자드 설정. 시험지 단위로 "이어서 작업" 시 복원한다. */
+export type WizardSettings = Pick<
+  WizardHydrateSnapshot,
+  | "goal" | "printOptions" | "printMeta" | "filename" | "format"
+  | "exportSource" | "bundle" | "difficulty" | "extras" | "skipSolutions"
+>;
+
+export const WIZARD_SETTING_KEYS = [
+  "goal", "printOptions", "printMeta", "filename", "format",
+  "exportSource", "bundle", "difficulty", "extras", "skipSolutions",
+] as const satisfies ReadonlyArray<keyof WizardSettings>;
+
+/** 정의된 설정 값만 추린다 — undefined 가 hydrate 시 initialState 를 덮지 않도록. */
+export const wizardSettingsOf = (source: WizardSettings): WizardSettings => {
+  const out: Record<string, unknown> = {};
+  for (const key of WIZARD_SETTING_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out as WizardSettings;
+};
 
 /**
  * ISO timestamp → 한국어 상대시간. TestPaper.time 표시용 — DB 에는 원본 ISO 보관,
@@ -289,8 +318,17 @@ export const ocrProblemToInsert = (
   choice_groups: item.choiceGroups ?? null,
   sub_questions: item.subQuestions ?? null,
   score: item.score ?? null,
+  printed_score: printedScoreOf(item),
   label_type: item.labelType ?? null,
 });
+
+/**
+ * 배점 표기 문자열. 소수 배점(2.2 등)은 score 컬럼이 아직 integer 인 DB 에서도
+ * 보존되도록 표기로도 저장한다.
+ */
+export const printedScoreOf = (item: Pick<OCRProblem, "score" | "printedScore">): string | null =>
+  item.printedScore ??
+  (typeof item.score === "number" && !Number.isInteger(item.score) ? String(item.score) : null);
 
 export const reviewToInsert = (
   testId: string,
@@ -360,7 +398,8 @@ export const ocrProblemRowToWizard = (row: OcrProblemRow): OCRProblem => ({
     Array.isArray(row.sub_questions) && row.sub_questions.length > 0
       ? row.sub_questions
       : undefined,
-  score: typeof row.score === "number" ? row.score : undefined,
+  score: typeof row.score === "number" ? row.score : row.score == null ? undefined : Number(row.score),
+  printedScore: row.printed_score ?? undefined,
   labelType: row.label_type ?? undefined,
 });
 

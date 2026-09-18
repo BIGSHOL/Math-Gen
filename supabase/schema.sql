@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tests (
   topic_distribution  JSONB,                                 -- TopicSlice[] { topic, count, accuracy? }
   uploaded_file_name  TEXT,
   furthest_step       SMALLINT DEFAULT 0,                      -- 진행한 가장 먼 위자드 단계 (0=업로드 … 6=내보내기)
+  settings            JSONB,                                 -- 위자드 설정 (변환 목표·인쇄 옵션·내보내기) — 이어서 작업 시 복원
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -42,6 +43,8 @@ CREATE INDEX IF NOT EXISTS idx_tests_user_created
 -- 기존 tests 테이블에 furthest_step 추가 (마이그레이션 — 2026-06-03).
 -- 미실행 시 클라이언트의 tests.ts graceful fallback 이 컬럼을 strip (저장 정상).
 ALTER TABLE tests ADD COLUMN IF NOT EXISTS furthest_step SMALLINT DEFAULT 0;
+-- 위자드 설정 (2026-09-18) — 편집본을 브라우저 대신 DB 에만 저장하면서 추가.
+ALTER TABLE tests ADD COLUMN IF NOT EXISTS settings JSONB;
 
 -- ============================================================================
 -- 2. pages (시험지의 페이지 — PDF page 단위)
@@ -97,7 +100,8 @@ CREATE TABLE IF NOT EXISTS ocr_problems (
   blocks              JSONB,                                 -- 옵션 B: OCR 네이티브 typed-block ContentBlock[] | null (HWP blocks-native)
   choice_groups       JSONB,                                 -- 옵션 B: 보기 ChoiceGroup[] | null
   sub_questions       JSONB,                                 -- D3: 소문항 (1)(2) SubQuestion[] | null
-  score               INT,                                   -- 옵션 B: 배점 | null
+  score               NUMERIC,                               -- 옵션 B: 배점 | null (2.2점 등 소수 허용)
+  printed_score       TEXT,                                  -- 원본 배점 표기 ("2.2") | null
   label_type          TEXT,                                  -- 옵션 B: 문항 유형 라벨 | null
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -108,7 +112,9 @@ ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS solution_auto_retried BOOL DEF
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS figures JSONB;            -- Phase B: 위치 기반 배치
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS blocks JSONB;             -- 옵션 B: typed-block
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS choice_groups JSONB;      -- 옵션 B: 보기 ChoiceGroup
-ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS score INT;                -- 옵션 B: 배점
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS score NUMERIC;            -- 옵션 B: 배점
+ALTER TABLE ocr_problems ALTER COLUMN score TYPE NUMERIC USING score::numeric; -- 2.2점 등 소수 배점
+ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS printed_score TEXT;       -- 원본 배점 표기
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS label_type TEXT;          -- 옵션 B: 유형 라벨
 ALTER TABLE ocr_problems ADD COLUMN IF NOT EXISTS sub_questions JSONB;      -- D3: 소문항 (1)(2)
 CREATE INDEX IF NOT EXISTS idx_problems_page
