@@ -49,3 +49,28 @@ export async function typesetFigureSvg(source: string, preserveObjectIds = false
   const output = new XMLSerializer().serializeToString(doc.documentElement);
   return preserveObjectIds ? output : cleanFigureForSave(output);
 }
+
+const labelKey = (node: Element) => [node.textContent ?? "",
+  ...[...node.attributes].filter(attr => attr.name !== "transform").map(attr => `${attr.name}=${attr.value}`).sort()].join("\n");
+
+/**
+ * 조판(350ms 뒤)이 따라오기 전의 화면. 원문에서 **자리(transform)만** 바뀐 라벨은 앞 조판본을 새 자리로
+ * 옮겨 쓰고, 내용·크기·색이 바뀐 라벨과 새 라벨만 날것으로 둔다. 전에는 원문이 바뀌면 그림 전체를 날것으로
+ * 보여, 끄는 동안·놓은 직후마다 모든 라벨이 `y(\mathrm{m/sec})` 같은 원문으로 바뀌었다(2026-09-18).
+ */
+export function carryTypeset(previousSource: string, rendered: string, source: string): string {
+  const read = (svg: string) => new DOMParser().parseFromString(svg, "image/svg+xml");
+  const byId = (doc: Document) => new Map([...doc.querySelectorAll("[data-object-id]")].map(node => [node.getAttribute("data-object-id")!, node]));
+  const next = read(source);
+  const before = byId(read(previousSource)), laid = byId(read(rendered));
+  for (const node of [...next.querySelectorAll("text[data-object-id]")]) {
+    const id = node.getAttribute("data-object-id")!;
+    const old = before.get(id), wrapper = laid.get(id);
+    if (!old || wrapper?.localName !== "g" || labelKey(old) !== labelKey(node)) continue;
+    const carried = next.importNode(wrapper, true) as Element;
+    const transform = node.getAttribute("transform");
+    if (transform) carried.setAttribute("transform", transform); else carried.removeAttribute("transform");
+    node.replaceWith(carried);
+  }
+  return new XMLSerializer().serializeToString(next.documentElement);
+}

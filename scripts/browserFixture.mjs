@@ -25,7 +25,8 @@ export async function startBrowserFixture(entries, env = {}) {
       plugins: [plugin],
       loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
       define: { 'import.meta.env': JSON.stringify({ DEV: false, PROD: true, VITE_SUPABASE_ENABLED: 'false', ...env }),
-        'process.env.NODE_ENV': '"development"' },
+        // FIXTURE_NODE_ENV=production 이면 배포와 같은 React(두 번 렌더·개발 검사 없음)로 잰다.
+        'process.env.NODE_ENV': JSON.stringify(process.env.FIXTURE_NODE_ENV || 'development') },
     });
     for (const file of result.outputFiles) assets.set(file.path.endsWith('.css') ? `${route}.css` : route, file.text);
   }

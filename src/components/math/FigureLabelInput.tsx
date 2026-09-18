@@ -27,11 +27,20 @@ const unwrapMathLabel = (value: string) => {
   return isFigureMathLabel(trimmed) ? trimmed.slice(1, -1) : trimmed;
 };
 
+// 요소 목록은 끄는 걸음마다 라벨 요약을 견준다 — MathLive 변환은 비싸서 같은 라벨은 한 번만 변환한다.
+const summaries = new Map<string, string>();
 export function figureLabelSummary(value: string) {
+  const cached = summaries.get(value);
+  if (cached !== undefined) return cached;
   const plain = unwrapMathLabel(value);
-  if (!isFigureMathLabel(value)) return plain;
-  try { return convertLatexToAsciiMath(plain).replace(/\s+([()])/g, "$1"); }
-  catch { return plain.replace(/\\(?:left|right)\b/g, ""); }
+  let summary = plain;
+  if (isFigureMathLabel(value)) {
+    try { summary = convertLatexToAsciiMath(plain).replace(/\s+([()])/g, "$1"); }
+    catch { summary = plain.replace(/\\(?:left|right)\b/g, ""); }
+  }
+  if (summaries.size >= 500) summaries.clear();
+  summaries.set(value, summary);
+  return summary;
 }
 
 export function FigureLabelInput({ value, onChange, idPrefix }: {

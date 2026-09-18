@@ -1,4 +1,4 @@
-import { prepareFigureSvg, serializeFigureSvg, SVG_NS } from "./figureSvgEditing";
+import { editableFigureDoc, prepareFigureSvg, serializeFigureSvg, SVG_NS } from "./figureSvgEditing";
 
 export const FIGURE_CLIPBOARD_TYPE = "application/x-mathgen-figure";
 const parse = (svg: string) => new DOMParser().parseFromString(svg, "image/svg+xml");
@@ -45,7 +45,7 @@ export function pasteFigureSelection(svg: string, source: string, offset = 12) {
 
 /** 여러 요소의 변경도 실행 취소 한 번으로 되돌릴 수 있도록 한 SVG로 만든다. */
 export function transformFigureSelection(svg: string, updates: { id: string; transform: string }[]) {
-  const doc = parse(svg), transforms = new Map(updates.map(item => [item.id, item.transform]));
+  const doc = editableFigureDoc(svg), transforms = new Map(updates.map(item => [item.id, item.transform]));
   for (const node of doc.querySelectorAll("[data-object-id]")) {
     const value = transforms.get(node.getAttribute("data-object-id")!);
     if (value !== undefined) node.setAttribute("transform", value);

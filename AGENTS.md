@@ -5586,3 +5586,28 @@ testchange 모드(`VITE_TESTCHANGE_ENABLED`)는 편집본을 IndexedDB(`mathgen-
   `~` 도 보통 원자(",~-b" 의 - 는 이항), `it` 뒤는 새 시작. 보류 검증 3,000식: 97.9% 정확·99.9% 1% 이내.
 - 재보정 도구 `scripts/hwpx/eq_measure.py`(로컬 COM). `vercel.json` includeFiles 에 eqsize.py 포함 필수(누락 시 배포에서만 import 실패).
 - todays-math 도 같은 `scripts/hwpx/writer.py` 를 쓴다 — writer 수정 시 양쪽 동기화.
+
+---
+
+## 49. 도형 편집기 끌기 성능 (2026-09-18)
+
+원장님 보고 «도형편집기 … 부드럽게 움직여지지않고 프레임이 엄청 끊기네». todays-math(9aae4220)가 먼저 찾은 원인 넷을
+옮기고, 배포 React + CPU 4배 감속으로 다시 재서 넷을 더 찾았다. 측정·회귀: `scripts/figureDragHarness.mjs`
+(요소 38개 그래프, 90걸음; `--measure` 숫자만, `--cpu=4`, 앞에 `FIXTURE_NODE_ENV=production` 이면 배포 React).
+
+- **React 19 `dangerouslySetInnerHTML` 은 객체로 비교한다 (CRITICAL)**. `{{ __html: s }}` 를 JSX 에 바로 쓰면 렌더마다
+  새 객체라 문자열이 같아도 innerHTML 을 다시 넣는다(선택·글자 입력·화면 이동마다 그림 전체 교체).
+  `useMemo(() => ({ __html: s }), [s])` 로 같은 객체를 준다. 큰 HTML/SVG 를 이 속성으로 넣는 곳은 모두 해당.
+- 끄는 동안 캔버스는 끌기 전 그림에 멈춰 두고(`frozenCanvas`) 바뀐 요소만 DOM 에서 고친다
+  (`lib/figureDragPreview.ts`). 원문 문자열은 전과 같은 함수로 계산 — 되돌리기·저장 경로는 그대로. 놓으면 끌기 전
+  그림으로 되돌린 뒤 React 에 넘긴다. 끄는 동안은 조판하지 않는다.
+- 조판(350ms 뒤)이 따라오기 전에는 자리만 바뀐 라벨에 앞 조판본을 옮겨 쓴다(`carryTypeset`) — 원문 LaTeX 노출 방지.
+- 번호·요소 목록은 memo 컴포넌트(`FigureNumberLayer`, `FigureObjectList`), 선택 함수는 같은 배열을 돌려준다.
+- 목록 memo 비교가 라벨 요약(`figureLabelSummary` = MathLive 변환)을 걸음마다 38번 구했다 → 결과 기억.
+- 한 걸음에 SVG 를 3~4번 새로 파싱했다 → `readFigureSvg`(최근 8개 기억, **읽기 전용**) / `editableFigureDoc`
+  (복사본, 고칠 때). 기억한 문서를 직접 고치면 같은 원문을 읽는 다른 곳이 깨진다.
+- 끄는 동안 번호는 자리를 두고 끄는 요소의 지시선만 옮긴다(`retargetFigureNumbers`), 놓으면 전체 재배치.
+
+결과(배포 · CPU 4배 · 50ms 넘는 프레임/90걸음): 선 끌기 44→1, 라벨 37→0, 조절점 31→0. 배포 1배는 전부 0.
+측정 함정: 헤드리스 Edge 는 처음 그리는 한글 문장에서 스크립트 없는 1초대 프레임이 한 번 난다(빈 textarea 도 같음) —
+앱 탓이 아니니 같은 문장을 한 번 치고 지운 뒤 잰다.

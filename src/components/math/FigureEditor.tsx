@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ModalShell } from "@app/components/modal";
 import { Btn } from "@app/components/ui";
@@ -7,11 +7,14 @@ import { redrawFigureCrop, svgDataUrl } from "@app/services/ai/figurePipeline";
 import { addFigureObject, cleanFigureForSave, editFigureObject, figureObjects, prepareFigureSvg, fitFigureViewport } from "@app/lib/figureSvgEditing";
 import { copyFigureSelection, pasteFigureSelection, removeFigureSelection, transformFigureSelection, FIGURE_CLIPBOARD_TYPE } from "@app/lib/figureClipboard";
 import { modKey } from "@app/lib/platform";
-import { typesetFigureSvg } from "@app/lib/figureTypeset";
+import { carryTypeset, typesetFigureSvg } from "@app/lib/figureTypeset";
+import { previewFigureObjects } from "@app/lib/figureDragPreview";
 import { figureHandles, hitFigureObject, moveFigureHandle } from "@app/lib/figureHandles";
-import { FigureLabelInput, figureLabelSummary, isFigureMathLabel } from "./FigureLabelInput";
+import { FigureLabelInput } from "./FigureLabelInput";
+import { FigureNumberLayer } from "./FigureNumberLayer";
+import { FigureObjectList, NAMES } from "./FigureObjectList";
 import { isTextInputEvent } from "@app/lib/keyboard";
-import { layoutFigureNumbers, type FigureNumber } from "@app/lib/figureObjectNumbers";
+import { layoutFigureNumbers, retargetFigureNumbers, type FigureNumber } from "@app/lib/figureObjectNumbers";
 import { FunctionGraphInput } from "./FunctionGraphInput";
 import type { FunctionGraphConfig } from "@app/lib/functionGraph";
 
@@ -23,19 +26,32 @@ const TOOLS: { id: Tool; label: string; glyph: string }[] = [
   { id: "ellipse", label: "타원", glyph: "⬭" },
   { id: "rect", label: "사각형", glyph: "□" }, { id: "text", label: "글자", glyph: "T" },
 ];
-const NAMES: Record<string, string> = { path: "곡선/경로", line: "선분", circle: "원", ellipse: "타원", rect: "사각형", polygon: "다각형", polyline: "꺾은선", text: "글자" };
 const FIELD_NAMES: Record<string, string> = { x: "가로 위치", y: "세로 위치", x1: "시작 X", y1: "시작 Y", x2: "끝 X", y2: "끝 Y", cx: "중심 X", cy: "중심 Y", r: "반지름", rx: "가로 반지름", ry: "세로 반지름", width: "너비", height: "높이" };
 
 export function FigureEditor({ image, index, onSave, onClose }: {
   image: OCRImage; index: number; onSave: (image: OCRImage) => void; onClose: () => void;
 }) {
   const [svg, setSvg] = useState(() => prepareFigureSvg(image.engineSvg));
-  const [displaySvg, setDisplaySvg] = useState(svg);
+  const [typeset, setTypeset] = useState({ source: svg, rendered: svg });
+  // 끄는 동안 캔버스는 끌기 전 그림에 멈춰 두고(React 가 손대지 않는다) 바뀐 요소만 `previewFigureObjects` 로 고친다.
+  const [frozenCanvas, setFrozenCanvas] = useState<string | null>(null);
+  const displaySvg = useMemo(() => {
+    if (frozenCanvas !== null) return frozenCanvas;
+    if (typeset.source === svg) return typeset.rendered;
+    try { return carryTypeset(typeset.source, typeset.rendered, svg); } catch { return svg; }
+  }, [frozenCanvas, typeset, svg]);
+  // React 19 는 `dangerouslySetInnerHTML` 을 **객체로** 견준다 — 렌더마다 새 객체면 선택·글자 입력 한 번에도
+  // 그림 전체를 innerHTML 로 다시 넣는다. 문자열이 같으면 같은 객체를 준다.
+  const canvasHtml = useMemo(() => ({ __html: displaySvg }), [displaySvg]);
   const [tool, setTool] = useState<Tool>("select");
   const [addingFunction, setAddingFunction] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selected = selectedIds.length === 1 ? selectedIds[0] : null;
-  const setSelected = (id: string | null, additive = false) => setSelectedIds(previous => !id ? [] : additive ? previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id] : [id]);
+  // 고른 것이 그대로면 같은 배열을 돌려준다 — 번호·목록이 다시 그려지지 않게.
+  const setSelected = useCallback((id: string | null, additive = false) => setSelectedIds(previous => !id ? previous.length ? [] : previous
+    : additive ? previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id]
+    : previous.length === 1 && previous[0] === id ? previous : [id]), []);
+  const pick = useCallback((id: string, additive: boolean) => { setSelected(id, additive); setTool("select"); }, [setSelected]);
   const [clipboardNotice, setClipboardNotice] = useState("");
   const pasteCount = useRef({ source: "", count: 0 });
   const [zoom, setZoom] = useState(1);
@@ -61,7 +77,11 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   const [selection, setSelection] = useState<{ matrix: DOMMatrix; bounds: DOMRect; scale: number } | null>(null);
   const drag = useRef<{ original: string; start: DOMPoint; transform: string; id?: string; inverse: DOMMatrix;
     multiple?: { id: string; start: DOMPoint; inverse: DOMMatrix; transform: string }[];
-    handle?: string; bounds?: DOMRect; moved?: boolean } | null>(null);
+    handle?: string; bounds?: DOMRect; moved?: boolean;
+    /** 끌기 전 캔버스 — 놓거나 취소하면 이것으로 되돌린 뒤 React 에 넘긴다. */
+    canvas?: string;
+    /** 이번 걸음에 화면에서 고친 요소. */
+    ids?: string[] } | null>(null);
   const original = image.originalDataUrl ?? (!image.dataUrl?.startsWith("data:image/svg") ? image.dataUrl : undefined);
   const objects = useMemo(() => figureObjects(svg), [svg]);
   const current = objects.find(o => o.id === selected);
@@ -113,8 +133,12 @@ export function FigureEditor({ image, index, onSave, onClose }: {
   };
   useLayoutEffect(() => {
     const root = canvas.current?.querySelector("svg");
-    setObjectNumbers(root && showNumbers ? layoutFigureNumbers(root) : []);
-  }, [displaySvg, zoom, available, showNumbers]);
+    if (!root || !showNumbers) { setObjectNumbers([]); return; }
+    // 끄는 동안은 끄는 요소의 지시선만 옮기고, 놓으면(frozenCanvas 가 풀리면) 번호를 다시 배치한다.
+    const ids = frozenCanvas !== null ? drag.current?.ids : undefined;
+    if (ids) setObjectNumbers(previous => retargetFigureNumbers(root, previous, ids));
+    else setObjectNumbers(layoutFigureNumbers(root));
+  }, [svg, displaySvg, zoom, available, showNumbers, frozenCanvas]);
   useLayoutEffect(() => {
     const node = viewport.current; if (!node) return;
     const observer = new ResizeObserver(() => setAvailable({ width: node.clientWidth - 48, height: node.clientHeight - 48 }));
@@ -170,15 +194,15 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     const rootMatrix = root?.getScreenCTM(), matrix = node?.getScreenCTM();
     if (!rootMatrix || !matrix || !node) { setSelection(null); return; }
     setSelection({ matrix: rootMatrix.inverse().multiply(matrix), bounds: node.getBBox(), scale: Math.hypot(rootMatrix.a, rootMatrix.b) });
-  }, [displaySvg, selected, zoom, available]);
+  }, [svg, displaySvg, selected, zoom, available]);
   useEffect(() => {
+    if (frozenCanvas !== null) return; // 끄는 동안은 조판하지 않는다 — 놓은 뒤 한 번.
     let active = true;
-    setDisplaySvg(svg);
     const timer = setTimeout(() => { void typesetFigureSvg(svg, true).then(result => {
-      if (active) setDisplaySvg(result);
+      if (active) setTypeset({ source: svg, rendered: result });
     }).catch(e => { if (active) setError((e as Error).message); }); }, 350);
     return () => { active = false; clearTimeout(timer); };
-  }, [svg]);
+  }, [svg, frozenCanvas]);
   const point = (e: React.PointerEvent, inverse: DOMMatrix) => new DOMPoint(e.clientX, e.clientY).matrixTransform(inverse);
   const down = (e: React.PointerEvent) => {
     if (busy || e.button !== 0) return;
@@ -222,8 +246,10 @@ export function FigureEditor({ image, index, onSave, onClose }: {
     const d = drag.current; if (!d) return;
     const to = point(e, d.inverse);
     if (Math.hypot(to.x - d.start.x, to.y - d.start.y) < 0.5 && !d.moved) return;
+    if (!d.moved) { d.canvas = displaySvg; setFrozenCanvas(displaySvg); }
     d.moved = true;
     let next: string;
+    let ids = d.multiple ? d.multiple.map(item => item.id) : [d.id ?? ""];
     if (d.multiple) {
       next = transformFigureSelection(d.original, d.multiple.map(item => {
         const p = point(e, item.inverse); return { id: item.id, transform: `translate(${p.x - item.start.x} ${p.y - item.start.y}) ${item.transform}` };
@@ -242,12 +268,21 @@ export function FigureEditor({ image, index, onSave, onClose }: {
       next = editFigureObject(d.original, d.id, { transform: `translate(${dx} ${dy}) ${d.transform}` });
     } else {
       const added = addFigureObject(d.original, tool, d.start, to, label);
-      next = added.svg; setSelected(added.id);
+      next = added.svg; ids = [added.id]; setSelected(added.id);
     }
+    const root = canvas.current?.querySelector("svg");
+    if (root) previewFigureObjects(root, next, ids);
+    d.ids = ids;
     liveSvg.current = next; setSvg(next);
+  };
+  // React 가 아는 캔버스(끌기 전 그림)로 되돌려 놓고 푼다 — 끝 그림이 끌기 전과 같으면 React 는 캔버스에 손대지 않는다.
+  const releaseCanvas = (d: typeof drag.current) => {
+    if (d?.canvas !== undefined && canvas.current) canvas.current.innerHTML = d.canvas;
+    setFrozenCanvas(null);
   };
   const up = () => {
     const d = drag.current; drag.current = null;
+    releaseCanvas(d);
     if (d?.moved && d.original !== liveSvg.current) {
       setHistory(h => ({ past: [...h.past.slice(-59), d.original], future: [] }));
       setTool("select");
@@ -336,27 +371,17 @@ export function FigureEditor({ image, index, onSave, onClose }: {
           } }}
           onPointerMove={e => { if (pan.current) { const p = pan.current; setPanOffset({ x: p.offsetX + e.clientX - p.x, y: p.offsetY + e.clientY - p.y }); } }}
           onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
-          <div ref={surface} tabIndex={0} aria-label="도형 편집 캔버스" className="outline-none" onPointerMove={move} onPointerUp={up} onPointerCancel={() => { if (drag.current) { liveSvg.current = drag.current.original; setSvg(drag.current.original); } drag.current = null; }}
+          <div ref={surface} tabIndex={0} aria-label="도형 편집 캔버스" className="outline-none" onPointerMove={move} onPointerUp={up} onPointerCancel={() => { const d = drag.current; drag.current = null; if (d) { liveSvg.current = d.original; setSvg(d.original); } releaseCanvas(d); }}
             style={{ width: `${fittedWidth * zoom}px`, aspectRatio: String(ratio), margin: "0 auto", position: "relative", transform: `translate(${panOffset.x}px, ${panOffset.y}px)`, touchAction: "none", background: "white", boxShadow: "0 1px 6px #0001" }}>
             <div id="figure-editor-canvas" ref={canvas} style={{ width: "100%", height: "100%", position: "relative", touchAction: "none", cursor: tool === "select" || tool === "pan" ? "grab" : "crosshair" }}
               onPointerDown={down} onDoubleClick={() => { if (current?.type === "text") { const input = document.querySelector<HTMLInputElement | HTMLElement>('[aria-label="선택한 도형 글자"], [aria-label="선택한 도형 글자 수식"]'); input?.focus(); if (input instanceof HTMLInputElement) input.select(); } }}
-              dangerouslySetInnerHTML={{ __html: displaySvg }} />
+              dangerouslySetInnerHTML={canvasHtml} />
             {sourceOverlay && original && <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <img src={original} alt="원본 겹쳐 보기" data-source-overlay-scale={sourceOverlayScale}
                 className="h-full w-full object-contain opacity-25 transition-transform duration-150"
                 style={{ transform: `scale(${sourceOverlayScale})`, transformOrigin: "center center" }} />
             </div>}
-            {showNumbers && <svg aria-label="도형 요소 번호" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", margin: 0, overflow: "visible", pointerEvents: "none" }}>
-              {objectNumbers.map(item => <g key={item.id}>
-                <line x1={item.x} y1={item.y} x2={item.targetX} y2={item.targetY} stroke={selectedIds.includes(item.id) ? "#f97316" : "#808080"} strokeWidth={selectedIds.includes(item.id) ? 1.5 : 1} strokeDasharray="3 4" opacity={selectedIds.includes(item.id) ? 0.85 : 1} />
-                <g data-figure-number={item.number} data-number-object={item.id} role="button" tabIndex={0} aria-label={`요소 ${item.number} 선택`}
-                  style={{ pointerEvents: "all", cursor: "pointer" }} onClick={event => { setSelected(item.id, event.shiftKey || event.ctrlKey || event.metaKey); setTool("select"); }}
-                  onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(item.id); setTool("select"); } }}>
-                  <circle cx={item.x} cy={item.y} r={10} fill={selectedIds.includes(item.id) ? "#ea580c" : "#fff7ed"} stroke="#fb923c" />
-                  <text x={item.x} y={item.y} textAnchor="middle" dominantBaseline="central" style={{ font: "600 11px Arial, sans-serif", fill: selectedIds.includes(item.id) ? "#fff" : "#9a3412", stroke: "none" }}>{item.number}</text>
-                </g>
-              </g>)}
-            </svg>}
+            {showNumbers && <FigureNumberLayer numbers={objectNumbers} selectedIds={selectedIds} onPick={pick} />}
             {selection && selected && tool === "select" && (() => {
               const at = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(selection.matrix);
               const b = selection.bounds;
@@ -378,12 +403,7 @@ export function FigureEditor({ image, index, onSave, onClose }: {
         </div>
         <section className="shrink-0 border-t border-line bg-white px-3 py-2" aria-label="도형 요소 목록">
           <div className="mb-1.5 flex items-center gap-2 text-caption"><h3 className="font-semibold">요소 목록</h3><span className="text-muted">{objects.length}개 · {selectedIds.length ? `${selectedIds.length}개 선택` : "Shift+클릭으로 여러 요소 선택"}</span><span role="status" className="ml-auto text-orange-800">{clipboardNotice}</span></div>
-          <div className="flex flex-wrap gap-1.5">{objects.map((o, n) => <button type="button" key={o.id} data-figure-list-number={n + 1} aria-pressed={selectedIds.includes(o.id)}
-            onClick={event => { setSelected(o.id, event.shiftKey || event.ctrlKey || event.metaKey); setTool("select"); }}
-            className={`flex items-center gap-1.5 rounded-md border py-1 pl-1 pr-2 text-caption ${selectedIds.includes(o.id) ? "border-orange-300 bg-orange-50 text-orange-900" : "border-line bg-slate-50 hover:border-orange-200"}`}>
-            <span className={`grid h-5 min-w-5 place-items-center rounded text-[11px] font-semibold ${selectedIds.includes(o.id) ? "bg-orange-600 text-white" : "bg-white text-orange-800"}`}>{n + 1}</span>
-            <span className="max-w-28 truncate">{o.attrs["data-function"] ? "함수 그래프" : o.type === "text" ? `${isFigureMathLabel(o.attrs["data-mj"] ?? o.text) ? "수식" : "글자"} ${figureLabelSummary(o.attrs["data-mj"] ?? o.text)}` : NAMES[o.type] ?? o.type}</span>
-          </button>)}</div>
+          <FigureObjectList objects={objects} selectedIds={selectedIds} onPick={pick} />
         </section>
       </main>
       <aside className="w-[300px] shrink-0 border-l border-line bg-white flex flex-col overflow-hidden"
